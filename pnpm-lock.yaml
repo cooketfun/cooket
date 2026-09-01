@@ -6,6 +6,7 @@ settings:
 
 overrides:
   '@reown/appkit': 1.8.23
+  '@wagmi/connectors': 6.2.0
 
 importers:
 
@@ -13,15 +14,27 @@ importers:
 
   apps/web:
     dependencies:
+      '@cooket/contracts-sdk':
+        specifier: workspace:*
+        version: link:../../packages/contracts-sdk
+      '@cooket/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@reown/appkit':
         specifier: 1.8.23
         version: 1.8.23(@types/react@19.2.18)(@x402/core@2.23.0)(@x402/evm@2.23.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10))(@x402/svm@2.23.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10))(@solana/sysvars@5.5.1(typescript@5.9.3)))(bufferutil@4.1.0)(react@19.2.8)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@19.2.8))(utf-8-validate@5.0.10)(zod@4.4.3)
       '@reown/appkit-adapter-wagmi':
-        specifier: ^1.8.23
+        specifier: 1.8.23
         version: 1.8.23(a1ebb36a35a55178602ef2d73316d8a3)
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.8)
+      '@wagmi/connectors':
+        specifier: 6.2.0
+        version: 6.2.0(a1ebb36a35a55178602ef2d73316d8a3)
+      '@wagmi/core':
+        specifier: 2.22.1
+        version: 2.22.1(@tanstack/query-core@5.101.4)(@types/react@19.2.18)(react@19.2.8)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@19.2.8))(viem@2.55.15(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3))
       '@x402/core':
         specifier: ^2.23.0
         version: 2.23.0
