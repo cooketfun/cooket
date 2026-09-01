@@ -1,0 +1,79 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Cooket",
+  "description": "Cooket Arc Testnet documentation.",
+  "colors": {
+    "primary": "#06B6D4",
+    "light": "#22D3EE",
+    "dark": "#2563EB"
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "background": {
+    "decoration": "grid"
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs",
+    "codeblocks": "dark"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "navbar": {
+    "links": [
+      {
+        "type": "github",
+        "href": "https://github.com/cooketfun/cooket"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "View repository",
+      "href": "https://github.com/cooketfun/cooket"
+    }
+  },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt"],
+    "display": "toc"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Overview",
+        "pages": ["docs/index", "docs/getting-started/introduction"]
+      },
+      { "group": "Getting Started", "pages": ["docs/getting-started/quickstart", "docs/getting-started/connect-wallet"] },
+      {
+        "group": "Using Cooket",
+        "pages": ["docs/users/create-token", "docs/users/buy-tokens", "docs/users/sell-tokens", "docs/users/discovery", "docs/users/token-pages", "docs/users/transaction-flow"]
+      },
+      {
+        "group": "Developers",
+        "pages": ["docs/developers/overview", "docs/developers/frontend", "docs/developers/api", "docs/developers/indexer", "docs/developers/database", "docs/developers/contract-sdk", "docs/developers/local-development", "docs/developers/environment"]
+      },
+      {
+        "group": "API Reference",
+        "pages": ["docs/api-reference/overview", "docs/api-reference/tokens", "docs/api-reference/discovery", "docs/api-reference/trades", "docs/api-reference/metadata", "docs/api-reference/errors"]
+      },
+      {
+        "group": "Security",
+        "pages": ["docs/security/security-model", "docs/security/wallet-safety", "docs/security/smart-contract-safety", "docs/security/responsible-disclosure"]
+      },
+      {
+        "group": "Operations",
+        "pages": ["docs/operations/split-production"]
+      },
+      {
+        "group": "Reference",
+        "pages": ["docs/reference/contract-addresses", "docs/reference/networks", "docs/reference/glossary", "docs/reference/faq", "docs/reference/troubleshooting"]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/cooketfun/cooket"
+    }
+  }
+}

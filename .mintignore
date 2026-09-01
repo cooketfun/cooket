@@ -1,0 +1,8 @@
+# Mintlify configuration lives at the monorepo root, but public content lives in docs/.
+/apps/
+/contracts/
+/db/
+/infra/
+/packages/
+/resource/
+/node_modules/

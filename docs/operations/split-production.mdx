@@ -1,0 +1,73 @@
+---
+title: "Split production deployment"
+description: "Cooket Vercel frontend and VPS backend preparation."
+---
+
+Cooket serves the Arc Testnet frontend at `https://testnet.cooket.fun` and the
+API at `https://api.testnet.cooket.fun`. Contact: [team@cooket.fun](mailto:team@cooket.fun).
+
+## Vercel frontend
+
+Create one Vercel project with **Root Directory** set to `apps/web`, framework
+preset **Next.js**, Install Command `pnpm install --frozen-lockfile`, Build
+Command `pnpm build`, and the default Next.js Output Directory. Enable
+**Include source files outside of the Root Directory** so the declared
+`@cooket/contracts-sdk` and `@cooket/types` workspace packages remain available.
+Vercel detects the repository-root `pnpm-lock.yaml`/workspace and writes the
+normal app-local `.next` output; no output-directory override or `vercel.json`
+is required.
+
+Set these Vercel environment variables for the production deployment:
+
+| Variable | Visibility | Value/category |
+| --- | --- | --- |
+| `NEXT_PUBLIC_REOWN_PROJECT_ID` | required/public | Required Reown project ID; placeholder rejected |
+| `NEXT_PUBLIC_APP_NAME` | optional/public | Defaults safely to `Cooket` |
+| `NEXT_PUBLIC_APP_URL` | required/public | `https://testnet.cooket.fun` |
+| `NEXT_PUBLIC_API_URL` | required/public | `https://api.testnet.cooket.fun` |
+| `NEXT_PUBLIC_COOKET_CHAIN_ID` | optional/public | Defaults to `5042002`; any other ID is rejected |
+| `NEXT_PUBLIC_ARC_TESTNET_RPC_URL` | optional/public | Defaults to `https://rpc.testnet.arc.io` |
+
+The three production-required variables are validated at build time. Optional
+variables have the listed safe defaults; neither defaults nor placeholders can
+enable Phase 0 financial actions. Reown IDs are public configuration but must
+still be entered only in Vercel's environment settings. Do not place database URLs,
+private RPC URLs, or other server credentials in `NEXT_PUBLIC_*` values.
+
+Preview deployments are not trusted API origins by default. Give a preview an
+explicit, reviewed origin only if needed; do not allow `*.vercel.app` broadly.
+Local development remains `http://localhost:3200` with API `http://localhost:4200`.
+
+## VPS backend
+
+The VPS runs only PostgreSQL, Redis, migrations, API, and idle indexer:
+
+```shell
+docker compose -f compose.production.yaml -p cooket-production up -d --build
+```
+
+Run that command only after creating protected VPS environment settings. It is
+documented here, not executed by this repository. PostgreSQL and Redis have no
+published host ports. The API publishes only `127.0.0.1:4200`; an HTTPS reverse
+proxy on the VPS terminates TLS for `api.testnet.cooket.fun` and forwards to it.
+Health endpoints are unauthenticated process/readiness probes at `/health` and
+`/readyz`; no proxy-header trust is required because the API has no cookie or
+client-IP authorization behavior.
+
+Set `COOKET_CORS_ORIGINS=https://testnet.cooket.fun` in the backend environment.
+The API accepts only explicit HTTPS origins and never sends CORS credentials.
+For a separately approved local backend environment, use the localhost origins
+shown in `.env.example`.
+
+## DNS, order, and rollback
+
+Future DNS work requires records for `testnet.cooket.fun` to Vercel and
+`api.testnet.cooket.fun` to the VPS reverse proxy. Do not modify DNS from this
+repository. Deploy the backend and verify `/health`/`/readyz` through the proxy,
+then configure Vercel production variables and deploy the frontend. Roll back
+the frontend independently in Vercel; backend rollback is a Compose image/config
+operation and must not reuse or delete Cooket volumes.
+
+Phase 0 remains fail-closed: no Cooket contracts are approved, the indexer is
+idle, and token creation, trading, graduation, oracle, DEX, and deployment
+paths remain disabled.

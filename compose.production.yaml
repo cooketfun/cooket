@@ -1,0 +1,66 @@
+name: cooket-production
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes: ["cooket_production_postgres_data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""], interval: 5s, timeout: 5s, retries: 10 }
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    volumes: ["cooket_production_redis_data:/data"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 5s, retries: 10 }
+
+  migrate:
+    image: postgres:17-alpine
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:?POSTGRES_USER must be set}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB must be set}
+    volumes: ["./db:/cooket-db:ro"]
+    depends_on: { postgres: { condition: service_healthy } }
+    command: ["/bin/sh", "/cooket-db/migrate.sh"]
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      STORAGE_LOCAL_DIR: /data/cooket-objects
+      COOKET_CHAIN_ID: ${COOKET_CHAIN_ID:-5042002}
+      COOKET_CORS_ORIGINS: ${COOKET_CORS_ORIGINS:?COOKET_CORS_ORIGINS must be set}
+      ARC_TESTNET_RPC_URL: ${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.io}
+    ports: ["127.0.0.1:4200:4000"]
+    volumes: ["cooket_production_object_data:/data/cooket-objects"]
+    depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_healthy }, migrate: { condition: service_completed_successfully } }
+    healthcheck: { test: ["CMD", "wget", "--quiet", "--output-document=-", "http://127.0.0.1:4000/health"], interval: 5s, timeout: 3s, retries: 10 }
+
+  indexer:
+    build: { context: ., dockerfile: apps/indexer/Dockerfile }
+    restart: unless-stopped
+    environment:
+      INDEXER_MODE: ${INDEXER_MODE:-idle}
+      COOKET_CHAIN_ID: ${COOKET_CHAIN_ID:-5042002}
+      ARC_TESTNET_RPC_URL: ${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.io}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      COOKET_INDEXER_CONTRACTS: ${COOKET_INDEXER_CONTRACTS:-}
+      COOKET_FACTORY_V3_ADDRESS: ${COOKET_FACTORY_V3_ADDRESS:-}
+    depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_healthy }, migrate: { condition: service_completed_successfully } }
+
+volumes:
+  cooket_production_postgres_data: { name: cooket_production_postgres_data }
+  cooket_production_redis_data: { name: cooket_production_redis_data }
+  cooket_production_object_data: { name: cooket_production_object_data }
+
+networks:
+  default: { name: cooket_production_network }

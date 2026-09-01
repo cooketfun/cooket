@@ -1,0 +1,23 @@
+---
+title: "Smart-contract safety"
+description: "Implemented controls and their limits."
+---
+
+Current controls include:
+
+- immutable protocol/version relationships across the factory, curves, manager, and deployers;
+- one-time dependency binding with consumed bootstrap authorities;
+- factory-authenticated launch registration;
+- exact supply, inventory, reserve, and fee conservation checks;
+- reentrancy guards on value-moving paths;
+- slippage and deadline checks;
+- forced ETH excluded from curve pricing;
+- exact graduation asset and pool-price validation;
+- LP NFT minted directly to a per-token ownerless custodian;
+- no custodian liquidity-decrease, NFT transfer/approval, rescue, or delegatecall path;
+- backed LP-fee and vault accounting;
+- two-step ownership or recipient changes where governance changes remain possible.
+
+Controls reduce specific failure modes but do not eliminate implementation, compiler, dependency, governance, economic, or market risk. Fork tests that skip without an RPC are not live-chain proof, and local tests do not prove deployed behavior.
+
+Use [BaseScan contract pages](/docs/reference/contract-addresses) to inspect deployed bytecode and transactions.

@@ -1,0 +1,16 @@
+---
+title: "Networks"
+description: "Arc Testnet runtime and Base reference boundary."
+---
+
+| Environment | Network | Chain ID | Explorer | Status |
+| --- | --- | ---: | --- | --- |
+| Current target | Arc Testnet | `5042002` | [ArcScan Testnet](https://testnet.arcscan.app) | Runtime foundation |
+| Separate production repository | Base Mainnet | `8453` | [BaseScan](https://basescan.org) | Not supported here |
+
+The frontend, API, and indexer in this repository accept only Arc Testnet.
+Base Mainnet and Base Sepolia IDs are rejected. No Arc mainnet configuration is
+present.
+
+Arc native USDC uses 18 decimals. The Arc USDC ERC-20 interface uses 6 decimals;
+applications must never mix those representations implicitly.

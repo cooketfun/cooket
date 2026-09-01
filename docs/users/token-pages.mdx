@@ -1,0 +1,17 @@
+---
+title: "Token pages"
+description: "Read lifecycle, market, metadata, and activity information."
+---
+
+A token page brings together two distinct sources:
+
+| Information | Source |
+| --- | --- |
+| Live curve availability, balances, allowance, quotes | Base Mainnet contract reads |
+| Token identity, social links, trades, chart, metrics, graduation event fields | Indexed API |
+| Submitted transaction status | Base receipt |
+| Optional USD display | API's validated Base Mainnet Chainlink ETH/USD read |
+
+The activity and trade history are confirmed indexed records and can lag the wallet receipt. Before graduation, the trade panel targets the dedicated curve. After a matched curve terminal event and `GraduatedV3` settlement are indexed, the page can use the canonical Uniswap V3 pool.
+
+Chart candles are built from indexed trades. A candle is shown only when complete OHLC data exists; its direction is based on `close >= open`.

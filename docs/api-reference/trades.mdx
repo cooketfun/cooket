@@ -1,0 +1,53 @@
+---
+title: "Trades and activity"
+description: "Paginated indexed market events and token activity."
+---
+
+## Trades
+
+`GET /api/v1/tokens/{address}/trades?limit=20&cursor=...`
+
+```json
+{
+  "items": [
+    {
+      "token_address": "0x1111111111111111111111111111111111111111",
+      "trader": "0x2222222222222222222222222222222222222222",
+      "side": "buy",
+      "token_amount": "1000000000000000000",
+      "reserve_amount": "1000000000",
+      "curve_value": "990000000",
+      "protocol_fee": "3000000",
+      "creator_fee": "3500000",
+      "source": "curve",
+      "block_number": 50190000,
+      "transaction_index": 12,
+      "transaction_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "log_index": 5
+    }
+  ]
+}
+```
+
+Example values are illustrative. `source` is `curve` or `uniswap_v3`. Results order by block number, transaction index, log index, then transaction hash.
+
+## Activity
+
+`GET /api/v1/tokens/{address}/activity?limit=20&cursor=...` returns matching canonical decoded chain events:
+
+```json
+{
+  "items": [
+    {
+      "event_name": "TokensBought",
+      "decoded": { "token": "0x1111111111111111111111111111111111111111" },
+      "block_number": 50190000,
+      "transaction_index": 12,
+      "transaction_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "log_index": 5
+    }
+  ]
+}
+```
+
+The API does not accept trade submissions. Writes go directly from a user's wallet to Base Mainnet contracts.

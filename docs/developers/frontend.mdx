@@ -1,0 +1,36 @@
+---
+title: "Frontend"
+description: "Next.js, Reown AppKit, Wagmi, Viem, quotes, and transaction state."
+---
+
+The Arc Testnet web application uses Next.js 16, React 19, Reown AppKit, Wagmi 2.x, Viem, TanStack Query, Zod, and Lightweight Charts.
+
+## Wallet architecture
+
+AppKit exposes external EVM wallets through WalletConnect and injected/EIP-6963 connectors. Email and social sign-in, hosted wallet creation, smart-account defaults, swaps, on-ramp, send, and receive features are disabled. The default EVM account type is EOA.
+
+`createAppKit` runs once at client-module initialization. The provider order is Wagmi, TanStack Query, `ActiveWalletProvider`, then application providers. The Wagmi adapter uses cookie storage with SSR enabled, and the async App Router layout passes the request cookie header into `cookieToInitialState` without accessing browser APIs on the server.
+
+`ActiveWalletProvider` keeps `connected`, `activeAddress`, `activeChainId`, and `walletClient`. It exposes a wallet client only when the current Wagmi account, client signer, client chain, and Arc Testnet chain all agree. Disconnects and account or chain changes therefore invalidate stale transaction context.
+
+`NEXT_PUBLIC_REOWN_PROJECT_ID` is required browser-public configuration. A missing or placeholder value produces an actionable error at the wallet provider boundary without crashing unrelated server-side module loading. AppKit metadata comes from `NEXT_PUBLIC_APP_NAME` and `NEXT_PUBLIC_APP_URL`; the URL must later match the final production origin. No SIWE, delegated signer, server wallet, or backend transaction path is used.
+
+## Writes (disabled in Phase 0)
+
+The inherited create, curve trade, and graduated swap paths are retained only
+as migration references. Each submission entry point throws the Arc protocol
+economics blocker before simulation or wallet access. Base ERC-8021 attribution
+is also disabled.
+
+When writes are redesigned in a later phase, the application must continue to
+recheck the selected account and live Arc Testnet chain immediately before
+submission.
+
+The transaction modal identifies Arc Testnet (`5042002`), the active wallet,
+reviewed amounts, hash, and current phase. Links use ArcScan.
+
+## Indexed reads
+
+Zod schemas fail closed on malformed API responses. Native values are formatted
+as 18-decimal native USDC. The distinct 6-decimal USDC ERC-20 representation is
+not used interchangeably. USD reference values remain unavailable in Phase 0.

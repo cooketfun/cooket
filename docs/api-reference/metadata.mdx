@@ -1,0 +1,46 @@
+---
+title: "Metadata"
+description: "Create and finalize launch metadata drafts."
+---
+
+## Create a draft
+
+`POST /api/v1/token-metadata` accepts `multipart/form-data`.
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `name` | Yes | 1–64 bytes |
+| `symbol` | Yes | 1–16 bytes |
+| `initial_supply` | Yes | Positive uint256 decimal string; the web sends fixed V3 supply |
+| `description` | No | Up to 1,000 bytes |
+| `website_url` | No | HTTP or HTTPS |
+| `x_url` | No | X/Twitter hosts only |
+| `telegram_url` | No | Telegram hosts only |
+| `discord_url` | No | Discord hosts only |
+| `image` | One of these | PNG, JPEG, WebP, or GIF up to 5 MB |
+| `image_url` | One of these | Public HTTPS URL; private, loopback, and link-local hosts are rejected |
+
+```shell
+curl -X POST "$API_ORIGIN/api/v1/token-metadata" \
+  -F 'name=Example Token' \
+  -F 'symbol=EXAMPLE' \
+  -F 'initial_supply=1000000000000000000000000000' \
+  -F 'image=@token.png'
+```
+
+On success, the API returns `201` with `draft_id`, normalized fields, and stored `image_url` and `metadata_url` paths.
+
+## Finalize a draft
+
+`POST /api/v1/token-metadata/{draft}/finalize`
+
+```json
+{
+  "token_address": "0x1111111111111111111111111111111111111111",
+  "transaction_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+```
+
+The API finalizes only if PostgreSQL contains a canonical launch with the same chain, token, transaction hash, name, symbol, and fixed supply. If the receipt is confirmed but the indexer has not reached it, the endpoint returns `409 not_indexed`; the frontend retries for up to approximately two minutes.
+
+`GET /objects/*` serves stored objects. JSON receives `application/json`; object responses use long-lived immutable caching.

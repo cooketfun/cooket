@@ -1,0 +1,30 @@
+---
+title: "Cooket"
+description: "Cooket Arc Testnet documentation."
+icon: "house"
+---
+
+Cooket is an Arc-native token launch protocol in testnet development. The
+current and only target is **Arc Testnet**, chain ID `5042002`.
+
+<Warning>
+  Phase 0 is a safety foundation. Contract creation, trading, graduation,
+  indexer projections, oracle reads, and deployment are disabled until Cooket
+  protocol economics and contracts are separately approved.
+</Warning>
+
+## Arc Testnet foundation
+
+| Property | Value |
+| --- | --- |
+| RPC | `https://rpc.testnet.arc.io` |
+| Explorer | [ArcScan Testnet](https://testnet.arcscan.app) |
+| Native currency | USDC, 18-decimal native representation |
+| USDC ERC-20 interface | 6 decimals; never interchangeable with native units |
+
+The frontend, API, and indexer reject unsupported chain IDs, including `8453`
+and `84532`. Local Compose resources, ports, network, and volumes are
+Cooket-specific.
+
+See the repository-level [Cooket Arc readiness](../COOKET_ARC_READINESS.md)
+before enabling financial execution.

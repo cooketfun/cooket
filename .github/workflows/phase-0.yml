@@ -1,0 +1,62 @@
+name: Cooket Phase 0
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_REOWN_PROJECT_ID: "00000000000000000000000000000001"
+      NEXT_PUBLIC_APP_NAME: Cooket
+      NEXT_PUBLIC_APP_URL: https://testnet.cooket.fun
+      NEXT_PUBLIC_API_URL: https://api.testnet.cooket.fun
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter web lint
+
+      - run: pnpm --filter web exec tsc --noEmit
+
+      - run: pnpm --filter web build
+
+      # The indexer ABI parity test reads the current Foundry artifacts.
+      # They are intentionally ignored by git, so generate them before Go tests.
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.1
+
+      - run: forge build
+        working-directory: contracts
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+
+      - run: go test ./...
+        working-directory: apps/api
+
+      - run: go build ./cmd/server
+        working-directory: apps/api
+
+      - run: go test ./...
+        working-directory: apps/indexer
+
+      - run: go build ./cmd/indexer
+        working-directory: apps/indexer
+
+      - run: forge test
+        working-directory: contracts

@@ -1,0 +1,24 @@
+---
+title: "Security model"
+description: "Trust boundaries, risks, and conservative assumptions."
+---
+
+The Arc repository is non-custodial at the wallet layer: users connect a selected external EVM wallet, and the application and backend never receive wallet keys. There is no email/social wallet creation, delegated signer, custodial wallet, developer wallet, or backend signing path. Phase 0 protocol transactions remain disabled before simulation or submission.
+
+## Trust boundaries
+
+| Boundary | Assumption and risk |
+| --- | --- |
+| Browser and wallet | User verifies origin, network, target, value, approval, and slippage |
+| Smart contracts | Bugs or unexpected interactions can cause loss despite tests and invariants |
+| Tokens and markets | Permissionless tokens may be misleading, volatile, illiquid, or worthless |
+| Uniswap V3 | External protocol, pools, periphery, and market behavior add dependency risk |
+| RPC providers | Can be delayed, unavailable, rate-limited, or return inconsistent reads |
+| API/indexer | Can lag or display incomplete data; not authoritative for balances or settlement |
+| Metadata links | Creator-provided content may be inaccurate or malicious |
+
+The repository contains extensive unit, invariant, integration, and fork-test code. That is engineering evidence, not a claim of a completed independent external audit. No “risk-free” or “fully secure” claim is made.
+
+<Warning>
+  Smart-contract transactions are irreversible. Use only amounts you can afford to lose and verify every wallet prompt.
+</Warning>

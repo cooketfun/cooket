@@ -1,0 +1,68 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.secret
+*.secrets
+*.credentials
+*.pem
+*.key
+*.p12
+*.keystore
+secrets/
+**/secrets/
+docker-secrets/
+**/docker-secrets/
+
+# Node / pnpm
+node_modules/
+**/node_modules/
+.pnpm-store/
+.next/
+**/.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Go
+bin/
+*.test
+*.exe
+*.out
+coverage.out
+apps/api/server
+apps/indexer/indexer
+
+# Foundry
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/.forge-snapshots/
+contracts/lib/*/.git/
+contracts/deployments/*.json
+!contracts/deployments/cooket-arc-testnet.example.json
+!contracts/deployments/cooket-arc-testnet.example.json
+
+# Database / local data
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary
+tmp/
+temp/
+*.tmp
+*.bak

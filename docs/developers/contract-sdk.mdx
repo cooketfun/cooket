@@ -1,0 +1,25 @@
+---
+title: "Contract SDK"
+description: "Shared chains, economics, addresses, ABIs, and receipt parsing."
+---
+
+`packages/contracts-sdk` is a private workspace package consumed by the web application. It exports:
+
+- Base chain definitions and chain IDs;
+- fixed supply, curve allocation, and exact empty-curve graduation gross constants;
+- environment-backed production contract addresses;
+- ABI fragments for the factory, curve, ERC-20, fee manager, graduation manager, custodian, fee vault, and settlement executor;
+- `encodeCreateToken` and strict `TokenLaunchedV3` receipt parsing.
+
+```ts
+import {
+  BASE_MAINNET_CHAIN_ID,
+  FIXED_TOKEN_SUPPLY,
+  cooketFactoryAbi,
+} from "@cooket/contracts-sdk";
+
+console.log(BASE_MAINNET_CHAIN_ID); // 8453
+console.log(FIXED_TOKEN_SUPPLY);    // bigint base units
+```
+
+The package still contains Base Sepolia definitions for legacy tooling and tests, but the production web explicitly rejects any configured chain other than Base Mainnet.

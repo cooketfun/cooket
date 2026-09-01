@@ -1,0 +1,31 @@
+---
+title: "Indexer"
+description: "Finalized event ingestion, discovery, projections, replay, and reorg handling."
+---
+
+The Go indexer is configured only for Arc Testnet. Phase 0 permits idle mode
+only: non-idle modes fail closed because the inherited event, ETH reserve,
+WETH, and Uniswap projection semantics have not been migrated.
+
+## Historical processing loop (migration reference)
+
+1. Load the durable checkpoint.
+2. Read chain head and subtract configured confirmations (default `6`).
+3. Validate that the checkpoint hash remains canonical.
+4. Fetch logs for configured and dynamically discovered contracts.
+5. Discover each launch's token, curve, and canonical pool within bounded ranges.
+6. Discover and match curve `Graduated` with manager `GraduatedV3` in the same transaction and block.
+7. Decode events, transaction senders, and token metadata.
+8. Persist the block, raw event, projections, and checkpoint atomically.
+
+Launch events add the token, curve, and pool to future scans. The indexer also captures ERC-20 transfers for holder balances and Uniswap V3 `Swap` events for graduated market history.
+
+## Reorganizations and replay
+
+If the stored checkpoint hash differs from the RPC header, recovery marks affected blocks/events/projections noncanonical, rewinds to a common canonical point, and rebuilds derived state. `INDEXER_START_BLOCK` seeds only a new checkpoint; it does not overwrite a durable one. A finite `INDEXER_STOP_BLOCK` supports controlled replay.
+
+Application token exclusions suppress derived public projections for explicitly recorded exceptions while preserving canonical raw chain events.
+
+<Warning>
+  The indexer is a query system, not the financial source of truth. Transaction construction must use current contract reads.
+</Warning>

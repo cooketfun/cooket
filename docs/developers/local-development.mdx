@@ -1,0 +1,48 @@
+---
+title: "Local development"
+description: "Install, run, build, and test the monorepo."
+---
+
+## Prerequisites
+
+| Tool | Repository baseline |
+| --- | --- |
+| Node.js | 22+ |
+| pnpm | 10.33.0 |
+| Go | 1.26+ |
+| Foundry | Repository toolchain configured with Solidity 0.8.28 |
+| Docker | Docker Engine with Compose |
+
+## Install and configure
+
+```shell
+pnpm install --frozen-lockfile
+cp .env.example .env
+```
+
+Replace `replace_with_local_secret` with one local-only PostgreSQL password in both `POSTGRES_PASSWORD` and `DATABASE_URL`. Do not commit `.env`.
+
+## Run
+
+```shell
+docker compose up -d --build
+docker compose ps
+```
+
+The Compose stack exposes the web on port `3000`, API on port `4000`, and PostgreSQL on loopback port `15434`. Redis remains on the internal Compose network. With no RPC configured, the indexer uses explicit idle development mode.
+
+For the frontend alone:
+
+```shell
+pnpm dev:web
+```
+
+## Validate
+
+```shell
+make validate
+```
+
+Equivalent focused commands include `make lint-web`, `make typecheck-web`, `make build-web`, `make go-test`, `make go-build`, `make contracts-build`, `make contracts-test`, and `make db-validate`.
+
+Go tests must run within `apps/api` and `apps/indexer`; the root workspace contains separate Go modules.

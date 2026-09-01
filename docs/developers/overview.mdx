@@ -1,0 +1,20 @@
+---
+title: "Developer overview"
+description: "Build against Cooket contracts and indexed data."
+---
+
+Cooket separates authoritative execution from query-oriented application data.
+
+| Need | Integration surface |
+| --- | --- |
+| Launch, quote, trade, balances, allowances | Base Mainnet contracts via viem or another EVM client |
+| Discovery, token detail, metrics, chart, history | Read-only HTTP API |
+| Metadata draft and launch finalization | HTTP metadata endpoints |
+| Shared chains, addresses, ABI fragments, receipt parsing | `packages/contracts-sdk` |
+
+State-changing token and trade actions are not submitted through the API. They are simulated and sent from the user's browser wallet.
+
+<CardGroup cols={2}>
+  <Card title="Contract SDK" icon="boxes" href="/docs/developers/contract-sdk">Typed constants and ABIs.</Card>
+  <Card title="API reference" icon="braces" href="/docs/api-reference/overview">Indexed HTTP resources.</Card>
+</CardGroup>

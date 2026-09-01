@@ -1,0 +1,32 @@
+---
+title: "Errors"
+description: "HTTP status, error envelope, and common failure codes."
+---
+
+Errors use this envelope:
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "limit must be between 1 and 100"
+  }
+}
+```
+
+| Status | Common code | Meaning |
+| ---: | --- | --- |
+| 400 | `invalid_request` | Invalid pagination, cursor, body, or search |
+| 400 | `invalid_address` | Path address is not 20-byte hexadecimal |
+| 400 | `invalid_interval` | Unsupported chart interval |
+| 400 | `invalid_upload`, `invalid_image` | Invalid metadata upload |
+| 400 | `invalid_name`, `invalid_symbol`, `invalid_description`, `invalid_supply` | Metadata field validation failure |
+| 400 | `invalid_website_url`, `invalid_x_url`, `invalid_telegram_url`, `invalid_discord_url` | URL validation failure |
+| 404 | `not_found` | Token or stored object does not exist |
+| 409 | `not_indexed` | Confirmed launch is not yet present in canonical indexed data |
+| 503 | `not_ready` | Database readiness failed |
+| 503 | `storage_unavailable` | Metadata object store unavailable |
+| 503 | `oracle_unavailable` | ETH/USD reference cannot be validated |
+| 500 | `internal_error` | Internal failure with details withheld |
+
+Request timeout responses use code `timeout`. Clients should preserve the `X-Request-ID` when reporting a problem and avoid retrying invalid requests unchanged.

@@ -1,0 +1,17 @@
+{
+  "name": "cooket",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "build:web": "pnpm --filter web build",
+    "lint:web": "pnpm --filter web lint",
+    "typecheck:web": "pnpm --filter web exec tsc --noEmit"
+  },
+  "pnpm": {
+    "overrides": {
+      "@reown/appkit": "1.8.23"
+    }
+  }
+}

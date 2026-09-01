@@ -1,0 +1,60 @@
+---
+title: "FAQ"
+description: "Practical answers about launching, trading, wallets, and graduation."
+---
+
+## What network does Cooket use?
+
+This repository targets Arc Testnet only, chain ID `5042002`. Base chain IDs are rejected.
+
+## Do I need permission to launch?
+
+Launching is disabled in Arc Phase 0 because no Arc protocol contracts or approved native-USDC economics are configured.
+
+## Who controls my wallet?
+
+You do. Your selected external EVM wallet is the only signer. The application does not create or control wallets and never receives your private key.
+
+## What does a dev buy mean?
+
+It is an optional, separate curve buy made by the creator after the token launch confirms. It is not a free creator allocation and requires another wallet confirmation.
+
+## How does buying work?
+
+Buying is disabled in Arc Phase 0. The inherited Base curve and Uniswap paths are retained as reference-only code and cannot execute as Arc USDC economics.
+
+## Why is approval needed before selling?
+
+ERC-20 tokens require an allowance before the curve or Uniswap router can transfer the exact tokens being sold. Approval and sale can be two transactions.
+
+## What is graduation?
+
+It is the one-way transition when all 800M curve tokens are sold and the curve holds exactly 3 ETH net active reserve.
+
+## What happens after graduation?
+
+Curve trading closes and the implemented settlement path creates a full-range token/WETH Uniswap V3 position. The token page uses the external pool for swaps.
+
+## Are LP positions removable?
+
+The canonical Cooket position is minted to an ownerless custodian that has no decrease-liquidity, transfer, approval, or rescue path. It can collect accrued fees without removing principal.
+
+## Does Cooket custody user funds?
+
+Cooket does not custody your wallet or keys. Protocol contracts do hold curve reserve principal, fees, and vault assets according to the contract rules. After graduation, LP principal is held by the permanent custodian.
+
+## Where can I verify transactions?
+
+No Cooket protocol transaction should be submitted from Phase 0. For separately authorized future Arc Testnet activity, use [ArcScan](https://testnet.arcscan.app).
+
+## Can a token fail or lose value?
+
+Yes. A token can remain illiquid, never graduate, fall sharply, or lose all market value.
+
+## What wallet should I use?
+
+Use a trusted external EVM wallet available through AppKit, such as Rabby, Trust Wallet, MetaMask, Binance Wallet, another compatible injected wallet, or WalletConnect wallet. Email and social wallet creation are disabled.
+
+## Why might a transaction fail?
+
+During Arc Phase 0, protocol transactions fail closed by design. Future transaction failures may also result from a wrong network, rejected signature, stale state, insufficient balance, RPC failure, or a contract revert.

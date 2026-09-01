@@ -1,0 +1,34 @@
+---
+title: "Discovery"
+description: "Newest, trending, search, and ETH/USD reference endpoints."
+---
+
+## Trending
+
+`GET /api/v1/tokens/trending` and `GET /api/v1/trending` are equivalent. Both accept standard `limit` and opaque `cursor` pagination.
+
+Trending order is derived from the indexed recent-volume window with recent trade and trader counts as additional ordering inputs. It is not a recommendation score.
+
+The response uses the token page shape shown in [Tokens and pricing](/docs/api-reference/tokens): `{ "items": [...], "next_cursor": "..." }`. Invalid limits or cursors return `400 invalid_request`.
+
+## Search
+
+Use `GET /api/v1/tokens?search=term`. Search matches normalized name, symbol, and address prefixes while applying canonical-state and application-exclusion filters.
+
+The response is the same paginated token-page shape. Unsupported characters or a query longer than 64 bytes return `400 invalid_request`.
+
+## ETH/USD reference
+
+`GET /api/v1/prices/eth-usd` reads the configured Base Mainnet Chainlink feed through `eth_call`.
+
+```json
+{
+  "price": "2500.12345678",
+  "decimals": 8,
+  "updated_at": 1787000000,
+  "source": "chainlink_eth_usd",
+  "chain_id": 8453
+}
+```
+
+This is an illustrative response shape. The endpoint returns `Cache-Control: no-store`. It fails with `503 oracle_unavailable` for missing configuration, RPC errors, nonpositive answers, incomplete rounds, or data older than `CHAINLINK_ETH_USD_MAX_AGE`.

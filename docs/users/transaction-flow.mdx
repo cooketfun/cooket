@@ -1,0 +1,30 @@
+---
+title: "Transaction flow"
+description: "What happens between review, signature, receipt, and UI refresh."
+---
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant UI as Cooket web
+  participant RPC as Base RPC
+  participant W as Browser wallet
+  participant C as Contract
+  participant X as Indexer/API
+  UI->>RPC: Read state and quote
+  UI->>RPC: Simulate exact request
+  UI->>W: Request confirmation
+  U->>W: Review and sign
+  W->>C: Submit transaction
+  UI->>RPC: Wait for receipt
+  RPC-->>UI: Success, revert, or unresolved
+  UI->>X: Refresh indexed views after confirmation
+```
+
+Each write includes the Cooket ERC-8021 Builder Code data suffix. The suffix attributes the transaction but does not change the original contract call, value, quote, fees, or slippage settings.
+
+The UI keeps a submitted trade pending until a definitive receipt is available. If confirmation times out or a transaction may have been replaced, recovery checks the original sender and nonce. Submitting a duplicate while the result is unknown can create additional loss, so the UI blocks a new trade unless the user explicitly abandons recovery.
+
+<Tip>
+  BaseScan is the independent place to inspect a transaction hash, status, sender, destination, value, logs, and block confirmation.
+</Tip>

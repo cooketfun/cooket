@@ -1,0 +1,24 @@
+---
+title: "Sell tokens"
+description: "Understand approvals and protected sell execution."
+---
+
+Selling lets another contract transfer the specified token amount from your wallet. ERC-20 allowance is therefore required.
+
+## Curve sell flow
+
+1. Enter the token amount and review the onchain `quoteSell` result.
+2. The app calculates `minEthOut` from your slippage setting.
+3. If allowance is insufficient, the app simulates an exact approval to the per-token curve and requests an approval signature.
+4. It waits for the approval receipt, verifies success, and re-reads allowance until the confirmed state is visible.
+5. It rechecks wallet, network, balance, allowance, quote deadline, and curve state.
+6. It simulates `sell(tokensIn, minEthOut, deadline)` and requests the separate sell signature.
+7. It reports success only after the sell receipt succeeds.
+
+## Graduated-token sell flow
+
+The spender is Uniswap's configured SwapRouter02 rather than the curve. The same approval-first rule applies. The swap uses the canonical 1% token/WETH pool and unwraps WETH output to ETH for the active wallet.
+
+<Warning>
+  Approval and sale can require two wallet confirmations and two gas payments. A successful approval does not guarantee the subsequent sell will succeed. Verify the spender and amount before approving.
+</Warning>

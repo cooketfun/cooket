@@ -1,0 +1,19 @@
+---
+title: "Wallet safety"
+description: "Checks to make before connecting, approving, or trading."
+---
+
+Before signing:
+
+1. Confirm you are working in the Arc Testnet migration environment; the Base production site is not an Arc endpoint.
+2. Confirm the wallet shows Arc Testnet, chain ID `5042002`.
+3. Confirm the active address is the one you intend to use.
+4. Do not create, buy, sell, approve, graduate, or submit other Cooket protocol transactions during Phase 0; all such paths are intentionally disabled.
+5. Keep Arc native USDC value units (18 decimals) separate from ERC-20 USDC token units (6 decimals).
+6. For any future authorized Arc transaction, preserve the transaction hash and verify it on ArcScan.
+
+Use separate wallets or conservative balances when interacting with unfamiliar tokens. Do not use inherited Base allowance or transaction tooling for Arc unless it has been explicitly validated for Arc.
+
+<Warning>
+  Support should never need your seed phrase, private key, or raw wallet export. Do not sign opaque messages or transactions you do not understand.
+</Warning>

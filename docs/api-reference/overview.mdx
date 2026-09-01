@@ -1,0 +1,48 @@
+---
+title: "API overview"
+description: "Public indexed data and metadata endpoints implemented by the Go service."
+---
+
+The production API origin is supplied to the web application through `NEXT_PUBLIC_API_URL`. This repository does not hardcode a public API hostname, so examples use `$API_ORIGIN`.
+
+```shell
+curl "$API_ORIGIN/api/v1/tokens?limit=20"
+```
+
+## Endpoint inventory
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Process liveness |
+| GET | `/readyz` | PostgreSQL readiness |
+| GET | `/objects/*` | Stored public metadata/image object |
+| GET | `/api/v1/prices/eth-usd` | Validated Chainlink ETH/USD reference |
+| POST | `/api/v1/token-metadata` | Create metadata draft |
+| POST | `/api/v1/token-metadata/{draft}/finalize` | Bind draft to canonical indexed launch |
+| GET | `/api/v1/tokens` | List or search tokens |
+| GET | `/api/v1/tokens/newest` | Alias of token list |
+| GET | `/api/v1/tokens/trending` | Trending tokens |
+| GET | `/api/v1/trending` | Alias of trending tokens |
+| GET | `/api/v1/tokens/{address}` | Token detail |
+| GET | `/api/v1/tokens/{address}/pricing` | Indexed current price and FDV |
+| GET | `/api/v1/tokens/{address}/chart` | Indexed OHLC candles |
+| GET | `/api/v1/tokens/{address}/trades` | Indexed trades |
+| GET | `/api/v1/tokens/{address}/activity` | Indexed raw activity view |
+| GET | `/api/v1/creators/{address}` | Creator profile and tokens |
+| GET | `/api/v1/creators/{address}/tokens` | Creator token page |
+
+All JSON responses include an `X-Request-ID` header. Token and activity values are indexed and can lag chain receipts. Integer financial amounts are decimal strings in base units.
+
+## Service and object responses
+
+`GET /health` does not query PostgreSQL:
+
+```json
+{ "status": "ok", "service": "cooket-api", "request_id": "..." }
+```
+
+`GET /readyz` returns the same shape with status `ready` after a successful database ping, or `503 not_ready`. Neither endpoint accepts parameters.
+
+`GET /objects/*` uses the remaining path as an object key. It streams the stored image or JSON object with immutable caching, returns `application/json` for `.json` keys, and returns `404` if storage is unavailable or the object does not exist.
+
+For all token, creator, trade, and activity routes, malformed addresses return `400 invalid_address`; invalid pagination returns `400 invalid_request`; unexpected repository failures return `500 internal_error`. See [Errors](/docs/api-reference/errors).
