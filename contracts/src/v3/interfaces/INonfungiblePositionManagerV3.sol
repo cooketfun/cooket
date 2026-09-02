@@ -26,7 +26,6 @@ interface INonfungiblePositionManagerV3 {
     }
 
     function factory() external view returns (address);
-    function WETH9() external view returns (address);
     function ownerOf(uint256 tokenId) external view returns (address);
     function getApproved(uint256 tokenId) external view returns (address);
     function isApprovedForAll(address owner, address operator) external view returns (bool);

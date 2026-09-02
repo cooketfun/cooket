@@ -43,7 +43,7 @@ interface IPermanentLPFeeVaultV3 {
     function factory() external view returns (address);
     function feeManager() external view returns (address);
     function graduationManager() external view returns (address);
-    function weth() external view returns (address);
+    function canonicalUsdc() external view returns (address);
     function communityVault() external view returns (address);
     function traderRewardsVault() external view returns (address);
     function permanentLPCustodianDeployer() external view returns (address);

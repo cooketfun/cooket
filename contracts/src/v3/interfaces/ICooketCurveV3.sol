@@ -51,7 +51,7 @@ interface ICooketCurveV3 {
     error TokenInvalid();
     error TokenTransferFailed();
     error TradingClosed();
-    error UnexpectedEther();
+    error UnexpectedNativeUsdc();
 
     event TokensBought(
         address indexed token,
@@ -83,24 +83,26 @@ interface ICooketCurveV3 {
         address indexed token,
         address indexed graduationManager,
         uint256 tokenAmount,
-        uint256 ethAmount,
+        uint256 nativeUsdcAmount,
         uint256 soldSupply
     );
-    event GraduationReserveForwarded(uint256 terminalReserveCoordinate, uint256 ethForwarded);
+    event GraduationReserveForwarded(uint256 terminalReserveCoordinate, uint256 nativeUsdcForwarded);
 
     function quoteBuy(uint256 grossInput) external view returns (BuyQuote memory quote);
     function quoteSell(uint256 tokensIn) external view returns (SellQuote memory quote);
     function buy(uint256 minTokensOut, uint256 deadline) external payable returns (BuyQuote memory quote);
-    function sell(uint256 tokensIn, uint256 minEthOut, uint256 deadline) external returns (SellQuote memory quote);
+    function sell(uint256 tokensIn, uint256 minNativeUsdcOut, uint256 deadline)
+        external
+        returns (SellQuote memory quote);
 
     function spotPrice() external view returns (uint256);
     function virtualTokenReserve() external view returns (uint256);
-    function virtualEthReserve() external view returns (uint256);
-    function activeEthReserve() external view returns (uint256);
+    function virtualNativeUsdcReserve() external view returns (uint256);
+    function activeNativeUsdcReserve() external view returns (uint256);
     function terminalGraduationReserve() external view returns (uint256);
-    function graduationEthForwarded() external view returns (uint256);
+    function graduationNativeUsdcForwarded() external view returns (uint256);
     function reserveCoordinate() external view returns (uint256);
-    function unaccountedEth() external view returns (uint256);
+    function unaccountedNativeUsdc() external view returns (uint256);
     function factory() external view returns (address);
     function token() external view returns (address);
     function creator() external view returns (address);

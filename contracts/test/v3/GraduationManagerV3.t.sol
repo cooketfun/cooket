@@ -17,10 +17,12 @@ import {CooketFactoryV3} from "../../src/v3/CooketFactoryV3.sol";
 import {CooketCurveV3} from "../../src/v3/CooketCurveV3.sol";
 import {IGraduationManagerV3} from "../../src/v3/interfaces/IGraduationManagerV3.sol";
 import {EndpointConstantsV3} from "../../src/v3/libraries/EndpointConstantsV3.sol";
-import {MockWETHV3, MockUniswapV3FactoryV3} from "./mocks/MockUniswapV3.sol";
+import {ArcNativeUsdcV3} from "../../src/v3/libraries/ArcNativeUsdcV3.sol";
+import {MockUniswapV3FactoryV3} from "./mocks/MockUniswapV3.sol";
+import {MockArcDualViewUsdcV3} from "./mocks/MockArcDualViewUsdcV3.sol";
 import {MockNonfungiblePositionManagerV3} from "./mocks/MockNonfungiblePositionManagerV3.sol";
 
-contract ForceEtherGraduationV3 {
+contract ForceNativeUsdcGraduationV3 {
     constructor() payable {}
 
     function force(address payable to) external {
@@ -43,7 +45,7 @@ contract GraduationManagerV3Test is Test {
     FeeManagerV3 internal fees;
     GraduationManagerV3 internal manager;
     CooketFactoryV3 internal factory;
-    MockWETHV3 internal weth;
+    MockArcDualViewUsdcV3 internal canonicalUsdc;
     MockUniswapV3FactoryV3 internal uniswapFactory;
     MockNonfungiblePositionManagerV3 internal npm;
     PermanentLPFeeVaultV3 internal vault;
@@ -52,9 +54,11 @@ contract GraduationManagerV3Test is Test {
     PermanentLPCustodianDeployerV3 internal deployer;
 
     function setUp() public {
-        weth = new MockWETHV3();
+        MockArcDualViewUsdcV3 usdcImplementation = new MockArcDualViewUsdcV3();
+        vm.etch(ArcNativeUsdcV3.CANONICAL_USDC, address(usdcImplementation).code);
+        canonicalUsdc = MockArcDualViewUsdcV3(ArcNativeUsdcV3.CANONICAL_USDC);
         uniswapFactory = new MockUniswapV3FactoryV3();
-        manager = new GraduationManagerV3(address(uniswapFactory), address(weth));
+        manager = new GraduationManagerV3(address(uniswapFactory));
         fees = new FeeManagerV3(address(this), treasury);
         factory = new CooketFactoryV3(address(fees), address(manager));
         fees.setFactoryOnce(address(factory));
@@ -64,15 +68,15 @@ contract GraduationManagerV3Test is Test {
             new PermanentLPFeeVaultV3(address(manager), address(fees), address(communityVault), address(rewardsVault));
         communityVault.setPermanentLPFeeVaultOnce(address(vault));
         rewardsVault.setPermanentLPFeeVaultOnce(address(vault));
-        npm = new MockNonfungiblePositionManagerV3(address(uniswapFactory), address(weth));
+        npm = new MockNonfungiblePositionManagerV3(address(uniswapFactory));
         deployer = new PermanentLPCustodianDeployerV3(address(manager), address(vault), address(npm));
         manager.bindDependenciesOnce(address(vault), address(deployer), address(npm));
-        vm.deal(buyer, 10 ether);
+        vm.deal(buyer, 10_000 ether);
     }
 
     function testEndpointGraduationMintsAndBindsCanonicalPositionExactly() public {
         (address token, CooketCurveV3 curve) = _launch("success");
-        ForceEtherGraduationV3 forced = new ForceEtherGraduationV3{value: 1 ether}();
+        ForceNativeUsdcGraduationV3 forced = new ForceNativeUsdcGraduationV3{value: 1 ether}();
         forced.force(payable(address(manager)));
         _graduate(curve);
         uint256 tokenId = 100;
@@ -82,34 +86,36 @@ contract GraduationManagerV3Test is Test {
         assertEq(custodian.boundTokenId(), tokenId);
         assertTrue(custodian.positionRegistered());
         assertEq(custodian.launchToken(), token);
-        assertEq(custodian.weth(), address(weth));
+        assertEq(custodian.canonicalUsdc(), address(canonicalUsdc));
         assertEq(custodian.graduationManager(), address(manager));
         assertEq(custodian.feeVault(), address(vault));
         assertEq(custodian.nonfungiblePositionManager(), address(npm));
         assertEq(custodian.EXPECTED_FEE(), 10_000);
         assertEq(custodian.FULL_RANGE_TICK_LOWER(), -887_200);
         assertEq(custodian.FULL_RANGE_TICK_UPPER(), 887_200);
-        bool tokenIsToken0 = token < address(weth);
-        uint256 expectedTokenUsed = tokenIsToken0 ? 199_999_999_999_999_999_999_999_977 : 199_999_999_999_999_999_999_999_968;
-        uint256 expectedWethUsed = 2_999_999_999_999_998_668;
+        bool tokenIsToken0 = token < address(canonicalUsdc);
+        uint256 expectedTokenUsed = EndpointConstantsV3.LP_ALLOCATION - 1e18;
+        uint256 expectedUsdc6Used = 7_244_999_999;
         assertEq(IERC20(token).balanceOf(address(npm)), expectedTokenUsed);
-        assertEq(weth.balanceOf(address(npm)), expectedWethUsed);
-        _assertCanonicalPosition(tokenId, tokenIsToken0 ? token : address(weth), tokenIsToken0 ? address(weth) : token);
+        assertEq(canonicalUsdc.balanceOf(address(npm)), expectedUsdc6Used);
+        _assertCanonicalPosition(
+            tokenId, tokenIsToken0 ? token : address(canonicalUsdc), tokenIsToken0 ? address(canonicalUsdc) : token
+        );
         PermanentResidualEscrowV3 residual = PermanentResidualEscrowV3(manager.residualEscrowOf(token));
         assertEq(residual.launchToken(), token);
         assertEq(residual.graduationManager(), address(manager));
-        assertEq(residual.weth(), address(weth));
+        assertEq(residual.canonicalUsdc(), address(canonicalUsdc));
         assertEq(residual.depositedResidual(token), EndpointConstantsV3.LP_ALLOCATION - expectedTokenUsed);
-        assertEq(residual.depositedResidual(address(weth)), 1_332);
+        assertEq(residual.depositedResidual(address(canonicalUsdc)), 1);
         assertEq(IERC20(token).balanceOf(address(residual)), EndpointConstantsV3.LP_ALLOCATION - expectedTokenUsed);
-        assertEq(weth.balanceOf(address(residual)), 1_332);
+        assertEq(canonicalUsdc.balanceOf(address(residual)), 1);
+        assertEq(residual.depositedNativeUsdcDust18(), 0);
         assertEq(IERC20(token).balanceOf(address(manager)), 0);
-        assertEq(weth.balanceOf(address(manager)), 0);
-        assertEq(address(manager).balance, 1 ether, "only documented forced ETH remains");
+        assertEq(address(manager).balance, 1 ether, "only documented forced native USDC remains");
         assertEq(IERC20(token).allowance(address(manager), address(npm)), 0);
-        assertEq(weth.allowance(address(manager), address(npm)), 0);
-        assertEq(curve.activeEthReserve(), 0);
-        assertEq(curve.terminalGraduationReserve(), 3 ether);
+        assertEq(canonicalUsdc.allowance(manager.settlementExecutor(), address(npm)), 0);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
+        assertEq(curve.terminalGraduationReserve(), EndpointConstantsV3.GRADUATION_NATIVE_USDC_RESERVE);
         assertTrue(manager.settled(token));
         assertEq(IGraduationSettlementExecutorV3(manager.settlementExecutor()).graduationManager(), address(manager));
         assertEq(deployer.settlementExecutor(), manager.settlementExecutor());
@@ -118,14 +124,17 @@ contract GraduationManagerV3Test is Test {
         );
         vm.prank(address(curve));
         vm.expectRevert(IGraduationManagerV3.AlreadyGraduated.selector);
-        manager.graduate(token, creator, EndpointConstantsV3.LP_ALLOCATION, 3 ether);
+        manager.graduate(
+            token, creator, EndpointConstantsV3.LP_ALLOCATION, EndpointConstantsV3.GRADUATION_NATIVE_USDC_RESERVE
+        );
     }
 
     function _assertCanonicalPosition(uint256 tokenId, address expectedToken0, address expectedToken1) private view {
         (bool ok, bytes memory result) = address(npm).staticcall(abi.encodeWithSignature("positions(uint256)", tokenId));
         assertTrue(ok);
-        (, , address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) = abi.decode(
-            result, (uint96, address, address, address, uint24, int24, int24, uint128, uint256, uint256, uint128, uint128)
+        (,, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper,,,,,) = abi.decode(
+            result,
+            (uint96, address, address, address, uint24, int24, int24, uint128, uint256, uint256, uint128, uint128)
         );
         assertEq(token0, expectedToken0);
         assertEq(token1, expectedToken1);
@@ -143,12 +152,39 @@ contract GraduationManagerV3Test is Test {
         _assertRollbackAfterFinalBuy();
     }
 
+    function testCanonicalUsdcIsFixedAndNoWrapperSurfaceExists() public {
+        assertEq(manager.canonicalUsdc(), ArcNativeUsdcV3.CANONICAL_USDC);
+        assertEq(vault.canonicalUsdc(), ArcNativeUsdcV3.CANONICAL_USDC);
+        assertEq(deployer.canonicalUsdc(), ArcNativeUsdcV3.CANONICAL_USDC);
+        assertEq(
+            IGraduationSettlementExecutorV3(manager.settlementExecutor()).canonicalUsdc(),
+            ArcNativeUsdcV3.CANONICAL_USDC
+        );
+
+        (bool wethGetterOk,) = address(manager).staticcall(abi.encodeWithSignature("weth()"));
+        (bool depositOk,) = manager.settlementExecutor().call(abi.encodeWithSignature("deposit()"));
+        (bool withdrawOk,) = manager.settlementExecutor().call(abi.encodeWithSignature("withdraw(uint256)", 1));
+        assertFalse(wethGetterOk);
+        assertFalse(depositOk);
+        assertFalse(withdrawOk);
+    }
+
+    function testRevertingCanonicalUsdcTransferRollsBackCompleteEndpointSettlement() public {
+        canonicalUsdc.setRevertTransfers(true);
+        _assertRollbackAfterFinalBuy();
+    }
+
+    function testBlocklistedCanonicalUsdcTransferRollsBackCompleteEndpointSettlement() public {
+        canonicalUsdc.setBlocked(address(npm), true);
+        _assertRollbackAfterFinalBuy();
+    }
+
     function testPartialTokenConsumptionReportRollsBackCompleteEndpointSettlement() public {
         npm.setMintResponseMode(1);
         _assertRollbackAfterFinalBuy();
     }
 
-    function testPartialWethConsumptionReportRollsBackCompleteEndpointSettlement() public {
+    function testUsdc6ReportedUsageMismatchRollsBackCompleteEndpointSettlement() public {
         npm.setMintResponseMode(2);
         _assertRollbackAfterFinalBuy();
     }
@@ -168,39 +204,44 @@ contract GraduationManagerV3Test is Test {
         vm.etch(address(deployer), address(reverter).code);
         (address token, CooketCurveV3 curve) = _launch("deploy-failure");
         uint256 curveToken = IERC20(token).balanceOf(address(curve));
-        uint256 buyerEth = buyer.balance;
-        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS);
+        uint256 buyerNativeUsdc = buyer.balance;
+        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS_NATIVE_USDC);
         vm.prank(buyer);
         vm.expectRevert();
         curve.buy{value: q.acceptedGross}(q.tokensOut, block.timestamp + 1);
         assertFalse(curve.graduated());
         assertFalse(manager.settled(token));
         assertEq(IERC20(token).balanceOf(address(curve)), curveToken);
-        assertEq(buyer.balance, buyerEth);
+        assertEq(buyer.balance, buyerNativeUsdc);
         assertEq(IERC20(token).balanceOf(address(manager)), 0);
-        assertEq(weth.balanceOf(address(manager)), 0);
         assertEq(address(manager).balance, 0);
         assertEq(IERC20(token).balanceOf(address(npm)), 0);
-        assertEq(weth.balanceOf(address(npm)), 0);
+        assertEq(canonicalUsdc.balanceOf(address(npm)), 0);
         assertEq(vault.totalLPFeesAccrued(token), 0);
-        assertEq(vault.totalLPFeesAccrued(address(weth)), 0);
+        assertEq(vault.totalLPFeesAccrued(address(canonicalUsdc)), 0);
     }
 
     function testUnauthorizedPrematureAndDuplicateGraduationRevert() public {
         (address token, CooketCurveV3 curve) = _launch("authorization");
         vm.expectRevert();
-        manager.graduate(token, creator, EndpointConstantsV3.LP_ALLOCATION, 3 ether);
+        manager.graduate(
+            token, creator, EndpointConstantsV3.LP_ALLOCATION, EndpointConstantsV3.GRADUATION_NATIVE_USDC_RESERVE
+        );
         vm.prank(address(curve));
         vm.expectRevert();
-        manager.graduate(token, creator, EndpointConstantsV3.LP_ALLOCATION, 3 ether);
+        manager.graduate(
+            token, creator, EndpointConstantsV3.LP_ALLOCATION, EndpointConstantsV3.GRADUATION_NATIVE_USDC_RESERVE
+        );
         _graduate(curve);
         vm.prank(address(curve));
         vm.expectRevert(IGraduationManagerV3.AlreadyGraduated.selector);
-        manager.graduate(token, creator, EndpointConstantsV3.LP_ALLOCATION, 3 ether);
+        manager.graduate(
+            token, creator, EndpointConstantsV3.LP_ALLOCATION, EndpointConstantsV3.GRADUATION_NATIVE_USDC_RESERVE
+        );
     }
 
     function testUnboundDependenciesRollBackEndpointGraduation() public {
-        GraduationManagerV3 bare = new GraduationManagerV3(address(uniswapFactory), address(weth));
+        GraduationManagerV3 bare = new GraduationManagerV3(address(uniswapFactory));
         FeeManagerV3 bareFees = new FeeManagerV3(address(this), treasury);
         CooketFactoryV3 bareFactory = new CooketFactoryV3(address(bareFees), address(bare));
         bareFees.setFactoryOnce(address(bareFactory));
@@ -208,7 +249,7 @@ contract GraduationManagerV3Test is Test {
         vm.prank(creator);
         (address token, address curveAddress) = bareFactory.createToken("Bare", "BAR", keccak256("bare"));
         CooketCurveV3 curve = CooketCurveV3(payable(curveAddress));
-        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS);
+        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS_NATIVE_USDC);
         vm.prank(buyer);
         vm.expectRevert(GraduationManagerV3.DependenciesNotBound.selector);
         curve.buy{value: q.acceptedGross}(q.tokensOut, block.timestamp + 1);
@@ -218,7 +259,7 @@ contract GraduationManagerV3Test is Test {
     }
 
     function testDependencyBindingRejectsEoasMismatchesAndRepeat() public {
-        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory), address(weth));
+        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory));
         FeeManagerV3 freshFees = new FeeManagerV3(address(this), treasury);
         CooketFactoryV3 freshFactory = new CooketFactoryV3(address(freshFees), address(fresh));
         freshFees.setFactoryOnce(address(freshFactory));
@@ -229,8 +270,7 @@ contract GraduationManagerV3Test is Test {
         PermanentLPFeeVaultV3 freshVault = new PermanentLPFeeVaultV3(
             address(fresh), address(freshFees), address(freshCommunity), address(freshRewards)
         );
-        MockNonfungiblePositionManagerV3 wrongFactory =
-            new MockNonfungiblePositionManagerV3(address(this), address(weth));
+        MockNonfungiblePositionManagerV3 wrongFactory = new MockNonfungiblePositionManagerV3(address(this));
         vm.expectRevert(GraduationManagerV3.InvalidDependency.selector);
         fresh.bindDependenciesOnce(address(freshVault), address(deployer), address(wrongFactory));
         vm.expectRevert(GraduationManagerV3.DependenciesAlreadyBound.selector);
@@ -243,7 +283,7 @@ contract GraduationManagerV3Test is Test {
     }
 
     function testVaultBindingFailureRollsBackManagerBinding() public {
-        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory), address(weth));
+        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory));
         FeeManagerV3 freshFees = new FeeManagerV3(address(this), treasury);
         CooketFactoryV3 freshFactory = new CooketFactoryV3(address(freshFees), address(fresh));
         freshFees.setFactoryOnce(address(freshFactory));
@@ -268,31 +308,32 @@ contract GraduationManagerV3Test is Test {
     function _assertRollbackAfterFinalBuy() private {
         (address token, CooketCurveV3 curve) = _launch("rollback");
         uint256 curveToken = IERC20(token).balanceOf(address(curve));
-        uint256 curveEth = address(curve).balance;
+        uint256 curveNativeUsdc = address(curve).balance;
         uint256 managerToken = IERC20(token).balanceOf(address(manager));
-        uint256 managerEth = address(manager).balance;
+        uint256 managerNativeUsdc = address(manager).balance;
         uint256 npmToken = IERC20(token).balanceOf(address(npm));
-        uint256 npmWeth = weth.balanceOf(address(npm));
-        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS);
+        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS_NATIVE_USDC);
         vm.prank(buyer);
         vm.expectRevert();
         curve.buy{value: q.acceptedGross}(q.tokensOut, block.timestamp + 1);
         assertFalse(curve.graduated());
         assertFalse(manager.settled(token));
-        assertEq(curve.activeEthReserve(), 0);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
         assertEq(IERC20(token).balanceOf(address(curve)), curveToken);
-        assertEq(address(curve).balance, curveEth);
+        assertEq(address(curve).balance, curveNativeUsdc);
         assertEq(IERC20(token).balanceOf(address(manager)), managerToken);
-        assertEq(address(manager).balance, managerEth);
-        assertEq(weth.balanceOf(address(manager)), 0);
+        assertEq(address(manager).balance, managerNativeUsdc);
         assertEq(IERC20(token).balanceOf(address(npm)), npmToken);
-        assertEq(weth.balanceOf(address(npm)), npmWeth);
+        // The Arc dual-view mock uses vm.deal to model native balance movement.
+        // Foundry does not roll cheatcode mutations back with the reverting EVM call,
+        // so its synthetic NPM USDC view is excluded from this rollback assertion.
+        assertEq(canonicalUsdc.allowance(manager.settlementExecutor(), address(npm)), 0);
         assertEq(manager.residualEscrowOf(token), address(0), "escrow creation/accounting rolls back");
         assertEq(deployer.custodianOf(token), address(0), "no partial custodian survives");
         (bool exists,) = address(npm).staticcall(abi.encodeWithSignature("ownerOf(uint256)", 100));
         assertFalse(exists, "no NFT survives");
         assertEq(vault.totalLPFeesAccrued(token), 0);
-        assertEq(vault.totalLPFeesAccrued(address(weth)), 0);
+        assertEq(vault.totalLPFeesAccrued(address(canonicalUsdc)), 0);
     }
 
     function _launch(string memory label) private returns (address token, CooketCurveV3 curve) {
@@ -314,7 +355,7 @@ contract GraduationManagerV3Test is Test {
     }
 
     function _graduate(CooketCurveV3 curve) private {
-        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS);
+        CooketCurveV3.BuyQuote memory q = curve.quoteBuy(EndpointConstantsV3.EXACT_GRADUATION_GROSS_NATIVE_USDC);
         vm.prank(buyer);
         curve.buy{value: q.acceptedGross}(q.tokensOut, block.timestamp + 1);
     }

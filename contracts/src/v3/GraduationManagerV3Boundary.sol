@@ -7,21 +7,23 @@ import {ICooketFactoryV3} from "./interfaces/ICooketFactoryV3.sol";
 import {ICooketTokenV3} from "./interfaces/ICooketTokenV3.sol";
 import {IUniswapV3FactoryMinimal} from "./interfaces/uniswap/IUniswapV3FactoryMinimal.sol";
 import {IUniswapV3PoolMinimal} from "./interfaces/uniswap/IUniswapV3PoolMinimal.sol";
+import {ArcNativeUsdcV3} from "./libraries/ArcNativeUsdcV3.sol";
 
 /// @notice Shared immutable registration and authentication boundary for a
-/// future endpoint-cp-v3 graduation manager. It reserves and initializes the
-/// canonical Uniswap V3 pool during launch, before third parties can choose its price.
+/// Arc endpoint-cp-v3 graduation manager. It reserves and initializes the
+/// canonical launch-token/USDC pool during launch, before third parties can choose its price.
 /// @dev Stage 2B must not assume this pool still has zero liquidity or that its
 /// spot price remains unchanged at graduation. Permissionless liquidity and
 /// manipulation require a separate audited graduation policy.
 abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
     bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("endpoint-cp-v3");
+    bytes32 public constant ARC_PROTOCOL_DOMAIN = keccak256("COOKET_ARC_V1");
     uint24 public constant POOL_FEE = 10_000;
     int24 public constant POOL_TICK_SPACING = 200;
-    /// @dev floor(sqrt((15e9 / 1e18) * 2^192)); launch token is token0.
-    uint160 public constant SQRT_PRICE_X96_TOKEN0_LAUNCH = 9_703_428_570_912_459_262_669_888;
-    /// @dev floor(sqrt((1e18 / 15e9) * 2^192)); WETH is token0.
-    uint160 public constant SQRT_PRICE_X96_TOKEN0_WETH = 646_895_238_060_830_617_511_325_894_307_352;
+    /// @dev floor(sqrt((36_225 / 1e21) * 2^192)); launch token (18 decimals) is token0.
+    uint160 public constant SQRT_PRICE_X96_TOKEN0_LAUNCH = 476_852_189_220_498_924_480;
+    /// @dev floor(sqrt((1e21 / 36_225) * 2^192)); canonical USDC (6 decimals) is token0.
+    uint160 public constant SQRT_PRICE_X96_TOKEN0_USDC = 13_163_621_510_572_779_143_698_740_160_447_723_801;
 
     struct Launch {
         address curve;
@@ -35,24 +37,20 @@ abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
     }
 
     address public immutable override uniswapV3Factory;
-    address public immutable override weth;
+    address public constant override canonicalUsdc = ArcNativeUsdcV3.CANONICAL_USDC;
     address public override factory;
     address public override factoryBootstrapAuthority;
     mapping(address token => Launch launch) internal _launches;
     mapping(address token => address pool) public override canonicalPoolOf;
 
-    constructor(address uniswapV3Factory_, address weth_) {
-        if (
-            uniswapV3Factory_ == address(0) || uniswapV3Factory_.code.length == 0 || weth_ == address(0)
-                || weth_.code.length == 0
-        ) {
+    constructor(address uniswapV3Factory_) {
+        if (uniswapV3Factory_ == address(0) || uniswapV3Factory_.code.length == 0 || canonicalUsdc.code.length == 0) {
             revert InvalidPoolConfiguration();
         }
         if (IUniswapV3FactoryMinimal(uniswapV3Factory_).feeAmountTickSpacing(POOL_FEE) != POOL_TICK_SPACING) {
             revert InvalidPoolConfiguration();
         }
         uniswapV3Factory = uniswapV3Factory_;
-        weth = weth_;
         factoryBootstrapAuthority = msg.sender;
     }
 
@@ -95,10 +93,10 @@ abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
         (address registeredCreator, address registeredCurve) = ICooketFactoryV3(factory).tokenInfo(token);
         if (
             !ICooketFactoryV3(factory).isToken(token) || ICooketFactoryV3(factory).curveOf(token) != curve
-                || registeredCurve != curve || registeredCreator != creator || ICooketCurveV3(curve).factory() != factory
-                || ICooketCurveV3(curve).token() != token || ICooketCurveV3(curve).creator() != creator
-                || ICooketTokenV3(token).factory() != factory || ICooketTokenV3(token).creator() != creator
-                || !ICooketTokenV3(token).initialized()
+                || registeredCurve != curve || registeredCreator != creator
+                || ICooketCurveV3(curve).factory() != factory || ICooketCurveV3(curve).token() != token
+                || ICooketCurveV3(curve).creator() != creator || ICooketTokenV3(token).factory() != factory
+                || ICooketTokenV3(token).creator() != creator || !ICooketTokenV3(token).initialized()
         ) revert LaunchRelationshipMismatch();
 
         _beforePoolReservation(token);
@@ -119,8 +117,8 @@ abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
     }
 
     function expectedSqrtPriceX96(address token) public view override returns (uint160) {
-        if (token == address(0) || token == weth) revert InvalidToken();
-        return token < weth ? SQRT_PRICE_X96_TOKEN0_LAUNCH : SQRT_PRICE_X96_TOKEN0_WETH;
+        if (token == address(0) || token == canonicalUsdc) revert InvalidToken();
+        return token < canonicalUsdc ? SQRT_PRICE_X96_TOKEN0_LAUNCH : SQRT_PRICE_X96_TOKEN0_USDC;
     }
 
     /// @notice Classifies only canonical pool state. ERC20 balance donations are intentionally ignored.
@@ -132,12 +130,13 @@ abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
         override
         returns (PoolCandidateState state, address pool)
     {
-        if (token == address(0) || token == weth) {
+        if (token == address(0) || token == canonicalUsdc) {
             return (PoolCandidateState.Malformed, address(0));
         }
 
-        (bool poolLookupOk, bytes memory poolData) =
-            uniswapV3Factory.staticcall(abi.encodeCall(IUniswapV3FactoryMinimal.getPool, (token, weth, POOL_FEE)));
+        (bool poolLookupOk, bytes memory poolData) = uniswapV3Factory.staticcall(
+            abi.encodeCall(IUniswapV3FactoryMinimal.getPool, (token, canonicalUsdc, POOL_FEE))
+        );
         if (!poolLookupOk || poolData.length < 32) return (PoolCandidateState.Malformed, address(0));
         uint256 rawPool;
         assembly ("memory-safe") {
@@ -149,7 +148,7 @@ abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
         if (pool == address(0)) return (PoolCandidateState.NoPool, address(0));
         if (pool.code.length == 0) return (PoolCandidateState.Malformed, pool);
 
-        (address token0, address token1) = token < weth ? (token, weth) : (weth, token);
+        (address token0, address token1) = token < canonicalUsdc ? (token, canonicalUsdc) : (canonicalUsdc, token);
         if (
             _readAddress(pool, IUniswapV3PoolMinimal.factory.selector) != uniswapV3Factory
                 || _readAddress(pool, IUniswapV3PoolMinimal.token0.selector) != token0
@@ -199,7 +198,7 @@ abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
     function _reserveCanonicalPool(address token) private returns (address pool) {
         (PoolCandidateState state, address classifiedPool) = classifyPoolCandidate(token);
         if (state == PoolCandidateState.NoPool) {
-            pool = IUniswapV3FactoryMinimal(uniswapV3Factory).createPool(token, weth, POOL_FEE);
+            pool = IUniswapV3FactoryMinimal(uniswapV3Factory).createPool(token, canonicalUsdc, POOL_FEE);
             if (pool == address(0)) revert PoolReservationMismatch();
             IUniswapV3PoolMinimal(pool).initialize(expectedSqrtPriceX96(token));
         } else if (state == PoolCandidateState.Uninitialized) {

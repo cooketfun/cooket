@@ -10,7 +10,9 @@ import {TokenCommunityVaultV3} from "../../src/v3/TokenCommunityVaultV3.sol";
 import {TraderRewardsDistributorV3} from "../../src/v3/TraderRewardsDistributorV3.sol";
 import {TraderRewardsVaultV3} from "../../src/v3/TraderRewardsVaultV3.sol";
 import {MockGraduationManagerV3} from "./mocks/MockGraduationManagerV3.sol";
-import {MockUniswapV3FactoryV3, MockWETHV3} from "./mocks/MockUniswapV3.sol";
+import {MockUniswapV3FactoryV3} from "./mocks/MockUniswapV3.sol";
+import {MockArcDualViewUsdcV3} from "./mocks/MockArcDualViewUsdcV3.sol";
+import {ArcNativeUsdcV3} from "../../src/v3/libraries/ArcNativeUsdcV3.sol";
 
 contract CurveHandlerV3 {
     CooketCurveV3 public immutable curve;
@@ -51,9 +53,12 @@ contract CurveHandlerV3 {
 }
 
 contract CooketCurveV3InvariantTest is Test {
-    uint256 private constant TOTAL_SUPPLY = 1_000_000_000 ether;
-    uint256 private constant CURVE_ALLOCATION = 800_000_000 ether;
-    uint256 private constant LP_ALLOCATION = 200_000_000 ether;
+    uint256 private constant TOKEN_UNIT = 1e18;
+    uint256 private constant NATIVE_USDC_UNIT = 1e18;
+    uint256 private constant TOTAL_SUPPLY = 1_000_000_000 * TOKEN_UNIT;
+    uint256 private constant CURVE_ALLOCATION = 800_000_000 * TOKEN_UNIT;
+    uint256 private constant LP_ALLOCATION = 200_000_000 * TOKEN_UNIT;
+    uint256 private constant GRADUATION_NATIVE_USDC_RESERVE = 7_245 * NATIVE_USDC_UNIT;
 
     FeeManagerV3 private feeManager;
     MockGraduationManagerV3 private graduationManager;
@@ -66,9 +71,10 @@ contract CooketCurveV3InvariantTest is Test {
 
     function setUp() public {
         feeManager = new FeeManagerV3(address(this), makeAddr("invariantTreasury"));
+        MockArcDualViewUsdcV3 usdcImplementation = new MockArcDualViewUsdcV3();
+        vm.etch(ArcNativeUsdcV3.CANONICAL_USDC, address(usdcImplementation).code);
         MockUniswapV3FactoryV3 uniswapFactory = new MockUniswapV3FactoryV3();
-        MockWETHV3 weth = new MockWETHV3();
-        graduationManager = new MockGraduationManagerV3(address(uniswapFactory), address(weth));
+        graduationManager = new MockGraduationManagerV3(address(uniswapFactory));
         factory = new CooketFactoryV3(address(feeManager), address(graduationManager));
         feeManager.setFactoryOnce(address(factory));
         graduationManager.setFactoryOnce(address(factory));
@@ -82,7 +88,7 @@ contract CooketCurveV3InvariantTest is Test {
             factory.createToken("Invariant V3", "IV3", keccak256("invariant-salt"));
         token = CooketTokenV3(tokenAddress);
         curve = CooketCurveV3(payable(curveAddress));
-        handler = new CurveHandlerV3{value: 100 ether}(curve, token, feeManager);
+        handler = new CurveHandlerV3{value: 10_000 * NATIVE_USDC_UNIT}(curve, token, feeManager);
         targetContract(address(handler));
     }
 
@@ -103,9 +109,9 @@ contract CooketCurveV3InvariantTest is Test {
     }
 
     function invariantReserveAndFeeLiabilitiesAreFullyBacked() public view {
-        assertLe(curve.activeEthReserve(), 3 ether);
-        assertEq(address(curve).balance, curve.activeEthReserve());
-        assertEq(curve.reserveCoordinate(), curve.activeEthReserve() + curve.terminalGraduationReserve());
+        assertLe(curve.activeNativeUsdcReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(address(curve).balance, curve.activeNativeUsdcReserve());
+        assertEq(curve.reserveCoordinate(), curve.activeNativeUsdcReserve() + curve.terminalGraduationReserve());
         assertEq(address(feeManager).balance, feeManager.totalLiabilities());
         assertEq(address(communityVault).balance, communityVault.totalAccrued(address(0)));
         assertEq(address(rewardsVault).balance, rewardsVault.totalAccrued(address(0)));
@@ -114,16 +120,16 @@ contract CooketCurveV3InvariantTest is Test {
             feeManager.protocolFeesAccrued() + feeManager.totalCreatorFeesAccrued() + feeManager.communityFeesAccrued()
                 + feeManager.traderRewardsFeesAccrued()
         );
-        assertGe(curve.virtualTokenReserve() * curve.virtualEthReserve(), curve.K());
+        assertGe(curve.virtualTokenReserve() * curve.virtualNativeUsdcReserve(), curve.K());
     }
 
     function invariantGraduationOccursAtMostOnceAndOnlyAtEndpoint() public view {
         assertLe(graduationManager.calls(), 1);
         if (curve.graduated()) {
             assertEq(curve.soldSupply(), CURVE_ALLOCATION);
-            assertEq(curve.activeEthReserve(), 0);
-            assertEq(curve.terminalGraduationReserve(), 3 ether);
-            assertEq(curve.graduationEthForwarded(), 3 ether);
+            assertEq(curve.activeNativeUsdcReserve(), 0);
+            assertEq(curve.terminalGraduationReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+            assertEq(curve.graduationNativeUsdcForwarded(), GRADUATION_NATIVE_USDC_RESERVE);
             assertEq(graduationManager.calls(), 1);
         }
     }

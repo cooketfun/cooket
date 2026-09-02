@@ -16,12 +16,12 @@ contract MockGraduationManagerV3 is GraduationManagerV3Boundary {
     address public lastToken;
     address public lastCreator;
     uint256 public lastTokenAmount;
-    uint256 public lastEthAmount;
+    uint256 public lastNativeUsdcAmount;
     address public mutationPool;
     uint160 public mutationSqrtPriceX96;
     uint128 public mutationLiquidity;
 
-    constructor(address uniswapV3Factory_, address weth_) GraduationManagerV3Boundary(uniswapV3Factory_, weth_) {}
+    constructor(address uniswapV3Factory_) GraduationManagerV3Boundary(uniswapV3Factory_) {}
 
     function configure(bool shouldRevert_, address reentryTarget_, bytes calldata reentryData_) external {
         shouldRevert = shouldRevert_;
@@ -39,21 +39,21 @@ contract MockGraduationManagerV3 is GraduationManagerV3Boundary {
         mutationLiquidity = liquidity;
     }
 
-    function graduate(address token, address creator, uint256 tokenAmount, uint256 ethAmount)
+    function graduate(address token, address creator, uint256 tokenAmount, uint256 nativeUsdcAmount)
         external
         payable
         override
     {
         _authorizeGraduation(token, creator);
         if (shouldRevert) revert("GRADUATION_FAILED");
-        require(msg.value == ethAmount, "ETH_MISMATCH");
+        require(msg.value == nativeUsdcAmount, "NATIVE_USDC_MISMATCH");
         require(IERC20(token).balanceOf(address(this)) >= tokenAmount, "TOKEN_MISMATCH");
         if (reentryTarget != address(0)) (reentrySucceeded,) = reentryTarget.call(reentryData);
         calls += 1;
         lastToken = token;
         lastCreator = creator;
         lastTokenAmount = tokenAmount;
-        lastEthAmount = ethAmount;
+        lastNativeUsdcAmount = nativeUsdcAmount;
     }
 
     function _afterLaunchRegistered(address, address, address) internal override {

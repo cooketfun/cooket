@@ -14,14 +14,13 @@ contract MockNonfungiblePositionManagerV3 {
     }
 
     address public immutable factory;
-    address public immutable WETH9;
     mapping(uint256 tokenId => address owner) private _ownerOf;
     mapping(uint256 tokenId => Position position) private _positionOf;
     mapping(uint256 tokenId => uint256 amount0) public collectable0;
     mapping(uint256 tokenId => uint256 amount1) public collectable1;
     bool public revertCollect;
     bool public revertMint;
-    /// @dev 0 canonical; 1 partial token report; 2 partial WETH report;
+    /// @dev 0 canonical partial consumption; 1 mismatched amount0 report; 2 mismatched amount1 report;
     /// 3 zero liquidity; 4 mint a position the custodian must reject.
     uint8 public mintResponseMode;
     uint256 public nextTokenId = 100;
@@ -32,9 +31,8 @@ contract MockNonfungiblePositionManagerV3 {
     uint256 public malformedTickLower;
     uint256 public malformedTickUpper;
 
-    constructor(address factory_, address weth_) {
+    constructor(address factory_) {
         factory = factory_;
-        WETH9 = weth_;
     }
 
     function setPosition(

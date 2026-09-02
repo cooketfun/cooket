@@ -22,7 +22,7 @@ interface IPermanentLPCustodianV3 {
     function collectFees() external returns (uint256 amount0, uint256 amount1);
     function protocolVersionHash() external pure returns (bytes32);
     function launchToken() external view returns (address);
-    function weth() external view returns (address);
+    function canonicalUsdc() external view returns (address);
     function graduationManager() external view returns (address);
     function feeVault() external view returns (address);
     function nonfungiblePositionManager() external view returns (address);

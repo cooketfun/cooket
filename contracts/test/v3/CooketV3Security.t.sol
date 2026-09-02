@@ -85,10 +85,10 @@ contract CooketV3SecurityTest is CooketV3TestBase {
 
         assertEq(buyer.balance, buyerBefore);
         assertEq(curve.soldSupply(), 0);
-        assertEq(curve.activeEthReserve(), 0);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
         assertEq(curve.terminalGraduationReserve(), 0);
         assertFalse(curve.graduated());
-        assertEq(curve.graduationEthForwarded(), 0);
+        assertEq(curve.graduationNativeUsdcForwarded(), 0);
         assertEq(token.balanceOf(address(curve)), TOTAL_SUPPLY);
         assertEq(token.balanceOf(buyer), 0);
         assertEq(token.balanceOf(address(graduationManager)), 0);
@@ -127,7 +127,7 @@ contract CooketV3SecurityTest is CooketV3TestBase {
         attacker.sellAll();
         assertFalse(attacker.reentrySucceeded());
         assertEq(curve.soldSupply(), 0);
-        assertEq(curve.activeEthReserve(), 0);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
     }
 
     function testCreatorFeeClaimCallbackCannotReenterClaim() public {
@@ -159,7 +159,7 @@ contract CooketV3SecurityTest is CooketV3TestBase {
         vm.expectRevert(ICooketCurveV3.NativeTransferFailed.selector);
         rejector.buyWithExcess{value: GRADUATION_GROSS + 1 ether}();
         assertEq(curve.soldSupply(), 0);
-        assertEq(curve.activeEthReserve(), 0);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
         assertFalse(curve.graduated());
         assertEq(graduationManager.calls(), 0);
         assertEq(feeManager.protocolFeesAccrued(), 0);

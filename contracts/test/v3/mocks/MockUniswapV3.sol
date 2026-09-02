@@ -5,24 +5,12 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IUniswapV3FactoryMinimal} from "../../../src/v3/interfaces/uniswap/IUniswapV3FactoryMinimal.sol";
 import {IUniswapV3PoolMinimal} from "../../../src/v3/interfaces/uniswap/IUniswapV3PoolMinimal.sol";
 
-contract MockWETHV3 is ERC20 {
-    constructor() ERC20("Mock WETH", "WETH") {}
+contract MockERC20V3 is ERC20 {
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
-
-    function deposit() external payable {
-        _mint(msg.sender, msg.value);
-    }
-
-    function withdraw(uint256 amount) external {
-        _burn(msg.sender, amount);
-        (bool ok,) = payable(msg.sender).call{value: amount}("");
-        require(ok, "ETH_SEND_FAILED");
-    }
-
-    receive() external payable {}
 }
 
 contract MockUniswapV3PoolV3 is IUniswapV3PoolMinimal {

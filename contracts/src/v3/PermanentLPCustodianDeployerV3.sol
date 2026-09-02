@@ -7,15 +7,16 @@ import {IPermanentLPCustodianDeployerV3} from "./interfaces/IPermanentLPCustodia
 import {IPermanentLPFeeVaultV3} from "./interfaces/IPermanentLPFeeVaultV3.sol";
 import {PermanentLPCustodianV3} from "./PermanentLPCustodianV3.sol";
 import {GraduationSettlementExecutorV3} from "./GraduationSettlementExecutorV3.sol";
+import {ArcNativeUsdcV3} from "./libraries/ArcNativeUsdcV3.sol";
 
 /// @notice Immutable one-custodian-per-launch deployment boundary for Stage 2B.2.
 contract PermanentLPCustodianDeployerV3 is IPermanentLPCustodianDeployerV3 {
-    bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("endpoint-cp-v3-custody-2b1a");
+    bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("COOKET_ARC_V1_CUSTODY");
 
     address public immutable graduationManager;
     address public immutable factory;
     address public immutable feeVault;
-    address public immutable weth;
+    address public constant canonicalUsdc = ArcNativeUsdcV3.CANONICAL_USDC;
     address public immutable nonfungiblePositionManager;
     address public immutable override settlementExecutor;
     mapping(address launchToken => address custodian) public custodianOf;
@@ -27,24 +28,22 @@ contract PermanentLPCustodianDeployerV3 is IPermanentLPCustodianDeployerV3 {
                 || nonfungiblePositionManager_.code.length == 0
         ) revert InvalidDependency();
         IGraduationManagerV3 manager = IGraduationManagerV3(graduationManager_);
-        address weth_ = manager.weth();
         if (
-            weth_ == address(0) || weth_.code.length == 0 || manager.factory() == address(0)
+            canonicalUsdc.code.length == 0 || manager.factory() == address(0)
+                || manager.canonicalUsdc() != canonicalUsdc
                 || manager.protocolVersionHash() != keccak256("endpoint-cp-v3")
                 || IPermanentLPFeeVaultV3(feeVault_).protocolVersionHash() != PROTOCOL_VERSION_HASH
                 || IPermanentLPFeeVaultV3(feeVault_).factory() != manager.factory()
                 || IPermanentLPFeeVaultV3(feeVault_).graduationManager() != graduationManager_
-                || IPermanentLPFeeVaultV3(feeVault_).weth() != weth_
+                || IPermanentLPFeeVaultV3(feeVault_).canonicalUsdc() != canonicalUsdc
                 || INonfungiblePositionManagerV3(nonfungiblePositionManager_).factory() != manager.uniswapV3Factory()
-                || INonfungiblePositionManagerV3(nonfungiblePositionManager_).WETH9() != weth_
         ) revert InvalidDependency();
         graduationManager = graduationManager_;
         factory = manager.factory();
         feeVault = feeVault_;
-        weth = weth_;
         nonfungiblePositionManager = nonfungiblePositionManager_;
         settlementExecutor =
-            address(new GraduationSettlementExecutorV3(graduationManager_, nonfungiblePositionManager_, weth_));
+            address(new GraduationSettlementExecutorV3(graduationManager_, nonfungiblePositionManager_));
     }
 
     function protocolVersionHash() external pure override returns (bytes32) {
@@ -55,9 +54,8 @@ contract PermanentLPCustodianDeployerV3 is IPermanentLPCustodianDeployerV3 {
         if (msg.sender != graduationManager) revert UnauthorizedGraduationManager();
         if (launchToken == address(0) || launchToken.code.length == 0) revert InvalidLaunchToken();
         if (custodianOf[launchToken] != address(0)) revert CustodianAlreadyDeployed();
-        custodian = address(
-            new PermanentLPCustodianV3(launchToken, weth, nonfungiblePositionManager, graduationManager, feeVault)
-        );
+        custodian =
+            address(new PermanentLPCustodianV3(launchToken, nonfungiblePositionManager, graduationManager, feeVault));
         custodianOf[launchToken] = custodian;
         emit PermanentCustodianDeployed(launchToken, custodian);
     }

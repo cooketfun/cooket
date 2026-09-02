@@ -14,7 +14,7 @@ interface IPermanentLPCustodianDeployerV3 {
     function graduationManager() external view returns (address);
     function factory() external view returns (address);
     function feeVault() external view returns (address);
-    function weth() external view returns (address);
+    function canonicalUsdc() external view returns (address);
     function nonfungiblePositionManager() external view returns (address);
     function settlementExecutor() external view returns (address);
     function custodianOf(address launchToken) external view returns (address);

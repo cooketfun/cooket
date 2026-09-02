@@ -1,17 +1,94 @@
-import { encodeFunctionData, getAddress, parseEventLogs, type Address, type Hex } from "viem";
+import {
+  concatHex,
+  encodeAbiParameters,
+  encodeFunctionData,
+  getAddress,
+  getCreate2Address,
+  keccak256,
+  parseEventLogs,
+  stringToHex,
+  type Address,
+  type Hex,
+} from "viem";
 import { arcTestnet as viemArcTestnet } from "viem/chains";
 
 export const ARC_TESTNET_CHAIN_ID = 5042002 as const;
 export const ARC_NATIVE_CURRENCY_DECIMALS = 18 as const;
 export const ARC_USDC_TOKEN_DECIMALS = 6 as const;
+export const ARC_NATIVE_USDC_UNIT = BigInt("1000000000000000000");
+export const ARC_ERC20_USDC_UNIT = BigInt("1000000");
+export const ARC_NATIVE_PER_ERC20_USDC_BASE_UNIT = BigInt("1000000000000");
+export const ARC_CANONICAL_USDC = "0x3600000000000000000000000000000000000000" as const;
+export const COOKET_ARC_V1_DOMAIN_HASH = keccak256(stringToHex("COOKET_ARC_V1"));
 /** Historical test/reference constants. They are not supported runtime chains. */
 export const BASE_SEPOLIA_CHAIN_ID = 84532 as const;
 export const BASE_MAINNET_CHAIN_ID = 8453 as const;
 export type CooketChainId = typeof ARC_TESTNET_CHAIN_ID;
 export const FIXED_TOKEN_SUPPLY = BigInt("1000000000000000000000000000");
 export const CURVE_ALLOCATION = BigInt("800000000000000000000000000");
-/** Legacy Base ETH economic constant, retained for contract-reference tests only. */
-export const EXACT_GRADUATION_GROSS = BigInt("3030303030303030303");
+export const EXACT_GRADUATION_GROSS_NATIVE_USDC = BigInt("7318181818181818181818");
+
+export function computeArcLaunchSeed(
+  factory: Address,
+  creator: Address,
+  userSalt: Hex,
+  name: string,
+  symbol: string,
+): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "bytes32" },
+        { type: "uint256" },
+        { type: "address" },
+        { type: "address" },
+        { type: "bytes32" },
+        { type: "bytes32" },
+        { type: "bytes32" },
+      ],
+      [
+        COOKET_ARC_V1_DOMAIN_HASH,
+        BigInt(ARC_TESTNET_CHAIN_ID),
+        getAddress(factory),
+        getAddress(creator),
+        userSalt,
+        keccak256(stringToHex(name)),
+        keccak256(stringToHex(symbol)),
+      ],
+    ),
+  );
+}
+
+export function computeArcCandidateSalt(launchSeed: Hex, attemptIndex: number): Hex {
+  if (!Number.isInteger(attemptIndex) || attemptIndex < 0 || attemptIndex > 255) {
+    throw new Error("Arc token candidate index must be an integer from 0 through 255.");
+  }
+  return keccak256(
+    encodeAbiParameters([{ type: "bytes32" }, { type: "uint16" }], [launchSeed, attemptIndex]),
+  );
+}
+
+export function computeArcTokenInitCodeHash(
+  tokenCreationCode: Hex,
+  factory: Address,
+  creator: Address,
+  name: string,
+  symbol: string,
+): Hex {
+  const constructorArgs = encodeAbiParameters(
+    [{ type: "address" }, { type: "address" }, { type: "string" }, { type: "string" }],
+    [getAddress(factory), getAddress(creator), name, symbol],
+  );
+  return keccak256(concatHex([tokenCreationCode, constructorArgs]));
+}
+
+export function predictArcTokenAddress(
+  tokenDeployer: Address,
+  candidateSalt: Hex,
+  tokenInitCodeHash: Hex,
+): Address {
+  return getCreate2Address({ from: getAddress(tokenDeployer), salt: candidateSalt, bytecodeHash: tokenInitCodeHash });
+}
 
 if (viemArcTestnet.id !== ARC_TESTNET_CHAIN_ID) throw new Error("viem Arc Testnet chain metadata is inconsistent.");
 export const arcTestnet = viemArcTestnet;
@@ -68,7 +145,7 @@ export const feeManagerV3Abi = [
 export const graduationManagerV3Abi = [
   { type: "function", name: "factory", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "uniswapV3Factory", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { type: "function", name: "weth", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "canonicalUsdc", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "permanentLPFeeVault", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "permanentLPCustodianDeployer", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "nonfungiblePositionManager", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -78,12 +155,13 @@ export const graduationManagerV3Abi = [
 export const permanentLPFeeVaultV3Abi = [
   { type: "function", name: "factory", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "graduationManager", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { type: "function", name: "weth", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "canonicalUsdc", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "permanentLPCustodianDeployer", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
 ] as const;
 
 export const permanentLPCustodianV3Abi = [
   { type: "function", name: "launchToken", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "canonicalUsdc", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "positionRegistered", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
   { type: "function", name: "boundTokenId", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "feeVault", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -93,7 +171,7 @@ export const permanentLPCustodianV3Abi = [
 export const graduationSettlementExecutorV3Abi = [
   { type: "function", name: "graduationManager", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "nonfungiblePositionManager", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { type: "function", name: "weth", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "canonicalUsdc", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
 ] as const;
 
 export type TokenLaunched = { token: Address; curve: Address; creator: Address; protocolVersion: string; totalSupply: bigint; curveAllocation: bigint; lpAllocation: bigint; canonicalPool: Address };
@@ -152,18 +230,18 @@ export const cooketCurveAbi = [
   { type: "error", name: "TokenInvalid", inputs: [] },
   { type: "error", name: "TokenTransferFailed", inputs: [] },
   { type: "error", name: "TradingClosed", inputs: [] },
-  { type: "error", name: "UnexpectedEther", inputs: [] },
+  { type: "error", name: "UnexpectedNativeUsdc", inputs: [] },
   { type: "function", name: "factory", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "token", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "creator", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "soldSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "activeEthReserve", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "activeNativeUsdcReserve", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "graduated", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
   { type: "function", name: "feePolicyHash", stateMutability: "pure", inputs: [], outputs: [{ type: "bytes32" }] },
   { type: "function", name: "quoteBuy", stateMutability: "view", inputs: [{ name: "grossInput", type: "uint256" }], outputs: [{ name: "quote", type: "tuple", components: cooketCurveBuyQuoteComponents }] },
   { type: "function", name: "quoteSell", stateMutability: "view", inputs: [{ name: "tokensIn", type: "uint256" }], outputs: [{ name: "quote", type: "tuple", components: cooketCurveSellQuoteComponents }] },
   { type: "function", name: "buy", stateMutability: "payable", inputs: [{ name: "minTokensOut", type: "uint256" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "quote", type: "tuple", components: cooketCurveBuyQuoteComponents }] },
-  { type: "function", name: "sell", stateMutability: "nonpayable", inputs: [{ name: "tokensIn", type: "uint256" }, { name: "minEthOut", type: "uint256" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "quote", type: "tuple", components: cooketCurveSellQuoteComponents }] },
+  { type: "function", name: "sell", stateMutability: "nonpayable", inputs: [{ name: "tokensIn", type: "uint256" }, { name: "minNativeUsdcOut", type: "uint256" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "quote", type: "tuple", components: cooketCurveSellQuoteComponents }] },
   { type: "event", name: "TokensBought", anonymous: false, inputs: [{ name: "token", type: "address", indexed: true }, { name: "buyer", type: "address", indexed: true }, { name: "submittedGross", type: "uint256", indexed: false }, { name: "acceptedGross", type: "uint256", indexed: false }, { name: "netCurveInput", type: "uint256", indexed: false }, { name: "tokensOut", type: "uint256", indexed: false }, { name: "totalFee", type: "uint256", indexed: false }, { name: "creatorFee", type: "uint256", indexed: false }, { name: "protocolFee", type: "uint256", indexed: false }, { name: "communityFee", type: "uint256", indexed: false }, { name: "traderRewardsFee", type: "uint256", indexed: false }, { name: "refund", type: "uint256", indexed: false }] },
   { type: "event", name: "TokensSold", anonymous: false, inputs: [{ name: "token", type: "address", indexed: true }, { name: "seller", type: "address", indexed: true }, { name: "tokensIn", type: "uint256", indexed: false }, { name: "grossCurveOutput", type: "uint256", indexed: false }, { name: "netSellerOutput", type: "uint256", indexed: false }, { name: "totalFee", type: "uint256", indexed: false }, { name: "creatorFee", type: "uint256", indexed: false }, { name: "protocolFee", type: "uint256", indexed: false }, { name: "communityFee", type: "uint256", indexed: false }, { name: "traderRewardsFee", type: "uint256", indexed: false }] },
 ] as const;
@@ -233,8 +311,8 @@ export function encodeBuy(minTokensOut: bigint, deadline: bigint): Hex {
   return encodeFunctionData({ abi: cooketCurveAbi, functionName: "buy", args: [minTokensOut, deadline] });
 }
 
-export function encodeSell(tokensIn: bigint, minEthOut: bigint, deadline: bigint): Hex {
-  return encodeFunctionData({ abi: cooketCurveAbi, functionName: "sell", args: [tokensIn, minEthOut, deadline] });
+export function encodeSell(tokensIn: bigint, minNativeUsdcOut: bigint, deadline: bigint): Hex {
+  return encodeFunctionData({ abi: cooketCurveAbi, functionName: "sell", args: [tokensIn, minNativeUsdcOut, deadline] });
 }
 
 export const encodeApprove = (spender: Address, amount: bigint): Hex =>

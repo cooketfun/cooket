@@ -2,9 +2,10 @@
 pragma solidity ^0.8.20;
 
 import {ICooketCurveV3} from "../../src/v3/interfaces/ICooketCurveV3.sol";
+import {CooketCurveV3} from "../../src/v3/CooketCurveV3.sol";
 import {CooketV3TestBase} from "./helpers/CooketV3TestBase.sol";
 
-contract ForceEtherCurveV3 {
+contract ForceNativeUsdcCurveV3 {
     constructor() payable {}
 
     function force(address payable to) external {
@@ -13,42 +14,51 @@ contract ForceEtherCurveV3 {
 }
 
 contract CooketCurveV3Test is CooketV3TestBase {
-    function testForcedEthDoesNotChangeQuotesOrGraduationAccounting() public {
+    function testForcedNativeUsdcDoesNotChangeQuotesOrGraduationAccounting() public {
         ICooketCurveV3.BuyQuote memory beforeQuote = curve.quoteBuy(GRADUATION_GROSS);
-        ForceEtherCurveV3 force = new ForceEtherCurveV3{value: 2 ether}();
+        ForceNativeUsdcCurveV3 force = new ForceNativeUsdcCurveV3{value: 2 * NATIVE_USDC_UNIT}();
         force.force(payable(address(curve)));
         ICooketCurveV3.BuyQuote memory afterQuote = curve.quoteBuy(GRADUATION_GROSS);
         assertEq(keccak256(abi.encode(beforeQuote)), keccak256(abi.encode(afterQuote)));
-        assertEq(curve.unaccountedEth(), 2 ether);
+        assertEq(curve.unaccountedNativeUsdc(), 2 * NATIVE_USDC_UNIT);
         vm.prank(buyer);
         curve.buy{value: afterQuote.acceptedGross}(afterQuote.tokensOut, block.timestamp);
         assertTrue(curve.graduated());
-        assertEq(curve.activeEthReserve(), 0);
-        assertEq(curve.terminalGraduationReserve(), 3 ether);
-        assertEq(curve.graduationEthForwarded(), 3 ether);
-        assertEq(address(curve).balance, 2 ether);
-        assertEq(curve.unaccountedEth(), 2 ether);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
+        assertEq(curve.terminalGraduationReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(curve.graduationNativeUsdcForwarded(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(address(curve).balance, 2 * NATIVE_USDC_UNIT);
+        assertEq(curve.unaccountedNativeUsdc(), 2 * NATIVE_USDC_UNIT);
     }
 
     function testCanonicalConstantsAndInitialEndpoint() public view {
         assertEq(curve.PROTOCOL_VERSION(), "endpoint-cp-v3");
         assertEq(curve.feePolicyHash(), keccak256("cooket-fee-design-b-v3"));
-        assertEq(curve.TOTAL_SUPPLY(), 1_000_000_000 ether);
-        assertEq(curve.CURVE_ALLOCATION(), 800_000_000 ether);
-        assertEq(curve.LP_ALLOCATION(), 200_000_000 ether);
+        assertEq(curve.TOTAL_SUPPLY(), 1_000_000_000 * TOKEN_UNIT);
+        assertEq(curve.CURVE_ALLOCATION(), 800_000_000 * TOKEN_UNIT);
+        assertEq(curve.LP_ALLOCATION(), 200_000_000 * TOKEN_UNIT);
         assertEq(curve.VIRTUAL_TOKEN_RESERVE(), 1_066_666_666_666_666_666_666_666_667);
-        assertEq(curve.VIRTUAL_ETH_RESERVE(), 1 ether);
-        assertEq(curve.GRADUATION_RESERVE(), 3 ether);
-        assertEq(curve.EXACT_GRADUATION_GROSS(), GRADUATION_GROSS);
-        assertEq(curve.spotPrice(), 937_500_000);
-        assertEq(curve.spotPrice() * 1_000_000_000, 0.9375 ether);
+        assertEq(curve.VIRTUAL_NATIVE_USDC_RESERVE(), 2_415 * NATIVE_USDC_UNIT);
+        assertEq(curve.GRADUATION_NATIVE_USDC_RESERVE(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(curve.K(), curve.VIRTUAL_TOKEN_RESERVE() * curve.VIRTUAL_NATIVE_USDC_RESERVE());
+        assertEq(curve.EXACT_GRADUATION_GROSS_NATIVE_USDC(), GRADUATION_GROSS);
+        assertEq(curve.INITIAL_NATIVE_USDC_PRICE(), 2_264_062_500_000);
+        assertEq(curve.TERMINAL_NATIVE_USDC_PRICE(), 36_225_000_000_000);
+        assertEq(curve.spotPrice(), 2_264_062_500_000);
+        assertEq(curve.spotPrice() * 1_000_000_000, 2_264_062_500_000_000_000_000);
+    }
+
+    function testZeroCreatorRecipientIsExplicitlyRejected() public {
+        vm.expectRevert(ICooketCurveV3.InvalidRecipient.selector);
+        new CooketCurveV3(address(factory), address(token), address(0), address(feeManager), address(graduationManager));
     }
 
     function testGrossRequiredForNetMatchesCanonicalVectors() public view {
         assertEq(curve.grossRequiredForNet(1), 1);
         assertEq(curve.grossRequiredForNet(99), 99);
         assertEq(curve.grossRequiredForNet(100), 101);
-        assertEq(curve.grossRequiredForNet(3 ether), GRADUATION_GROSS);
+        assertEq(curve.grossRequiredForNet(GRADUATION_NATIVE_USDC_RESERVE), GRADUATION_GROSS);
+        assertEq(GRADUATION_GROSS - GRADUATION_GROSS / 100, GRADUATION_NATIVE_USDC_RESERVE);
         for (uint256 net = 1; net < 10_000; ++net) {
             uint256 gross = curve.grossRequiredForNet(net);
             assertEq(gross - gross / 100, net);
@@ -69,7 +79,7 @@ contract CooketCurveV3Test is CooketV3TestBase {
         assertEq(quote.communityFee, 200_000_000_000_000);
         assertEq(quote.traderRewardsFee, 150_000_000_000_000);
         assertEq(quote.netCurveInput, 99_000_000_000_000_000);
-        assertEq(quote.tokensOut, 96_087_352_138_307_552_320_291_173);
+        assertEq(quote.tokensOut, 43_724_915_624_576_880_699_300);
 
         vm.prank(buyer);
         ICooketCurveV3.BuyQuote memory executed = curve.buy{value: 0.1 ether}(quote.tokensOut, block.timestamp);
@@ -79,8 +89,8 @@ contract CooketCurveV3Test is CooketV3TestBase {
         assertEq(feeManager.protocolFeesAccrued(), quote.protocolFee);
         assertEq(feeManager.communityFeesAccrued(), quote.communityFee);
         assertEq(feeManager.traderRewardsFeesAccrued(), quote.traderRewardsFee);
-        assertEq(curve.activeEthReserve(), 99_000_000_000_000_000);
-        assertEq(curve.spotPrice(), 1_132_313_438);
+        assertEq(curve.activeNativeUsdcReserve(), 99_000_000_000_000_000);
+        assertEq(curve.spotPrice(), 2_264_248_128_805);
     }
 
     function testDifferentialAcceptedLaunchVectors() public view {
@@ -96,15 +106,15 @@ contract CooketCurveV3Test is CooketV3TestBase {
             1_000_000_000_000_000_000
         ];
         uint256[9] memory expectedTokens = [
-            uint256(10_559_895_457_034_975_353_743),
-            105_589_546_634_883_146_568_489,
-            1_054_955_593_961_977_642_134_287,
-            10_456_480_839_687_097_732_448_757,
-            50_309_671_272_034_302_048_594_568,
-            96_087_352_138_307_552_320_291_173,
-            211_623_246_492_985_971_943_887_775,
-            353_177_257_525_083_612_040_133_779,
-            530_653_266_331_658_291_457_286_432
+            uint256(4_372_670_789_528_181_856),
+            43_726_706_282_010_798_377,
+            437_266_901_493_071_437_622,
+            4_372_652_882_292_532_216_948,
+            21_862_905_915_593_034_428_486,
+            43_724_915_624_576_880_699_300,
+            109_305_568_062_900_385_985_287,
+            218_588_736_470_164_500_444_008,
+            437_087_901_853_898_401_897_358
         ];
         for (uint256 i; i < grossInputs.length; ++i) {
             ICooketCurveV3.BuyQuote memory quote = curve.quoteBuy(grossInputs[i]);
@@ -118,12 +128,12 @@ contract CooketCurveV3Test is CooketV3TestBase {
         ICooketCurveV3.BuyQuote memory belowQuote = curve.quoteBuy(GRADUATION_GROSS - 1);
         assertFalse(belowQuote.reachesGraduation);
         assertEq(belowQuote.refund, 0);
-        assertEq(belowQuote.netCurveInput, 3 ether - 1);
+        assertEq(belowQuote.netCurveInput, GRADUATION_NATIVE_USDC_RESERVE - 1);
 
         vm.prank(buyer);
         curve.buy{value: GRADUATION_GROSS - 1}(belowQuote.tokensOut, block.timestamp);
         assertFalse(curve.graduated());
-        assertEq(curve.activeEthReserve(), 3 ether - 1);
+        assertEq(curve.activeNativeUsdcReserve(), GRADUATION_NATIVE_USDC_RESERVE - 1);
 
         ICooketCurveV3.BuyQuote memory lastWei = curve.quoteBuy(1);
         assertTrue(lastWei.reachesGraduation);
@@ -132,10 +142,13 @@ contract CooketCurveV3Test is CooketV3TestBase {
         vm.prank(buyer);
         curve.buy{value: 1}(lastWei.tokensOut, block.timestamp);
         assertTrue(curve.graduated());
-        assertEq(curve.activeEthReserve(), 0);
-        assertEq(curve.terminalGraduationReserve(), 3 ether);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
+        assertEq(curve.terminalGraduationReserve(), GRADUATION_NATIVE_USDC_RESERVE);
         assertEq(curve.soldSupply(), CURVE_ALLOCATION);
-        assertEq(curve.spotPrice(), 15_000_000_000);
+        assertEq(curve.spotPrice(), 36_225_000_000_000);
+        uint256 terminalFdv = curve.spotPrice() * 1_000_000_000;
+        assertEq(terminalFdv, 36_225 * NATIVE_USDC_UNIT);
+        assertEq(terminalFdv / GRADUATION_NATIVE_USDC_RESERVE, 5);
     }
 
     function testExactBoundaryGraduatesAndForwardsPrincipal() public {
@@ -143,13 +156,13 @@ contract CooketCurveV3Test is CooketV3TestBase {
         ICooketCurveV3.BuyQuote memory quote = curve.buy{value: GRADUATION_GROSS}(0, block.timestamp);
         assertTrue(quote.reachesGraduation);
         assertEq(quote.refund, 0);
-        assertEq(curve.activeEthReserve(), 0);
-        assertEq(curve.terminalGraduationReserve(), 3 ether);
-        assertEq(curve.graduationEthForwarded(), 3 ether);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
+        assertEq(curve.terminalGraduationReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(curve.graduationNativeUsdcForwarded(), GRADUATION_NATIVE_USDC_RESERVE);
         assertEq(curve.soldSupply(), CURVE_ALLOCATION);
         assertEq(token.balanceOf(buyer), CURVE_ALLOCATION);
         assertEq(token.balanceOf(address(graduationManager)), LP_ALLOCATION);
-        assertEq(address(graduationManager).balance, 3 ether);
+        assertEq(address(graduationManager).balance, GRADUATION_NATIVE_USDC_RESERVE);
         assertEq(address(curve).balance, 0);
         assertEq(graduationManager.calls(), 1);
         assertEq(graduationManager.lastCreator(), creator);
@@ -181,7 +194,7 @@ contract CooketCurveV3Test is CooketV3TestBase {
         assertEq(feeManager.protocolFeesAccrued(), 1);
         assertEq(feeManager.creatorFeesAccrued(address(token)), 0);
         assertEq(feeManager.totalLiabilities(), 1);
-        assertEq(curve.activeEthReserve(), 99);
+        assertEq(curve.activeNativeUsdcReserve(), 99);
     }
 
     function testFeeDesignBExactAllocationAndProtocolRemainder() public view {
@@ -229,24 +242,24 @@ contract CooketCurveV3Test is CooketV3TestBase {
         assertEq(feeManager.communityFeesAccrued(), buyQuote.communityFee + sellQuote.communityFee);
         assertEq(feeManager.traderRewardsFeesAccrued(), buyQuote.traderRewardsFee + sellQuote.traderRewardsFee);
         assertEq(sellQuote.grossCurveOutput, buyQuote.netCurveInput);
-        assertEq(curve.activeEthReserve(), 0);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
         assertEq(curve.soldSupply(), 0);
         assertEq(token.balanceOf(address(curve)), TOTAL_SUPPLY);
     }
 
-    function testTokenAndEthConservationDuringBuyAndSell() public {
+    function testTokenAndNativeUsdcConservationDuringBuyAndSell() public {
         uint256 gross = 0.5 ether;
-        uint256 buyerEthBefore = buyer.balance;
+        uint256 buyerNativeUsdcBefore = buyer.balance;
         uint256 tokensOut = _buy(buyer, curve, gross);
         assertEq(token.balanceOf(address(curve)) + token.balanceOf(buyer), TOTAL_SUPPLY);
-        assertEq(address(curve).balance + address(feeManager).balance + buyer.balance, buyerEthBefore);
+        assertEq(address(curve).balance + address(feeManager).balance + buyer.balance, buyerNativeUsdcBefore);
 
         vm.startPrank(buyer);
         token.approve(address(curve), tokensOut);
         curve.sell(tokensOut, 0, block.timestamp);
         vm.stopPrank();
         assertEq(token.balanceOf(address(curve)), TOTAL_SUPPLY);
-        assertEq(curve.activeEthReserve(), 0);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
         assertEq(address(curve).balance, 0);
     }
 
@@ -273,25 +286,25 @@ contract CooketCurveV3Test is CooketV3TestBase {
 
     function testCompetingFinalGraduationBuysPreserveExactReserve() public {
         address rival = makeAddr("rivalBuyer");
-        vm.deal(rival, 10 ether);
+        vm.deal(rival, 10_000 * NATIVE_USDC_UNIT);
         ICooketCurveV3.BuyQuote memory firstQuote = curve.quoteBuy(GRADUATION_GROSS);
         ICooketCurveV3.BuyQuote memory staleSecondQuote = firstQuote;
 
         vm.prank(buyer);
         curve.buy{value: firstQuote.acceptedGross}(firstQuote.tokensOut, block.timestamp);
         assertTrue(curve.graduated());
-        assertEq(curve.activeEthReserve(), 0);
-        assertEq(curve.terminalGraduationReserve(), 3 ether);
-        assertEq(curve.graduationEthForwarded(), 3 ether);
-        assertEq(address(graduationManager).balance, 3 ether);
+        assertEq(curve.activeNativeUsdcReserve(), 0);
+        assertEq(curve.terminalGraduationReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(curve.graduationNativeUsdcForwarded(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(address(graduationManager).balance, GRADUATION_NATIVE_USDC_RESERVE);
         assertEq(graduationManager.calls(), 1);
 
         vm.prank(rival);
         vm.expectRevert(ICooketCurveV3.TradingClosed.selector);
         curve.buy{value: staleSecondQuote.acceptedGross}(staleSecondQuote.tokensOut, block.timestamp);
-        assertEq(curve.terminalGraduationReserve(), 3 ether);
-        assertEq(curve.graduationEthForwarded(), 3 ether);
-        assertEq(address(graduationManager).balance, 3 ether);
+        assertEq(curve.terminalGraduationReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(curve.graduationNativeUsdcForwarded(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertEq(address(graduationManager).balance, GRADUATION_NATIVE_USDC_RESERVE);
         assertEq(graduationManager.calls(), 1);
         assertEq(token.balanceOf(rival), 0);
     }
@@ -364,8 +377,8 @@ contract CooketCurveV3Test is CooketV3TestBase {
         ICooketCurveV3.BuyQuote memory execution = curve.buy{value: gross}(quote.tokensOut, block.timestamp);
         assertEq(keccak256(abi.encode(quote)), keccak256(abi.encode(execution)));
         assertLe(curve.soldSupply(), CURVE_ALLOCATION);
-        assertLe(curve.activeEthReserve(), 3 ether);
-        assertGe(curve.virtualTokenReserve() * curve.virtualEthReserve(), curve.K());
+        assertLe(curve.activeNativeUsdcReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+        assertGe(curve.virtualTokenReserve() * curve.virtualNativeUsdcReserve(), curve.K());
     }
 
     function testFuzzSellQuoteExecutionParity(uint96 rawGross, uint256 rawTokens) public {
@@ -379,7 +392,7 @@ contract CooketCurveV3Test is CooketV3TestBase {
         vm.stopPrank();
         assertEq(keccak256(abi.encode(quote)), keccak256(abi.encode(execution)));
         assertLe(quote.grossCurveOutput, gross);
-        assertGe(curve.virtualTokenReserve() * curve.virtualEthReserve(), curve.K());
+        assertGe(curve.virtualTokenReserve() * curve.virtualNativeUsdcReserve(), curve.K());
     }
 }
 

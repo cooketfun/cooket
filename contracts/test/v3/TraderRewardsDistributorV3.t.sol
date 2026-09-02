@@ -24,17 +24,17 @@ contract TraderRewardsDistributorV3Test is CooketV3TestBase {
         rewardsVault.depositNative{value: 1}(address(token));
         vm.prank(buyer);
         vm.expectRevert(ITraderRewardsVaultV3.UnauthorizedFundingSource.selector);
-        rewardsVault.recordERC20Funding(address(token), address(weth), 1);
+        rewardsVault.recordERC20Funding(address(token), address(canonicalUsdc), 1);
         vm.prank(address(lpFeeVault));
         vm.expectRevert(
             abi.encodeWithSelector(
-                ITraderRewardsVaultV3.InsufficientBacking.selector, address(weth), uint256(0), uint256(1)
+                ITraderRewardsVaultV3.InsufficientBacking.selector, address(canonicalUsdc), uint256(0), uint256(1)
             )
         );
-        rewardsVault.recordERC20Funding(address(token), address(weth), 1);
+        rewardsVault.recordERC20Funding(address(token), address(canonicalUsdc), 1);
 
         (bool ok,) = address(rewardsVault)
-            .call(abi.encodeWithSignature("withdraw(address,address,uint256)", buyer, address(weth), 1));
+            .call(abi.encodeWithSignature("withdraw(address,address,uint256)", buyer, address(canonicalUsdc), 1));
         assertFalse(ok);
     }
 
@@ -84,7 +84,7 @@ contract TraderRewardsDistributorV3Test is CooketV3TestBase {
         rewardsDistributor.claim(7, buyer, address(0), 1 ether, emptyProof);
         vm.prank(buyer);
         vm.expectRevert(ITraderRewardsDistributorV3.DistributionNotPublished.selector);
-        rewardsDistributor.claim(7, address(token), address(weth), 1 ether, emptyProof);
+        rewardsDistributor.claim(7, address(token), address(canonicalUsdc), 1 ether, emptyProof);
         vm.prank(claimantTwo);
         vm.expectRevert(ITraderRewardsDistributorV3.InvalidMerkleProof.selector);
         rewardsDistributor.claim(7, address(token), address(0), 1 ether, emptyProof);
@@ -177,22 +177,25 @@ contract TraderRewardsDistributorV3Test is CooketV3TestBase {
     }
 
     function testERC20RewardClaimAndOnlyDistributorPayout() public {
-        uint256 amount = 2 ether;
-        weth.mint(address(rewardsVault), amount);
+        uint256 amount = 2_000_000;
+        canonicalUsdc.mint(address(rewardsVault), amount);
         vm.prank(address(lpFeeVault));
-        rewardsVault.recordERC20Funding(address(token), address(weth), amount);
+        rewardsVault.recordERC20Funding(address(token), address(canonicalUsdc), amount);
         vm.prank(buyer);
         vm.expectRevert(ITraderRewardsVaultV3.UnauthorizedDistributor.selector);
-        rewardsVault.payout(address(token), address(weth), buyer, amount);
+        rewardsVault.payout(address(token), address(canonicalUsdc), buyer, amount);
 
-        bytes32 id = rewardsDistributor.distributionId(3, address(token), address(weth));
-        rewardsDistributor.publishRoot(3, address(token), address(weth), rewardsDistributor.leafHash(id, buyer, amount));
+        bytes32 id = rewardsDistributor.distributionId(3, address(token), address(canonicalUsdc));
+        rewardsDistributor.publishRoot(
+            3, address(token), address(canonicalUsdc), rewardsDistributor.leafHash(id, buyer, amount)
+        );
         bytes32[] memory proof = new bytes32[](0);
+        uint256 buyerUsdcBefore = canonicalUsdc.balanceOf(buyer);
         vm.prank(buyer);
-        rewardsDistributor.claim(3, address(token), address(weth), amount, proof);
-        assertEq(weth.balanceOf(buyer), amount);
-        assertEq(rewardsVault.accrued(address(token), address(weth)), 0);
-        assertEq(rewardsVault.totalAccrued(address(weth)), 0);
+        rewardsDistributor.claim(3, address(token), address(canonicalUsdc), amount, proof);
+        assertEq(canonicalUsdc.balanceOf(buyer) - buyerUsdcBefore, amount);
+        assertEq(rewardsVault.accrued(address(token), address(canonicalUsdc)), 0);
+        assertEq(rewardsVault.totalAccrued(address(canonicalUsdc)), 0);
     }
 
     function _hashPair(bytes32 a, bytes32 b) private pure returns (bytes32) {

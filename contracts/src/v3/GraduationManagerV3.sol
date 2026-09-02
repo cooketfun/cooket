@@ -12,6 +12,7 @@ import {IPermanentResidualEscrowV3} from "./interfaces/IPermanentResidualEscrowV
 import {IGraduationSettlementExecutorV3} from "./interfaces/IGraduationSettlementExecutorV3.sol";
 import {IUniswapV3PoolMinimal} from "./interfaces/uniswap/IUniswapV3PoolMinimal.sol";
 import {EndpointConstantsV3} from "./libraries/EndpointConstantsV3.sol";
+import {ArcNativeUsdcV3} from "./libraries/ArcNativeUsdcV3.sol";
 import {PermanentResidualEscrowV3} from "./PermanentResidualEscrowV3.sol";
 
 /// @notice One-shot canonical endpoint settlement; dependencies are bootstrap-bound once after factory binding.
@@ -32,13 +33,7 @@ contract GraduationManagerV3 is GraduationManagerV3Boundary, ReentrancyGuard {
     error InvalidDependency();
     error SettlementMismatch();
 
-    // Integer LiquidityAmounts results for the immutable nominal 200M/3 ETH
-    // inputs at the approved terminal sqrt price and full-range ticks.
-    uint256 private constant FULL_RANGE_TOKEN_USED = 199_999_999_999_999_999_999_999_968;
-    uint256 private constant FULL_RANGE_TOKEN_USED_TOKEN0 = 199_999_999_999_999_999_999_999_977;
-    uint256 private constant FULL_RANGE_WETH_USED = 2_999_999_999_999_998_668;
-
-    constructor(address uniswapFactory_, address weth_) GraduationManagerV3Boundary(uniswapFactory_, weth_) {
+    constructor(address uniswapFactory_) GraduationManagerV3Boundary(uniswapFactory_) {
         dependencyBootstrapAuthority = msg.sender;
     }
 
@@ -57,17 +52,16 @@ contract GraduationManagerV3 is GraduationManagerV3Boundary, ReentrancyGuard {
             executor == address(0) || executor.code.length == 0
                 || IGraduationSettlementExecutorV3(executor).graduationManager() != address(this)
                 || IGraduationSettlementExecutorV3(executor).nonfungiblePositionManager() != positionManager
-                || IGraduationSettlementExecutorV3(executor).weth() != weth
+                || IGraduationSettlementExecutorV3(executor).canonicalUsdc() != canonicalUsdc
         ) revert InvalidDependency();
         if (
             IPermanentLPFeeVaultV3(vault).factory() != factory
                 || IPermanentLPFeeVaultV3(vault).graduationManager() != address(this)
-                || IPermanentLPFeeVaultV3(vault).weth() != weth
+                || IPermanentLPFeeVaultV3(vault).canonicalUsdc() != canonicalUsdc
                 || IPermanentLPCustodianDeployerV3(deployer).feeVault() != vault
                 || IPermanentLPCustodianDeployerV3(deployer).graduationManager() != address(this)
                 || IPermanentLPCustodianDeployerV3(deployer).nonfungiblePositionManager() != positionManager
                 || INonfungiblePositionManagerV3(positionManager).factory() != uniswapV3Factory
-                || INonfungiblePositionManagerV3(positionManager).WETH9() != weth
         ) revert InvalidDependency();
         if (IPermanentLPFeeVaultV3(vault).permanentLPCustodianDeployer() != address(0)) {
             revert InvalidDependency();
@@ -83,7 +77,7 @@ contract GraduationManagerV3 is GraduationManagerV3Boundary, ReentrancyGuard {
         emit DependenciesBound(vault, deployer, positionManager);
     }
 
-    function graduate(address token, address creator, uint256 tokenAmount, uint256 ethAmount)
+    function graduate(address token, address creator, uint256 tokenAmount, uint256 nativeUsdcAmount)
         external
         payable
         override
@@ -92,34 +86,53 @@ contract GraduationManagerV3 is GraduationManagerV3Boundary, ReentrancyGuard {
         if (permanentLPFeeVault == address(0)) revert DependenciesNotBound();
         _authorizeGraduation(token, creator);
         if (
-            settled[token] || msg.value != ethAmount || tokenAmount != EndpointConstantsV3.LP_ALLOCATION
-                || ethAmount != EndpointConstantsV3.GRADUATION_RESERVE
+            settled[token] || msg.value != nativeUsdcAmount || tokenAmount != EndpointConstantsV3.LP_ALLOCATION
+                || nativeUsdcAmount != EndpointConstantsV3.GRADUATION_NATIVE_USDC_RESERVE
                 || IERC20(token).balanceOf(address(this)) != tokenAmount
         ) revert SettlementMismatch();
         address pool = canonicalPoolOf[token];
         (uint160 sqrtPriceX96,,,,,,) = IUniswapV3PoolMinimal(pool).slot0();
         uint160 expectedSqrtPriceX96 = expectedSqrtPriceX96(token);
         if (sqrtPriceX96 != expectedSqrtPriceX96) revert SettlementMismatch();
-        address custodian = IPermanentLPCustodianDeployerV3(permanentLPCustodianDeployer).custodianOf(token);
-        if (custodian == address(0)) {
-            custodian = IPermanentLPCustodianDeployerV3(permanentLPCustodianDeployer).deployCustodian(token);
-        }
-        PermanentResidualEscrowV3 residualEscrow = new PermanentResidualEscrowV3(token, address(this), weth);
-        residualEscrowOf[token] = address(residualEscrow);
-        IERC20(token).safeTransfer(settlementExecutor, tokenAmount);
-        (uint256 id, uint128 liquidity,,, uint256 tokenResidual, uint256 wethResidual) = IGraduationSettlementExecutorV3(
-            settlementExecutor
-        )
-        .execute{value: ethAmount}(
-            token, custodian, tokenAmount, ethAmount, address(residualEscrow)
-        );
-        if (tokenResidual != 0) IPermanentResidualEscrowV3(address(residualEscrow)).deposit(token, tokenResidual);
-        if (wethResidual != 0) IPermanentResidualEscrowV3(address(residualEscrow)).deposit(weth, wethResidual);
-        if (IERC20(token).balanceOf(address(this)) != 0 || IERC20(weth).balanceOf(address(this)) != 0) {
-            revert SettlementMismatch();
-        }
+        (address custodian, uint256 id, uint128 liquidity) = _settle(token, tokenAmount, nativeUsdcAmount);
         IPermanentLPCustodianV3(custodian).bindPosition(id);
         settled[token] = true;
         emit GraduatedV3(token, custodian, id, liquidity);
+    }
+
+    function _settle(address token, uint256 tokenAmount, uint256 nativeUsdcAmount)
+        private
+        returns (address custodian, uint256 id, uint128 liquidity)
+    {
+        custodian = IPermanentLPCustodianDeployerV3(permanentLPCustodianDeployer).custodianOf(token);
+        if (custodian == address(0)) {
+            custodian = IPermanentLPCustodianDeployerV3(permanentLPCustodianDeployer).deployCustodian(token);
+        }
+        PermanentResidualEscrowV3 residualEscrow =
+            new PermanentResidualEscrowV3(token, address(this), settlementExecutor);
+        residualEscrowOf[token] = address(residualEscrow);
+        IERC20(token).safeTransfer(settlementExecutor, tokenAmount);
+        uint256 managerNativeBalanceBefore = address(this).balance;
+        IGraduationSettlementExecutorV3.SettlementResult memory result = IGraduationSettlementExecutorV3(
+            settlementExecutor
+        )
+        .execute{value: nativeUsdcAmount}(
+            token, custodian, tokenAmount, nativeUsdcAmount, address(residualEscrow)
+        );
+        id = result.tokenId;
+        liquidity = result.liquidity;
+        if (result.tokenResidual != 0) {
+            IPermanentResidualEscrowV3(address(residualEscrow)).deposit(token, result.tokenResidual);
+        }
+        if (result.usdcResidual6 != 0) {
+            IPermanentResidualEscrowV3(address(residualEscrow)).deposit(canonicalUsdc, result.usdcResidual6);
+        }
+        if (
+            result.nativeUsdcDust18 != 0 || IERC20(token).balanceOf(address(this)) != 0
+                || address(this).balance != managerNativeBalanceBefore - nativeUsdcAmount
+                || ArcNativeUsdcV3.nativeUsdcToUsdc6Exact(nativeUsdcAmount) != 7_245_000_000
+        ) {
+            revert SettlementMismatch();
+        }
     }
 }

@@ -10,6 +10,7 @@ import {CooketTokenV3} from "./CooketTokenV3.sol";
 /// cryptographically random 32-byte salts and replace a salt after public failure.
 contract TokenDeployerV3 is ITokenDeployerV3 {
     bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("endpoint-cp-v3");
+    bytes32 public constant ARC_PROTOCOL_DOMAIN = keccak256("COOKET_ARC_V1");
     uint16 public constant MAX_CANDIDATES = 256;
 
     address public immutable override factory;
@@ -74,7 +75,7 @@ contract TokenDeployerV3 is ITokenDeployerV3 {
     {
         return keccak256(
             abi.encode(
-                PROTOCOL_VERSION_HASH,
+                ARC_PROTOCOL_DOMAIN,
                 block.chainid,
                 factory,
                 creator,
@@ -98,8 +99,9 @@ contract TokenDeployerV3 is ITokenDeployerV3 {
         view
         returns (bytes32 initCodeHash)
     {
-        initCodeHash =
-            keccak256(abi.encodePacked(type(CooketTokenV3).creationCode, abi.encode(factory, creator, name, symbol)));
+        initCodeHash = keccak256(
+            abi.encodePacked(type(CooketTokenV3).creationCode, abi.encode(factory, creator, name, symbol))
+        );
     }
 
     function _selectCandidate(bytes32 launchSeed, bytes32 initCodeHash)

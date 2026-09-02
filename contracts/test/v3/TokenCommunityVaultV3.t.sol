@@ -22,7 +22,7 @@ contract TokenCommunityVaultV3Test is CooketV3TestBase {
         assertEq(communityVault.protocolVersionHash(), keccak256("endpoint-cp-v3"));
         assertEq(communityVault.feePolicyHash(), keccak256("cooket-fee-design-b-v3"));
         (bool ok,) = address(communityVault)
-            .call(abi.encodeWithSignature("withdraw(address,address,uint256)", buyer, address(weth), 1));
+            .call(abi.encodeWithSignature("withdraw(address,address,uint256)", buyer, address(canonicalUsdc), 1));
         assertFalse(ok);
     }
 
@@ -41,36 +41,37 @@ contract TokenCommunityVaultV3Test is CooketV3TestBase {
     }
 
     function testERC20FundingRequiresCanonicalLPVaultAndExactBacking() public {
+        uint256 usdcAmount6 = 1_000_000;
         vm.expectRevert(ITokenCommunityVaultV3.UnauthorizedFundingSource.selector);
-        communityVault.recordERC20Funding(address(token), address(weth), 1 ether);
+        communityVault.recordERC20Funding(address(token), address(canonicalUsdc), usdcAmount6);
 
         vm.prank(address(lpFeeVault));
         vm.expectRevert(
             abi.encodeWithSelector(
-                ITokenCommunityVaultV3.InsufficientBacking.selector, address(weth), uint256(0), uint256(1 ether)
+                ITokenCommunityVaultV3.InsufficientBacking.selector, address(canonicalUsdc), uint256(0), usdcAmount6
             )
         );
-        communityVault.recordERC20Funding(address(token), address(weth), 1 ether);
+        communityVault.recordERC20Funding(address(token), address(canonicalUsdc), usdcAmount6);
 
-        weth.mint(address(communityVault), 1 ether);
+        canonicalUsdc.mint(address(communityVault), usdcAmount6);
         vm.prank(address(lpFeeVault));
-        communityVault.recordERC20Funding(address(token), address(weth), 1 ether);
+        communityVault.recordERC20Funding(address(token), address(canonicalUsdc), usdcAmount6);
         vm.prank(address(curve));
         assertTrue(token.transfer(address(communityVault), 2 ether));
         vm.prank(address(lpFeeVault));
         communityVault.recordERC20Funding(address(token), address(token), 2 ether);
 
-        assertEq(communityVault.accrued(address(token), address(weth)), 1 ether);
+        assertEq(communityVault.accrued(address(token), address(canonicalUsdc)), usdcAmount6);
         assertEq(communityVault.accrued(address(token), address(token)), 2 ether);
-        assertEq(communityVault.totalAccrued(address(weth)), 1 ether);
+        assertEq(communityVault.totalAccrued(address(canonicalUsdc)), usdcAmount6);
         assertEq(communityVault.totalAccrued(address(token)), 2 ether);
 
-        uint256 treasuryWethBefore = weth.balanceOf(treasury);
+        uint256 treasuryUsdcBefore = canonicalUsdc.balanceOf(treasury);
         vm.prank(buyer);
-        communityVault.forwardToTreasury(address(token), address(weth));
-        assertEq(weth.balanceOf(treasury) - treasuryWethBefore, 1 ether);
-        assertEq(communityVault.accrued(address(token), address(weth)), 0);
-        assertEq(communityVault.totalAccrued(address(weth)), 0);
+        communityVault.forwardToTreasury(address(token), address(canonicalUsdc));
+        assertEq(canonicalUsdc.balanceOf(treasury) - treasuryUsdcBefore, usdcAmount6);
+        assertEq(communityVault.accrued(address(token), address(canonicalUsdc)), 0);
+        assertEq(communityVault.totalAccrued(address(canonicalUsdc)), 0);
     }
 
     function testCommunityTreasuryLifecycleAndPermissionlessForwardingCannotRedirect() public {

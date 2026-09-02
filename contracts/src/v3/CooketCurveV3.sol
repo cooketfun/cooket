@@ -11,8 +11,8 @@ import {IGraduationManagerV3} from "./interfaces/IGraduationManagerV3.sol";
 import {ICooketCurveV3} from "./interfaces/ICooketCurveV3.sol";
 
 /// @notice One-token endpoint-cp-v3 shifted constant-product curve.
-/// @dev Buy token output and sell ETH output round down. The invariant's
-/// post-trade virtual ETH coordinate rounds up with ceil(K / x).
+/// @dev Buy token output and sell native-USDC output round down. The invariant's
+/// post-trade virtual native-USDC coordinate rounds up with ceil(K / x).
 contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -21,14 +21,14 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
     uint256 public constant CURVE_ALLOCATION = EndpointConstantsV3.CURVE_ALLOCATION;
     uint256 public constant LP_ALLOCATION = EndpointConstantsV3.LP_ALLOCATION;
     uint256 public constant VIRTUAL_TOKEN_RESERVE = EndpointConstantsV3.VIRTUAL_TOKEN_RESERVE;
-    uint256 public constant VIRTUAL_ETH_RESERVE = EndpointConstantsV3.VIRTUAL_ETH_RESERVE;
-    uint256 public constant GRADUATION_RESERVE = EndpointConstantsV3.GRADUATION_RESERVE;
+    uint256 public constant VIRTUAL_NATIVE_USDC_RESERVE = EndpointConstantsV3.VIRTUAL_NATIVE_USDC_RESERVE;
+    uint256 public constant GRADUATION_NATIVE_USDC_RESERVE = EndpointConstantsV3.GRADUATION_NATIVE_USDC_RESERVE;
     uint256 public constant K = EndpointConstantsV3.K;
     uint256 public constant FEE_DENOMINATOR = EndpointConstantsV3.FEE_DENOMINATOR;
     uint256 public constant TOTAL_FEE_BPS = EndpointConstantsV3.TOTAL_FEE_BPS;
-    uint256 public constant INITIAL_PRICE = EndpointConstantsV3.INITIAL_PRICE;
-    uint256 public constant TERMINAL_PRICE = EndpointConstantsV3.TERMINAL_PRICE;
-    uint256 public constant EXACT_GRADUATION_GROSS = EndpointConstantsV3.EXACT_GRADUATION_GROSS;
+    uint256 public constant INITIAL_NATIVE_USDC_PRICE = EndpointConstantsV3.INITIAL_NATIVE_USDC_PRICE;
+    uint256 public constant TERMINAL_NATIVE_USDC_PRICE = EndpointConstantsV3.TERMINAL_NATIVE_USDC_PRICE;
+    uint256 public constant EXACT_GRADUATION_GROSS_NATIVE_USDC = EndpointConstantsV3.EXACT_GRADUATION_GROSS_NATIVE_USDC;
 
     address public immutable factory;
     address public immutable token;
@@ -37,14 +37,14 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
     IGraduationManagerV3 public immutable graduationManager;
 
     uint256 public soldSupply;
-    /// @notice Net ETH principal presently held for active curve redemptions.
+    /// @notice Net native-USDC principal presently held for active curve redemptions.
     /// This becomes zero when graduation principal is forwarded atomically.
-    uint256 public override activeEthReserve;
+    uint256 public override activeNativeUsdcReserve;
     /// @notice Final economic reserve coordinate retained for terminal pricing.
-    /// This is not an assertion that the curve still holds the ETH.
+    /// This is not an assertion that the curve still holds the native USDC.
     uint256 public override terminalGraduationReserve;
-    /// @notice Native ETH principal actually forwarded to the manager.
-    uint256 public override graduationEthForwarded;
+    /// @notice Native-USDC principal actually forwarded to the manager.
+    uint256 public override graduationNativeUsdcForwarded;
     bool public graduated;
 
     constructor(address factory_, address token_, address creator_, address feeManager_, address graduationManager_) {
@@ -66,7 +66,7 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
         if (grossInput == 0) revert InvalidAmount();
         if (graduated) revert TradingClosed();
 
-        uint256 netNeeded = GRADUATION_RESERVE - activeEthReserve;
+        uint256 netNeeded = GRADUATION_NATIVE_USDC_RESERVE - activeNativeUsdcReserve;
         FeeSplit memory submittedFees = splitFee(grossInput);
         uint256 submittedNet = grossInput - submittedFees.totalFee;
         quote.submittedGross = grossInput;
@@ -80,14 +80,14 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
         quote.netCurveInput = quote.acceptedGross - fees.totalFee;
         quote.refund = grossInput - quote.acceptedGross;
 
-        uint256 postReserve = activeEthReserve + quote.netCurveInput;
-        if (postReserve > GRADUATION_RESERVE) revert GraduationAccountingMismatch();
-        quote.reachesGraduation = postReserve == GRADUATION_RESERVE;
+        uint256 postReserve = activeNativeUsdcReserve + quote.netCurveInput;
+        if (postReserve > GRADUATION_NATIVE_USDC_RESERVE) revert GraduationAccountingMismatch();
+        quote.reachesGraduation = postReserve == GRADUATION_NATIVE_USDC_RESERVE;
         uint256 remainingInventory = CURVE_ALLOCATION - soldSupply;
         if (quote.reachesGraduation) {
             quote.tokensOut = remainingInventory;
         } else {
-            uint256 postVirtualTokens = _ceilDiv(K, VIRTUAL_ETH_RESERVE + postReserve);
+            uint256 postVirtualTokens = _ceilDiv(K, VIRTUAL_NATIVE_USDC_RESERVE + postReserve);
             quote.tokensOut = virtualTokenReserve() - postVirtualTokens;
         }
         if (quote.tokensOut == 0) revert DustTrade();
@@ -99,11 +99,11 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
         if (tokensIn == 0 || tokensIn > soldSupply) revert InvalidAmount();
 
         uint256 postSold = soldSupply - tokensIn;
-        uint256 postVirtualEth = _ceilDiv(K, VIRTUAL_TOKEN_RESERVE - postSold);
+        uint256 postVirtualNativeUsdc = _ceilDiv(K, VIRTUAL_TOKEN_RESERVE - postSold);
         quote.tokensIn = tokensIn;
-        quote.grossCurveOutput = virtualEthReserve() - postVirtualEth;
+        quote.grossCurveOutput = virtualNativeUsdcReserve() - postVirtualNativeUsdc;
         if (quote.grossCurveOutput == 0) revert DustTrade();
-        if (quote.grossCurveOutput > activeEthReserve) revert InsufficientReserve();
+        if (quote.grossCurveOutput > activeNativeUsdcReserve) revert InsufficientReserve();
         FeeSplit memory fees = splitFee(quote.grossCurveOutput);
         quote.totalFee = fees.totalFee;
         quote.creatorFee = fees.creatorFee;
@@ -125,8 +125,8 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
         if (quote.tokensOut < minTokensOut) revert SlippageExceeded();
 
         soldSupply += quote.tokensOut;
-        activeEthReserve += quote.netCurveInput;
-        if (soldSupply > CURVE_ALLOCATION || activeEthReserve > GRADUATION_RESERVE) {
+        activeNativeUsdcReserve += quote.netCurveInput;
+        if (soldSupply > CURVE_ALLOCATION || activeNativeUsdcReserve > GRADUATION_NATIVE_USDC_RESERVE) {
             revert GraduationAccountingMismatch();
         }
         if (quote.reachesGraduation) graduated = true;
@@ -155,7 +155,7 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
         );
     }
 
-    function sell(uint256 tokensIn, uint256 minEthOut, uint256 deadline)
+    function sell(uint256 tokensIn, uint256 minNativeUsdcOut, uint256 deadline)
         external
         override
         nonReentrant
@@ -163,10 +163,10 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
     {
         if (block.timestamp > deadline) revert DeadlineExpired();
         quote = quoteSell(tokensIn);
-        if (quote.netSellerOutput < minEthOut) revert SlippageExceeded();
+        if (quote.netSellerOutput < minNativeUsdcOut) revert SlippageExceeded();
 
         soldSupply -= tokensIn;
-        activeEthReserve -= quote.grossCurveOutput;
+        activeNativeUsdcReserve -= quote.grossCurveOutput;
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokensIn);
         feeManager.depositFees{value: quote.totalFee}(
             token,
@@ -194,28 +194,30 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
     }
 
     function spotPrice() public view override returns (uint256) {
-        return Math.mulDiv(virtualEthReserve(), 1 ether, virtualTokenReserve(), Math.Rounding.Ceil);
+        return Math.mulDiv(
+            virtualNativeUsdcReserve(), EndpointConstantsV3.TOKEN_UNIT, virtualTokenReserve(), Math.Rounding.Ceil
+        );
     }
 
     function virtualTokenReserve() public view override returns (uint256) {
         return VIRTUAL_TOKEN_RESERVE - soldSupply;
     }
 
-    function virtualEthReserve() public view override returns (uint256) {
-        return VIRTUAL_ETH_RESERVE + reserveCoordinate();
+    function virtualNativeUsdcReserve() public view override returns (uint256) {
+        return VIRTUAL_NATIVE_USDC_RESERVE + reserveCoordinate();
     }
 
     /// @notice Economic reserve coordinate used for price reporting. Before
     /// graduation this is redeemable active reserve; afterwards it is the
-    /// terminal coordinate whose ETH has already been forwarded.
+    /// terminal coordinate whose native USDC has already been forwarded.
     function reserveCoordinate() public view override returns (uint256) {
-        return graduated ? terminalGraduationReserve : activeEthReserve;
+        return graduated ? terminalGraduationReserve : activeNativeUsdcReserve;
     }
 
-    /// @notice ETH present beyond the active redemption reserve, including
-    /// forced ETH. It is excluded from all curve quotes and spot-price math.
-    function unaccountedEth() public view override returns (uint256) {
-        uint256 accounted = activeEthReserve;
+    /// @notice Native USDC present beyond the active redemption reserve, including
+    /// forced native value. It is excluded from all curve quotes and spot-price math.
+    function unaccountedNativeUsdc() public view override returns (uint256) {
+        uint256 accounted = activeNativeUsdcReserve;
         uint256 balance = address(this).balance;
         return balance > accounted ? balance - accounted : 0;
     }
@@ -249,19 +251,19 @@ contract CooketCurveV3 is ICooketCurveV3, ReentrancyGuard {
     }
 
     receive() external payable {
-        revert UnexpectedEther();
+        revert UnexpectedNativeUsdc();
     }
 
     function _graduate() private {
         if (
-            soldSupply != CURVE_ALLOCATION || activeEthReserve != GRADUATION_RESERVE
+            soldSupply != CURVE_ALLOCATION || activeNativeUsdcReserve != GRADUATION_NATIVE_USDC_RESERVE
                 || IERC20(token).balanceOf(address(this)) != LP_ALLOCATION
         ) revert GraduationAccountingMismatch();
 
-        uint256 reserveToForward = activeEthReserve;
+        uint256 reserveToForward = activeNativeUsdcReserve;
         terminalGraduationReserve = reserveToForward;
-        graduationEthForwarded = reserveToForward;
-        activeEthReserve = 0;
+        graduationNativeUsdcForwarded = reserveToForward;
+        activeNativeUsdcReserve = 0;
         IERC20(token).safeTransfer(address(graduationManager), LP_ALLOCATION);
         graduationManager.graduate{value: reserveToForward}(token, creator, LP_ALLOCATION, reserveToForward);
         emit GraduationReserveForwarded(terminalGraduationReserve, reserveToForward);

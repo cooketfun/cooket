@@ -97,10 +97,10 @@ contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
         (address registeredCreator, address registeredCurve) = ICooketFactoryV3(factory).tokenInfo(token);
         if (
             !ICooketFactoryV3(factory).isToken(token) || ICooketFactoryV3(factory).curveOf(token) != curve
-                || registeredCurve != curve || registeredCreator != creator || ICooketCurveV3(curve).factory() != factory
-                || ICooketCurveV3(curve).token() != token || ICooketCurveV3(curve).creator() != creator
-                || ICooketTokenV3(token).factory() != factory || ICooketTokenV3(token).creator() != creator
-                || !ICooketTokenV3(token).initialized()
+                || registeredCurve != curve || registeredCreator != creator
+                || ICooketCurveV3(curve).factory() != factory || ICooketCurveV3(curve).token() != token
+                || ICooketCurveV3(curve).creator() != creator || ICooketTokenV3(token).factory() != factory
+                || ICooketTokenV3(token).creator() != creator || !ICooketTokenV3(token).initialized()
         ) revert TokenRelationshipMismatch();
         curveOf[token] = curve;
         creatorOf[token] = creator;

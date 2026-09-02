@@ -16,17 +16,18 @@ import {ITraderRewardsVaultV3} from "./interfaces/ITraderRewardsVaultV3.sol";
 import {ICooketFactoryV3} from "./interfaces/ICooketFactoryV3.sol";
 import {CanonicalPositionV3} from "./libraries/CanonicalPositionV3.sol";
 import {EndpointConstantsV3} from "./libraries/EndpointConstantsV3.sol";
+import {ArcNativeUsdcV3} from "./libraries/ArcNativeUsdcV3.sol";
 
 /// @notice Immutable, asset-backed custody of fees earned only by canonical permanent LP NFTs.
 contract PermanentLPFeeVaultV3 is IPermanentLPFeeVaultV3, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("endpoint-cp-v3-custody-2b1a");
+    bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("COOKET_ARC_V1_CUSTODY");
 
     address public immutable override factory;
     address public immutable override feeManager;
     address public immutable override graduationManager;
-    address public immutable override weth;
+    address public constant override canonicalUsdc = ArcNativeUsdcV3.CANONICAL_USDC;
     address public immutable override communityVault;
     address public immutable override traderRewardsVault;
     address public override permanentLPCustodianDeployer;
@@ -50,9 +51,9 @@ contract PermanentLPFeeVaultV3 is IPermanentLPFeeVaultV3, ReentrancyGuard {
         IGraduationManagerV3 manager = IGraduationManagerV3(graduationManager_);
         IFeeManagerV3 fees = IFeeManagerV3(feeManager_);
         address factory_ = manager.factory();
-        address weth_ = manager.weth();
         if (
-            factory_ == address(0) || factory_.code.length == 0 || weth_ == address(0) || weth_.code.length == 0
+            factory_ == address(0) || factory_.code.length == 0 || canonicalUsdc.code.length == 0
+                || manager.canonicalUsdc() != canonicalUsdc
                 || manager.protocolVersionHash() != keccak256("endpoint-cp-v3")
                 || fees.protocolVersionHash() != keccak256("endpoint-cp-v3") || fees.factory() != factory_
                 || address(ICooketFactoryV3(factory_).graduationManager()) != graduationManager_
@@ -72,7 +73,6 @@ contract PermanentLPFeeVaultV3 is IPermanentLPFeeVaultV3, ReentrancyGuard {
         factory = factory_;
         feeManager = feeManager_;
         graduationManager = graduationManager_;
-        weth = weth_;
         communityVault = communityVault_;
         traderRewardsVault = traderRewardsVault_;
         custodianDeployerBootstrapAuthority = graduationManager_;
@@ -98,10 +98,10 @@ contract PermanentLPFeeVaultV3 is IPermanentLPFeeVaultV3, ReentrancyGuard {
             custodyDeployer.protocolVersionHash() != PROTOCOL_VERSION_HASH
                 || custodyDeployer.feeVault() != address(this)
                 || custodyDeployer.graduationManager() != graduationManager || custodyDeployer.factory() != factory
-                || custodyDeployer.weth() != weth || positionManager == address(0) || positionManager.code.length == 0
+                || custodyDeployer.canonicalUsdc() != canonicalUsdc || positionManager == address(0)
+                || positionManager.code.length == 0
                 || INonfungiblePositionManagerV3(positionManager).factory()
                     != IGraduationManagerV3(graduationManager).uniswapV3Factory()
-                || INonfungiblePositionManagerV3(positionManager).WETH9() != weth
         ) revert InvalidCustodianDeployer();
         permanentLPCustodianDeployer = deployer;
         custodianDeployerBootstrapAuthority = address(0);
@@ -119,7 +119,7 @@ contract PermanentLPFeeVaultV3 is IPermanentLPFeeVaultV3, ReentrancyGuard {
         if (
             custodian.protocolVersionHash() != PROTOCOL_VERSION_HASH || !custodian.positionRegistered()
                 || custodian.launchToken() != launchToken || custodian.feeVault() != address(this)
-                || custodian.weth() != weth || custodian.canonicalFactory() != factory
+                || custodian.canonicalUsdc() != canonicalUsdc || custodian.canonicalFactory() != factory
                 || custodian.graduationManager() != graduationManager
                 || custodian.nonfungiblePositionManager() != custodyDeployer.nonfungiblePositionManager()
         ) revert UnauthorizedPermanentCustodian();
@@ -134,7 +134,8 @@ contract PermanentLPFeeVaultV3 is IPermanentLPFeeVaultV3, ReentrancyGuard {
                 || creator == address(0) || IFeeManagerV3(feeManager).curveOf(launchToken) != curve
                 || IFeeManagerV3(feeManager).creatorOf(launchToken) != creator
         ) revert UnauthorizedPermanentCustodian();
-        (address token0, address token1) = launchToken < weth ? (launchToken, weth) : (weth, launchToken);
+        (address token0, address token1) =
+            launchToken < canonicalUsdc ? (launchToken, canonicalUsdc) : (canonicalUsdc, launchToken);
         if (!CanonicalPositionV3.isCanonicalFullRangePosition(
                 custodian.nonfungiblePositionManager(), custodian.positionTokenId(), token0, token1
             )) {

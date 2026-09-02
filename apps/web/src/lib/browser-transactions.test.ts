@@ -63,12 +63,12 @@ describe("Arc Testnet curve reads", () => {
     await expect(readCurveAvailability(token)).rejects.toThrow(/no curve bytecode exists.*Arc Testnet/i);
   });
 
-  it("loads inherited curve state without reinterpreting its field names", async () => {
+  it("loads native-USDC curve state without reinterpreting its units", async () => {
     contractAddresses.cooketCurve = curve;
     const balance = vi.spyOn(publicClient, "getBalance");
     vi.spyOn(publicClient, "readContract").mockImplementation(async (request) => {
       if (request.functionName === "soldSupply") return BigInt(12);
-      if (request.functionName === "activeEthReserve") return BigInt(34);
+      if (request.functionName === "activeNativeUsdcReserve") return BigInt(34);
       if (request.functionName === "graduated") return false;
       if (request.functionName === "decimals") return 18;
       throw new Error(`wallet-dependent read attempted: ${request.functionName}`);

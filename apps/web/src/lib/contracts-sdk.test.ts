@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, getAddress, type Hex } from "viem";
 import {
+  computeArcCandidateSalt,
+  computeArcLaunchSeed,
+  computeArcTokenInitCodeHash,
   encodeBuy,
   encodeCreateToken,
   encodeSell,
@@ -9,6 +12,7 @@ import {
   minOutputWithSlippage,
   parseTokenLaunchedReceipt,
   parseTradeReceipt,
+  predictArcTokenAddress,
   cooketCurveAbi,
   cooketFactoryAbi,
 } from "@cooket/contracts-sdk";
@@ -42,6 +46,30 @@ describe("factory SDK", () => {
   it("rejects malformed and reverted creation receipts", () => {
     expect(() => parseTokenLaunchedReceipt({ status: "success", logs: [] }, factory)).toThrow(/exactly one/);
     expect(() => parseTokenLaunchedReceipt({ status: "reverted", logs: [] }, factory)).toThrow(/reverted/);
+  });
+
+  it("matches the Solidity COOKET_ARC_V1 CREATE2 parity vector", () => {
+    const vectorFactory = "0x1111111111111111111111111111111111111111";
+    const vectorCreator = "0x2222222222222222222222222222222222222222";
+    const vectorDeployer = "0x3333333333333333333333333333333333333333";
+    const userSalt = `0x${"01".repeat(32)}` as Hex;
+    const launchSeed = computeArcLaunchSeed(vectorFactory, vectorCreator, userSalt, "Arc Parity", "ARC");
+    const candidateSalt = computeArcCandidateSalt(launchSeed, 255);
+    const initCodeHash = computeArcTokenInitCodeHash(
+      "0x60006000",
+      vectorFactory,
+      vectorCreator,
+      "Arc Parity",
+      "ARC",
+    );
+
+    expect(launchSeed).toBe("0x8bfcbd3026b9d4a396ae8384900c59e752867e927aad0516a06588ed82d9588a");
+    expect(candidateSalt).toBe("0xd952abbd02333a51f2ccc168a65eb9f8c61943d9da078e8b4f7876104f76806a");
+    expect(initCodeHash).toBe("0x848b9c6ad3911a15a45bf3091f5b234708a3d45faae4b3972836ba9274722d9b");
+    expect(predictArcTokenAddress(vectorDeployer, candidateSalt, initCodeHash)).toBe(
+      getAddress("0x4f0Cb6536e068a3e0c7305bD87b94EBc95127e6c"),
+    );
+    expect(() => computeArcCandidateSalt(launchSeed, 256)).toThrow(/0 through 255/);
   });
 });
 

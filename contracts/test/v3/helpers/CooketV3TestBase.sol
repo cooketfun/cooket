@@ -11,13 +11,18 @@ import {CooketCurveV3} from "../../../src/v3/CooketCurveV3.sol";
 import {CooketFactoryV3} from "../../../src/v3/CooketFactoryV3.sol";
 import {CooketTokenV3} from "../../../src/v3/CooketTokenV3.sol";
 import {MockGraduationManagerV3} from "../mocks/MockGraduationManagerV3.sol";
-import {MockUniswapV3FactoryV3, MockWETHV3} from "../mocks/MockUniswapV3.sol";
+import {MockUniswapV3FactoryV3} from "../mocks/MockUniswapV3.sol";
+import {MockArcDualViewUsdcV3} from "../mocks/MockArcDualViewUsdcV3.sol";
+import {ArcNativeUsdcV3} from "../../../src/v3/libraries/ArcNativeUsdcV3.sol";
 
 abstract contract CooketV3TestBase is Test {
-    uint256 internal constant TOTAL_SUPPLY = 1_000_000_000 ether;
-    uint256 internal constant CURVE_ALLOCATION = 800_000_000 ether;
-    uint256 internal constant LP_ALLOCATION = 200_000_000 ether;
-    uint256 internal constant GRADUATION_GROSS = 3_030_303_030_303_030_303;
+    uint256 internal constant TOKEN_UNIT = 1e18;
+    uint256 internal constant NATIVE_USDC_UNIT = 1e18;
+    uint256 internal constant TOTAL_SUPPLY = 1_000_000_000 * TOKEN_UNIT;
+    uint256 internal constant CURVE_ALLOCATION = 800_000_000 * TOKEN_UNIT;
+    uint256 internal constant LP_ALLOCATION = 200_000_000 * TOKEN_UNIT;
+    uint256 internal constant GRADUATION_NATIVE_USDC_RESERVE = 7_245 * NATIVE_USDC_UNIT;
+    uint256 internal constant GRADUATION_GROSS = 7_318_181_818_181_818_181_818;
 
     address internal creator = makeAddr("v3Creator");
     address internal buyer = makeAddr("v3Buyer");
@@ -30,16 +35,18 @@ abstract contract CooketV3TestBase is Test {
     TraderRewardsDistributorV3 internal rewardsDistributor;
     MockGraduationManagerV3 internal graduationManager;
     MockUniswapV3FactoryV3 internal uniswapFactory;
-    MockWETHV3 internal weth;
+    MockArcDualViewUsdcV3 internal canonicalUsdc;
     CooketFactoryV3 internal factory;
     CooketTokenV3 internal token;
     CooketCurveV3 internal curve;
 
     function setUp() public virtual {
         feeManager = new FeeManagerV3(address(this), treasury);
+        MockArcDualViewUsdcV3 usdcImplementation = new MockArcDualViewUsdcV3();
+        vm.etch(ArcNativeUsdcV3.CANONICAL_USDC, address(usdcImplementation).code);
+        canonicalUsdc = MockArcDualViewUsdcV3(ArcNativeUsdcV3.CANONICAL_USDC);
         uniswapFactory = new MockUniswapV3FactoryV3();
-        weth = new MockWETHV3();
-        graduationManager = new MockGraduationManagerV3(address(uniswapFactory), address(weth));
+        graduationManager = new MockGraduationManagerV3(address(uniswapFactory));
         factory = new CooketFactoryV3(address(feeManager), address(graduationManager));
         feeManager.setFactoryOnce(address(factory));
         graduationManager.setFactoryOnce(address(factory));
@@ -54,7 +61,7 @@ abstract contract CooketV3TestBase is Test {
         communityVault.setPermanentLPFeeVaultOnce(address(lpFeeVault));
         rewardsVault.setPermanentLPFeeVaultOnce(address(lpFeeVault));
         (token, curve) = _launch(creator, "Endpoint Cooket", "EPZ");
-        vm.deal(buyer, 100 ether);
+        vm.deal(buyer, 10_000 * NATIVE_USDC_UNIT);
     }
 
     function _launch(address launchCreator, string memory name, string memory symbol)
@@ -71,7 +78,8 @@ abstract contract CooketV3TestBase is Test {
     function _buy(address account, CooketCurveV3 targetCurve, uint256 gross) internal returns (uint256 tokensOut) {
         CooketCurveV3.BuyQuote memory quote = targetCurve.quoteBuy(gross);
         vm.prank(account);
-        CooketCurveV3.BuyQuote memory executed = targetCurve.buy{value: gross}(quote.tokensOut, block.timestamp + 1 hours);
+        CooketCurveV3.BuyQuote memory executed =
+            targetCurve.buy{value: gross}(quote.tokensOut, block.timestamp + 1 hours);
         return executed.tokensOut;
     }
 }

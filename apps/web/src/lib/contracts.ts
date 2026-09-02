@@ -83,9 +83,9 @@ export type CurveTradeState = {
 export async function readTradeState(token: Address, account?: Address): Promise<CurveTradeState> {
   const curveAddress = await resolveCurveAddress(token);
   if (!curveAddress) throw new Error("Curve address is not configured for this token.");
-  const [soldSupply, activeEthReserve, graduated, nativeBalance, tokenBalance, allowance, decimals] = await Promise.all([
+  const [soldSupply, activeNativeUsdcReserve, graduated, nativeBalance, tokenBalance, allowance, decimals] = await Promise.all([
     publicClient.readContract({ address: curveAddress, abi: cooketCurveAbi, functionName: "soldSupply" }),
-    publicClient.readContract({ address: curveAddress, abi: cooketCurveAbi, functionName: "activeEthReserve" }),
+    publicClient.readContract({ address: curveAddress, abi: cooketCurveAbi, functionName: "activeNativeUsdcReserve" }),
     publicClient.readContract({ address: curveAddress, abi: cooketCurveAbi, functionName: "graduated" }),
     account ? publicClient.getBalance({ address: account }) : Promise.resolve(BigInt(0)),
     account ? publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "balanceOf", args: [account] }) : Promise.resolve(BigInt(0)),
@@ -95,7 +95,7 @@ export async function readTradeState(token: Address, account?: Address): Promise
   return {
     curveSupply: CURVE_ALLOCATION,
     soldSupply,
-    reserveBalance: activeEthReserve,
+    reserveBalance: activeNativeUsdcReserve,
     graduationThreshold: CURVE_ALLOCATION,
     lifecycle: graduated ? 2 : 0,
     nativeBalance,

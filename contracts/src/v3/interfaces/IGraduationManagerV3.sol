@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 /// @notice Versioned Stage 2B trust boundary. A concrete manager must create
-/// and initialize the canonical token/WETH pool from `registerLaunch`, in the
+/// and initialize the canonical launch-token/USDC pool from `registerLaunch`, in the
 /// same transaction as launch, rather than waiting until graduation.
 interface IGraduationManagerV3 {
     enum PoolCandidateState {
@@ -53,7 +53,7 @@ interface IGraduationManagerV3 {
         bytes32 candidateSalt,
         uint16 attemptIndex
     ) external returns (address pool);
-    function graduate(address token, address creator, uint256 tokenAmount, uint256 ethAmount) external payable;
+    function graduate(address token, address creator, uint256 tokenAmount, uint256 nativeUsdcAmount) external payable;
 
     function factory() external view returns (address);
     function factoryBootstrapAuthority() external view returns (address);
@@ -62,7 +62,7 @@ interface IGraduationManagerV3 {
     function expectedSqrtPriceX96(address token) external view returns (uint160);
     function canonicalPoolOf(address token) external view returns (address);
     function uniswapV3Factory() external view returns (address);
-    function weth() external view returns (address);
+    function canonicalUsdc() external view returns (address);
     function residualEscrowOf(address token) external view returns (address);
     function launchOf(address token)
         external

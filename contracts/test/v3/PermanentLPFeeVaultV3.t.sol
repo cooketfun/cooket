@@ -12,13 +12,13 @@ contract PermanentLPFeeVaultV3Test is CooketV3TestBase {
 
     function setUp() public override {
         super.setUp();
-        positions = new MockNonfungiblePositionManagerV3(address(uniswapFactory), address(weth));
+        positions = new MockNonfungiblePositionManagerV3(address(uniswapFactory));
         deployer =
             new PermanentLPCustodianDeployerV3(address(graduationManager), address(lpFeeVault), address(positions));
     }
 
     function testVaultBindingIsAuthorizedValidatedAndConsumed() public {
-        assertEq(lpFeeVault.protocolVersionHash(), keccak256("endpoint-cp-v3-custody-2b1a"));
+        assertEq(lpFeeVault.protocolVersionHash(), keccak256("COOKET_ARC_V1_CUSTODY"));
         assertEq(lpFeeVault.feePolicyHash(), keccak256("cooket-fee-design-b-v3"));
         assertEq(lpFeeVault.communityVault(), address(communityVault));
         assertEq(lpFeeVault.traderRewardsVault(), address(rewardsVault));

@@ -8,18 +8,19 @@ import {IPermanentLPCustodianV3} from "./interfaces/IPermanentLPCustodianV3.sol"
 import {IPermanentLPFeeVaultV3} from "./interfaces/IPermanentLPFeeVaultV3.sol";
 import {ICooketFactoryV3} from "./interfaces/ICooketFactoryV3.sol";
 import {CanonicalPositionV3} from "./libraries/CanonicalPositionV3.sol";
+import {ArcNativeUsdcV3} from "./libraries/ArcNativeUsdcV3.sol";
 
 /// @notice Ownerless, non-upgradeable permanent custody for one Cooket V3 LP NFT.
 /// @dev This contract intentionally has no receive/fallback, ERC721 receiver,
 /// transfer, approval, rescue, delegatecall, or external-call capability.
 contract PermanentLPCustodianV3 is IPermanentLPCustodianV3 {
-    bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("endpoint-cp-v3-custody-2b1a");
+    bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("COOKET_ARC_V1_CUSTODY");
     uint24 public constant EXPECTED_FEE = 10_000;
     int24 public constant FULL_RANGE_TICK_LOWER = -887_200;
     int24 public constant FULL_RANGE_TICK_UPPER = 887_200;
 
     address public immutable launchToken;
-    address public immutable weth;
+    address public constant canonicalUsdc = ArcNativeUsdcV3.CANONICAL_USDC;
     address public immutable graduationManager;
     address public immutable feeVault;
     address public immutable nonfungiblePositionManager;
@@ -29,16 +30,15 @@ contract PermanentLPCustodianV3 is IPermanentLPCustodianV3 {
 
     constructor(
         address launchToken_,
-        address weth_,
         address nonfungiblePositionManager_,
         address graduationManager_,
         address feeVault_
     ) {
         if (
-            launchToken_ == address(0) || launchToken_.code.length == 0 || weth_ == address(0) || weth_.code.length == 0
-                || nonfungiblePositionManager_ == address(0) || nonfungiblePositionManager_.code.length == 0
-                || graduationManager_ == address(0) || graduationManager_.code.length == 0 || feeVault_ == address(0)
-                || feeVault_.code.length == 0
+            launchToken_ == address(0) || launchToken_ == canonicalUsdc || launchToken_.code.length == 0
+                || canonicalUsdc.code.length == 0 || nonfungiblePositionManager_ == address(0)
+                || nonfungiblePositionManager_.code.length == 0 || graduationManager_ == address(0)
+                || graduationManager_.code.length == 0 || feeVault_ == address(0) || feeVault_.code.length == 0
         ) revert InvalidDependency();
 
         IGraduationManagerV3 manager = IGraduationManagerV3(graduationManager_);
@@ -47,13 +47,13 @@ contract PermanentLPCustodianV3 is IPermanentLPCustodianV3 {
         address factory_ = manager.factory();
         if (
             factory_ == address(0) || factory_.code.length == 0
-                || manager.protocolVersionHash() != keccak256("endpoint-cp-v3") || manager.weth() != weth_
-                || vault.protocolVersionHash() != PROTOCOL_VERSION_HASH || vault.factory() != factory_
-                || vault.graduationManager() != graduationManager_ || vault.weth() != weth_
-                || vault.feeManager() == address(0) || vault.feeManager().code.length == 0
-                || fees.protocolVersionHash() != keccak256("endpoint-cp-v3") || fees.factory() != factory_
+                || manager.protocolVersionHash() != keccak256("endpoint-cp-v3")
+                || manager.canonicalUsdc() != canonicalUsdc || vault.protocolVersionHash() != PROTOCOL_VERSION_HASH
+                || vault.factory() != factory_ || vault.graduationManager() != graduationManager_
+                || vault.canonicalUsdc() != canonicalUsdc || vault.feeManager() == address(0)
+                || vault.feeManager().code.length == 0 || fees.protocolVersionHash() != keccak256("endpoint-cp-v3")
+                || fees.factory() != factory_
                 || INonfungiblePositionManagerV3(nonfungiblePositionManager_).factory() != manager.uniswapV3Factory()
-                || INonfungiblePositionManagerV3(nonfungiblePositionManager_).WETH9() != weth_
         ) revert InvalidDependency();
 
         (address curve, address creator, bool registered,) = manager.launchOf(launchToken_);
@@ -65,7 +65,6 @@ contract PermanentLPCustodianV3 is IPermanentLPCustodianV3 {
         ) revert InvalidDependency();
 
         launchToken = launchToken_;
-        weth = weth_;
         nonfungiblePositionManager = nonfungiblePositionManager_;
         graduationManager = graduationManager_;
         feeVault = feeVault_;
@@ -115,7 +114,8 @@ contract PermanentLPCustodianV3 is IPermanentLPCustodianV3 {
     }
 
     function _validatePosition(uint256 tokenId) private view {
-        (address expected0, address expected1) = launchToken < weth ? (launchToken, weth) : (weth, launchToken);
+        (address expected0, address expected1) =
+            launchToken < canonicalUsdc ? (launchToken, canonicalUsdc) : (canonicalUsdc, launchToken);
         if (!CanonicalPositionV3.isCanonicalFullRangePosition(
                 nonfungiblePositionManager, tokenId, expected0, expected1
             )) {

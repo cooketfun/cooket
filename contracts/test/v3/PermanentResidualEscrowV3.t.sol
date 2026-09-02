@@ -6,7 +6,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {PermanentResidualEscrowV3} from "../../src/v3/PermanentResidualEscrowV3.sol";
 import {IPermanentResidualEscrowV3} from "../../src/v3/interfaces/IPermanentResidualEscrowV3.sol";
-import {MockWETHV3} from "./mocks/MockUniswapV3.sol";
+import {ArcNativeUsdcV3} from "../../src/v3/libraries/ArcNativeUsdcV3.sol";
+import {MockArcDualViewUsdcV3} from "./mocks/MockArcDualViewUsdcV3.sol";
 
 contract ResidualTokenV3 is ERC20 {
     constructor() ERC20("Residual", "RSD") {}
@@ -22,34 +23,45 @@ contract ResidualDepositAuthorityV3 {
     }
 }
 
+contract ResidualDustAuthorityV3 {
+    function depositDust(PermanentResidualEscrowV3 escrow) external payable {
+        escrow.depositNativeUsdcDust{value: msg.value}();
+    }
+}
+
 contract PermanentResidualEscrowV3Test is Test {
     address internal creator = makeAddr("residualCreator");
     ResidualDepositAuthorityV3 internal manager;
-    MockWETHV3 internal weth;
+    ResidualDustAuthorityV3 internal executor;
+    MockArcDualViewUsdcV3 internal canonicalUsdc;
     ResidualTokenV3 internal token;
     PermanentResidualEscrowV3 internal escrow;
 
     function setUp() public {
-        weth = new MockWETHV3();
+        MockArcDualViewUsdcV3 usdcImplementation = new MockArcDualViewUsdcV3();
+        vm.etch(ArcNativeUsdcV3.CANONICAL_USDC, address(usdcImplementation).code);
+        canonicalUsdc = MockArcDualViewUsdcV3(ArcNativeUsdcV3.CANONICAL_USDC);
         token = new ResidualTokenV3();
         manager = new ResidualDepositAuthorityV3();
-        escrow = new PermanentResidualEscrowV3(address(token), address(manager), address(weth));
+        executor = new ResidualDustAuthorityV3();
+        escrow = new PermanentResidualEscrowV3(address(token), address(manager), address(executor));
         token.mint(address(escrow), 33);
-        weth.mint(address(escrow), 1_333);
+        canonicalUsdc.mint(address(escrow), 1_333);
     }
 
     function testImmutableDependenciesAndVersion() public view {
         assertEq(escrow.launchToken(), address(token));
         assertEq(escrow.graduationManager(), address(manager));
-        assertEq(escrow.weth(), address(weth));
-        assertEq(escrow.protocolVersionHash(), keccak256("endpoint-cp-v3-residual-2b1"));
+        assertEq(escrow.canonicalUsdc(), address(canonicalUsdc));
+        assertEq(escrow.settlementExecutor(), address(executor));
+        assertEq(escrow.protocolVersionHash(), keccak256("COOKET_ARC_V1_RESIDUAL"));
     }
 
     function testZeroAddressDependenciesReject() public {
         vm.expectRevert(IPermanentResidualEscrowV3.InvalidDependency.selector);
-        new PermanentResidualEscrowV3(address(0), address(manager), address(weth));
+        new PermanentResidualEscrowV3(address(0), address(manager), address(executor));
         vm.expectRevert(IPermanentResidualEscrowV3.InvalidDependency.selector);
-        new PermanentResidualEscrowV3(address(token), address(0), address(weth));
+        new PermanentResidualEscrowV3(address(token), address(0), address(executor));
         vm.expectRevert(IPermanentResidualEscrowV3.InvalidDependency.selector);
         new PermanentResidualEscrowV3(address(token), address(manager), address(0));
     }
@@ -65,13 +77,26 @@ contract PermanentResidualEscrowV3Test is Test {
         escrow.deposit(address(token), 0);
     }
 
-    function testAuthorizedTokenAndWethResidualAccounting() public {
+    function testAuthorizedTokenAndUsdc6ResidualAccounting() public {
         vm.prank(address(manager));
         escrow.deposit(address(token), 33);
         vm.prank(address(manager));
-        escrow.deposit(address(weth), 1_333);
+        escrow.deposit(address(canonicalUsdc), 1_333);
         assertEq(escrow.depositedResidual(address(token)), 33);
-        assertEq(escrow.depositedResidual(address(weth)), 1_333);
+        assertEq(escrow.depositedResidual(address(canonicalUsdc)), 1_333);
+    }
+
+    function testNativeUsdcDustAccountingIsBoundedAndExecutorOnly() public {
+        vm.deal(address(this), 1e12);
+        uint256 escrowBalanceBefore = address(escrow).balance;
+        vm.expectRevert(IPermanentResidualEscrowV3.UnauthorizedDeposit.selector);
+        escrow.depositNativeUsdcDust{value: 1}();
+        executor.depositDust{value: 1e12 - 1}(escrow);
+        assertEq(escrow.depositedNativeUsdcDust18(), 1e12 - 1);
+        assertEq(address(escrow).balance - escrowBalanceBefore, 1e12 - 1);
+        vm.deal(address(this), 1e12);
+        vm.expectRevert(IPermanentResidualEscrowV3.InvalidNativeUsdcDust.selector);
+        executor.depositDust{value: 1e12}(escrow);
     }
 
     function testInsufficientBackingRejectsAndPreservesAccounting() public {
@@ -90,6 +115,6 @@ contract PermanentResidualEscrowV3Test is Test {
         (ok,) = address(escrow).call(abi.encodeWithSignature("approve(address,uint256)", address(manager), 1));
         assertFalse(ok);
         assertEq(IERC20(address(token)).balanceOf(address(escrow)), 33);
-        assertEq(IERC20(address(weth)).balanceOf(address(escrow)), 1_333);
+        assertEq(IERC20(address(canonicalUsdc)).balanceOf(address(escrow)), 1_333);
     }
 }

@@ -5,7 +5,6 @@ import {Vm} from "forge-std/Vm.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {CurveDeployerV3} from "../../src/v3/CurveDeployerV3.sol";
 import {EndpointConstantsV3} from "../../src/v3/libraries/EndpointConstantsV3.sol";
-import {FeeManagerV3} from "../../src/v3/FeeManagerV3.sol";
 import {TokenDeployerV3} from "../../src/v3/TokenDeployerV3.sol";
 import {CooketCurveV3} from "../../src/v3/CooketCurveV3.sol";
 import {CooketFactoryV3} from "../../src/v3/CooketFactoryV3.sol";
@@ -15,8 +14,7 @@ import {IGraduationManagerV3} from "../../src/v3/interfaces/IGraduationManagerV3
 import {ITokenDeployerV3} from "../../src/v3/interfaces/ITokenDeployerV3.sol";
 import {ICooketFactoryV3} from "../../src/v3/interfaces/ICooketFactoryV3.sol";
 import {CooketV3TestBase} from "./helpers/CooketV3TestBase.sol";
-import {MockGraduationManagerV3} from "./mocks/MockGraduationManagerV3.sol";
-import {MockConfiguredUniswapV3PoolV3, MockUniswapV3FactoryV3, MockUniswapV3PoolV3} from "./mocks/MockUniswapV3.sol";
+import {MockConfiguredUniswapV3PoolV3, MockUniswapV3PoolV3} from "./mocks/MockUniswapV3.sol";
 
 contract LaunchAddressSelectionV3Test is CooketV3TestBase {
     uint256 private constant EIP_170_MAX = 24_576;
@@ -66,60 +64,99 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
         assertNotEq(deployer.computeCandidateSalt(seedA, 0), deployer.computeCandidateSalt(seedB, 0));
     }
 
-    function testLaunchPriceConstantsAreIndependentlyDerivedForBothOrderings() public view {
-        uint256 terminalPriceWeiPerToken = EndpointConstantsV3.TERMINAL_PRICE;
-        uint256 token0LaunchRatioX192 = Math.mulDiv(terminalPriceWeiPerToken, Q192, 1 ether);
-        uint256 token0WethRatioX192 = Math.mulDiv(1 ether, Q192, terminalPriceWeiPerToken);
-        uint256 derivedToken0Launch = Math.sqrt(token0LaunchRatioX192);
-        uint256 derivedToken0Weth = Math.sqrt(token0WethRatioX192);
+    function testArcDomainSeparatesLaunchSeedsFromLegacyBasePredictions() public view {
+        bytes32 userSalt = keccak256("arc-domain-separation");
+        bytes32 arcDomain = keccak256("COOKET_ARC_V1");
+        bytes32 expectedArcSeed = keccak256(
+            abi.encode(
+                arcDomain,
+                block.chainid,
+                address(factory),
+                creator,
+                userSalt,
+                keccak256(bytes("Domain")),
+                keccak256(bytes("ARC"))
+            )
+        );
+        bytes32 legacySeed = keccak256(
+            abi.encode(
+                keccak256("endpoint-cp-v3"),
+                block.chainid,
+                address(factory),
+                creator,
+                userSalt,
+                keccak256(bytes("Domain")),
+                keccak256(bytes("ARC"))
+            )
+        );
+        assertEq(deployer.ARC_PROTOCOL_DOMAIN(), arcDomain);
+        assertEq(deployer.computeLaunchSeed(creator, userSalt, "Domain", "ARC"), expectedArcSeed);
+        assertNotEq(expectedArcSeed, legacySeed);
+    }
 
-        assertEq(derivedToken0Launch, 9_703_428_570_912_459_262_669_888);
-        assertEq(derivedToken0Weth, 646_895_238_060_830_617_511_325_894_307_352);
+    function testSdkSolidityArcCreate2VectorParity() public pure {
+        address vectorFactory = 0x1111111111111111111111111111111111111111;
+        address vectorCreator = 0x2222222222222222222222222222222222222222;
+        address vectorDeployer = 0x3333333333333333333333333333333333333333;
+        bytes32 userSalt = 0x0101010101010101010101010101010101010101010101010101010101010101;
+        bytes32 launchSeed = keccak256(
+            abi.encode(
+                keccak256("COOKET_ARC_V1"),
+                uint256(5_042_002),
+                vectorFactory,
+                vectorCreator,
+                userSalt,
+                keccak256(bytes("Arc Parity")),
+                keccak256(bytes("ARC"))
+            )
+        );
+        bytes32 candidateSalt = keccak256(abi.encode(launchSeed, uint16(255)));
+        bytes32 initCodeHash =
+            keccak256(abi.encodePacked(hex"60006000", abi.encode(vectorFactory, vectorCreator, "Arc Parity", "ARC")));
+        address predicted = address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), vectorDeployer, candidateSalt, initCodeHash))))
+        );
+
+        assertEq(launchSeed, 0x8bfcbd3026b9d4a396ae8384900c59e752867e927aad0516a06588ed82d9588a);
+        assertEq(candidateSalt, 0xd952abbd02333a51f2ccc168a65eb9f8c61943d9da078e8b4f7876104f76806a);
+        assertEq(initCodeHash, 0x848b9c6ad3911a15a45bf3091f5b234708a3d45faae4b3972836ba9274722d9b);
+        assertEq(predicted, 0x4f0Cb6536e068a3e0c7305bD87b94EBc95127e6c);
+    }
+
+    function testLaunchPriceConstantsAreIndependentlyDerivedForBothOrderings() public view {
+        uint256 terminalUsdc6PriceNumerator = 36_225;
+        uint256 token0LaunchRatioX192 = Math.mulDiv(terminalUsdc6PriceNumerator, Q192, 1e21);
+        uint256 token0UsdcRatioX192 = Math.mulDiv(1e21, Q192, terminalUsdc6PriceNumerator);
+        uint256 derivedToken0Launch = Math.sqrt(token0LaunchRatioX192);
+        uint256 derivedToken0Usdc = Math.sqrt(token0UsdcRatioX192);
+
+        assertEq(derivedToken0Launch, 476_852_189_220_498_924_480);
+        assertEq(derivedToken0Usdc, 13_163_621_510_572_779_143_698_740_160_447_723_801);
         assertLe(derivedToken0Launch * derivedToken0Launch, token0LaunchRatioX192);
         assertGt((derivedToken0Launch + 1) * (derivedToken0Launch + 1), token0LaunchRatioX192);
-        assertLe(derivedToken0Weth * derivedToken0Weth, token0WethRatioX192);
-        assertGt((derivedToken0Weth + 1) * (derivedToken0Weth + 1), token0WethRatioX192);
+        uint256 launchFirstRepresented = Math.mulDiv(derivedToken0Launch * derivedToken0Launch, 1e21, Q192);
+        uint256 inverseSqrtPriceX96 = Q192 / derivedToken0Usdc;
+        uint256 usdcFirstRepresented = Math.mulDiv(inverseSqrtPriceX96 * inverseSqrtPriceX96, 1e21, Q192);
+        assertEq(launchFirstRepresented, terminalUsdc6PriceNumerator - 1);
+        assertEq(usdcFirstRepresented, terminalUsdc6PriceNumerator - 1);
+        assertEq(EndpointConstantsV3.TERMINAL_NATIVE_USDC_PRICE * 1_000_000_000, 36_225 ether);
+        assertEq(EndpointConstantsV3.INITIAL_NATIVE_USDC_PRICE * 1_000_000_000, 2_264.0625 ether);
 
-        uint256 launchTokenAsToken0Price = Math.mulDiv(derivedToken0Launch * derivedToken0Launch, 1 ether, Q192);
-        uint256 wethAsToken0Price = Math.mulDiv(Q192, 1 ether, derivedToken0Weth * derivedToken0Weth);
-        assertEq(launchTokenAsToken0Price, terminalPriceWeiPerToken - 1);
-        assertEq(wethAsToken0Price, terminalPriceWeiPerToken);
-        assertLe(terminalPriceWeiPerToken - launchTokenAsToken0Price, 1);
-        assertLe(wethAsToken0Price - terminalPriceWeiPerToken, 1);
-        assertEq(terminalPriceWeiPerToken * 1_000_000_000, 15 ether);
-        assertEq(EndpointConstantsV3.INITIAL_PRICE * 1_000_000_000, 0.9375 ether);
-
-        address below = address(uint160(uint160(address(weth)) - 1));
-        address above = address(uint160(uint160(address(weth)) + 1));
-        assertLt(uint160(below), uint160(address(weth)));
-        assertGt(uint160(above), uint160(address(weth)));
-        assertEq(graduationManager.expectedSqrtPriceX96(below), 9_703_428_570_912_459_262_669_888);
-        assertEq(graduationManager.expectedSqrtPriceX96(above), 646_895_238_060_830_617_511_325_894_307_352);
+        address below = address(uint160(uint160(address(canonicalUsdc)) - 1));
+        address above = address(uint160(uint160(address(canonicalUsdc)) + 1));
+        assertEq(graduationManager.expectedSqrtPriceX96(below), derivedToken0Launch);
+        assertEq(graduationManager.expectedSqrtPriceX96(above), derivedToken0Usdc);
     }
 
     function testActualPoolReservationSupportsBothOrderingBranches() public {
-        // Keep WETH below the CREATE2 token candidates without using Foundry's
-        // reserved precompile-address range.
-        address lowWeth = address(0x1_0000);
-        address highWeth = address(type(uint160).max);
-        vm.etch(lowWeth, hex"00");
-        vm.etch(highWeth, hex"00");
-
-        (CooketTokenV3 highToken, MockGraduationManagerV3 lowWethManager) =
-            _launchOnFreshStack(lowWeth, "WETH First", "WF", keccak256("weth-first"));
-        MockUniswapV3PoolV3 wethFirstPool = MockUniswapV3PoolV3(lowWethManager.canonicalPoolOf(address(highToken)));
-        assertEq(wethFirstPool.token0(), lowWeth);
-        assertEq(wethFirstPool.token1(), address(highToken));
-        (uint160 wethFirstPrice,,,,,,) = wethFirstPool.slot0();
-        assertEq(wethFirstPrice, 646_895_238_060_830_617_511_325_894_307_352);
-
-        (CooketTokenV3 lowToken, MockGraduationManagerV3 highWethManager) =
-            _launchOnFreshStack(highWeth, "Token First", "TF", keccak256("token-first"));
-        MockUniswapV3PoolV3 tokenFirstPool = MockUniswapV3PoolV3(highWethManager.canonicalPoolOf(address(lowToken)));
-        assertEq(tokenFirstPool.token0(), address(lowToken));
-        assertEq(tokenFirstPool.token1(), highWeth);
-        (uint160 tokenFirstPrice,,,,,,) = tokenFirstPool.slot0();
-        assertEq(tokenFirstPrice, 9_703_428_570_912_459_262_669_888);
+        bytes32 lowSalt = _findSaltForOrdering(true);
+        bytes32 highSalt = _findSaltForOrdering(false);
+        (CooketTokenV3 lowToken,) = _launchWithSalt(creator, "Token First", "TF", lowSalt);
+        (CooketTokenV3 highToken,) = _launchWithSalt(creator, "USDC First", "UF", highSalt);
+        _assertExactPool(address(lowToken), graduationManager.canonicalPoolOf(address(lowToken)));
+        _assertExactPool(address(highToken), graduationManager.canonicalPoolOf(address(highToken)));
+        assertLt(uint160(address(lowToken)), uint160(address(canonicalUsdc)));
+        assertGt(uint160(address(highToken)), uint160(address(canonicalUsdc)));
     }
 
     function testNoPoolCandidateIsSelectedAndReserved() public {
@@ -134,7 +171,7 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
     function testExistingUninitializedPoolIsAcceptedAndInitializedExactly() public {
         bytes32 salt = keccak256("uninitialized");
         (address predicted,,) = _candidate("Uninitialized", "UNI", salt, 0);
-        address pool = uniswapFactory.createPool(predicted, address(weth), 10_000);
+        address pool = uniswapFactory.createPool(predicted, address(canonicalUsdc), 10_000);
         (CooketTokenV3 launchedToken,) = _launchWithSalt(creator, "Uninitialized", "UNI", salt);
         assertEq(address(launchedToken), predicted);
         assertEq(graduationManager.canonicalPoolOf(predicted), pool);
@@ -163,7 +200,7 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
     function testWrongPricePoolIsSkippedAndPublicSaltFrontRunRecovers() public {
         bytes32 salt = keccak256("public-front-run");
         (address first,,) = _candidate("Front Run", "FRT", salt, 0);
-        address wrongPool = uniswapFactory.createPool(first, address(weth), 10_000);
+        address wrongPool = uniswapFactory.createPool(first, address(canonicalUsdc), 10_000);
         MockUniswapV3PoolV3(wrongPool).initialize(1);
         (address second,,) = _candidate("Front Run", "FRT", salt, 1);
 
@@ -175,18 +212,18 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
     function testNonzeroLiquidityPoolIsSkipped() public {
         bytes32 salt = keccak256("nonzero-liquidity");
         (address first,,) = _candidate("Liquidity", "LIQ", salt, 0);
-        address occupied = uniswapFactory.createPool(first, address(weth), 10_000);
+        address occupied = uniswapFactory.createPool(first, address(canonicalUsdc), 10_000);
         MockUniswapV3PoolV3(occupied).setLiquidity(1);
         (address second,,) = _candidate("Liquidity", "LIQ", salt, 1);
         (CooketTokenV3 launchedToken,) = _launchWithSalt(creator, "Liquidity", "LIQ", salt);
         assertEq(address(launchedToken), second);
     }
 
-    function testRawWethDonationDoesNotRejectPristinePool() public {
+    function testRawUsdcDonationDoesNotRejectPristinePool() public {
         bytes32 salt = keccak256("raw-donation");
         (address predicted,,) = _candidate("Donation", "DON", salt, 0);
-        address pool = uniswapFactory.createPool(predicted, address(weth), 10_000);
-        weth.mint(pool, 123 ether);
+        address pool = uniswapFactory.createPool(predicted, address(canonicalUsdc), 10_000);
+        canonicalUsdc.mint(pool, 123);
         (CooketTokenV3 launchedToken,) = _launchWithSalt(creator, "Donation", "DON", salt);
         assertEq(address(launchedToken), predicted);
     }
@@ -223,7 +260,8 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
         assertEq(feeManager.curveOf(first), address(0));
         assertEq(first.code.length, 0);
 
-        (CooketTokenV3 launchedToken,) = _launchWithSalt(creator, "All Blocked", "BLK", keccak256("fresh-after-blocked"));
+        (CooketTokenV3 launchedToken,) =
+            _launchWithSalt(creator, "All Blocked", "BLK", keccak256("fresh-after-blocked"));
         assertTrue(address(launchedToken) != address(0));
     }
 
@@ -231,8 +269,9 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
         bytes32 salt = keccak256("relationship-rejections");
         for (uint16 i; i < 5; ++i) {
             (address candidate,,) = _candidate("Relationships", "REL", salt, i);
-            (address token0, address token1) =
-                candidate < address(weth) ? (candidate, address(weth)) : (address(weth), candidate);
+            (address token0, address token1) = candidate < address(canonicalUsdc)
+                ? (candidate, address(canonicalUsdc))
+                : (address(canonicalUsdc), candidate);
             address configuredPool;
             if (i == 0) {
                 configuredPool = address(this);
@@ -285,7 +324,7 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
                     )
                 );
             }
-            uniswapFactory.forcePool(candidate, address(weth), 10_000, configuredPool);
+            uniswapFactory.forcePool(candidate, address(canonicalUsdc), 10_000, configuredPool);
         }
         (address accepted,,) = _candidate("Relationships", "REL", salt, 5);
         (CooketTokenV3 launchedToken,) = _launchWithSalt(creator, "Relationships", "REL", salt);
@@ -295,7 +334,7 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
     function testRegistrationTimeRecheckRejectsChangedPoolStateAndRollsBack() public {
         bytes32 salt = keccak256("recheck");
         (address predicted,,) = _candidate("Recheck", "RCK", salt, 0);
-        address pool = uniswapFactory.createPool(predicted, address(weth), 10_000);
+        address pool = uniswapFactory.createPool(predicted, address(canonicalUsdc), 10_000);
         graduationManager.configurePoolMutation(pool, 1, 0);
 
         vm.prank(creator);
@@ -453,12 +492,12 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
         assertEq(typedPool.fee(), 10_000);
         assertEq(typedPool.tickSpacing(), 200);
         assertEq(typedPool.liquidity(), 0);
-        assertEq(typedPool.token0(), launchToken < address(weth) ? launchToken : address(weth));
-        assertEq(typedPool.token1(), launchToken < address(weth) ? address(weth) : launchToken);
+        assertEq(typedPool.token0(), launchToken < address(canonicalUsdc) ? launchToken : address(canonicalUsdc));
+        assertEq(typedPool.token1(), launchToken < address(canonicalUsdc) ? address(canonicalUsdc) : launchToken);
     }
 
     function _createInitializedCanonicalPool(address candidate, bool activeLiquidity) private returns (address pool) {
-        pool = uniswapFactory.createPool(candidate, address(weth), 10_000);
+        pool = uniswapFactory.createPool(candidate, address(canonicalUsdc), 10_000);
         MockUniswapV3PoolV3(pool).initialize(graduationManager.expectedSqrtPriceX96(candidate));
         if (activeLiquidity) MockUniswapV3PoolV3(pool).setLiquidity(1);
     }
@@ -480,13 +519,13 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
             (address candidate,,) = _candidate(name, symbol, userSalt, i);
             bytes32 poolKey = keccak256(
                 abi.encode(
-                    candidate < address(weth) ? candidate : address(weth),
-                    candidate < address(weth) ? address(weth) : candidate,
+                    candidate < address(canonicalUsdc) ? candidate : address(canonicalUsdc),
+                    candidate < address(canonicalUsdc) ? address(canonicalUsdc) : candidate,
                     uint24(10_000)
                 )
             );
             bytes32 poolMappingSlot = keccak256(abi.encode(poolKey, uint256(0)));
-            address pool = uniswapFactory.getPool(candidate, address(weth), 10_000);
+            address pool = uniswapFactory.getPool(candidate, address(canonicalUsdc), 10_000);
             vm.cool(candidate);
             if (pool != address(0)) vm.cool(pool);
             vm.coolSlot(address(uniswapFactory), poolMappingSlot);
@@ -505,18 +544,14 @@ contract LaunchAddressSelectionV3Test is CooketV3TestBase {
         }
     }
 
-    function _launchOnFreshStack(address wethAddress, string memory name, string memory symbol, bytes32 userSalt)
-        private
-        returns (CooketTokenV3 launchedToken, MockGraduationManagerV3 manager)
-    {
-        MockUniswapV3FactoryV3 uni = new MockUniswapV3FactoryV3();
-        manager = new MockGraduationManagerV3(address(uni), wethAddress);
-        FeeManagerV3 fees = new FeeManagerV3(address(this), treasury);
-        CooketFactoryV3 launcher = new CooketFactoryV3(address(fees), address(manager));
-        fees.setFactoryOnce(address(launcher));
-        manager.setFactoryOnce(address(launcher));
-        vm.prank(creator);
-        (address tokenAddress,) = launcher.createToken(name, symbol, userSalt);
-        launchedToken = CooketTokenV3(tokenAddress);
+    function _findSaltForOrdering(bool tokenFirst) private view returns (bytes32 userSalt) {
+        string memory name = tokenFirst ? "Token First" : "USDC First";
+        string memory symbol = tokenFirst ? "TF" : "UF";
+        for (uint256 i; i < 2_048; ++i) {
+            userSalt = keccak256(abi.encode("ordering", tokenFirst, i));
+            (address candidate,,) = _candidate(name, symbol, userSalt, 0);
+            if ((candidate < address(canonicalUsdc)) == tokenFirst) return userSalt;
+        }
+        revert("ORDERING_SALT_NOT_FOUND");
     }
 }
