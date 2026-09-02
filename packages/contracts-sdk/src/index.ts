@@ -120,7 +120,7 @@ export function predictArcTokenAddress(
 }
 
 function requireUint64(value: bigint, label: string): bigint {
-  if (value < 0n || value > 18_446_744_073_709_551_615n) throw new Error(`${label} must fit uint64.`);
+  if (value < BigInt(0) || value > BigInt("18446744073709551615")) throw new Error(`${label} must fit uint64.`);
   return value;
 }
 
