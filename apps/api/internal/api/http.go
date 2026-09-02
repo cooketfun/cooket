@@ -100,6 +100,7 @@ func localCORS(next http.Handler) http.Handler {
 }
 
 // ParseAllowedOrigins accepts an explicit comma-separated CORS allowlist.
+// HTTPS origins are accepted. HTTP is limited to loopback development origins.
 // Wildcards, paths, credentials, and malformed values are intentionally rejected.
 func ParseAllowedOrigins(raw string) ([]string, error) {
 	seen := map[string]struct{}{}
@@ -109,10 +110,20 @@ func ParseAllowedOrigins(raw string) ([]string, error) {
 			continue
 		}
 		parsed, err := url.Parse(value)
-		if err != nil || !parsed.IsAbs() || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" || strings.Contains(parsed.Host, "*") {
+		if err != nil || !parsed.IsAbs() || parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(value, "#") || parsed.User != nil || parsed.Host == "" || strings.Contains(parsed.Host, "*") {
 			return nil, fmt.Errorf("invalid allowed origin %q", value)
 		}
-		seen[parsed.Scheme+"://"+parsed.Host] = struct{}{}
+		scheme := strings.ToLower(parsed.Scheme)
+		host := strings.ToLower(parsed.Hostname())
+		port := parsed.Port()
+		if host == "" || !validOriginPort(port) || (scheme != "https" && (scheme != "http" || !isLoopbackDevelopmentHost(host))) {
+			return nil, fmt.Errorf("invalid allowed origin %q", value)
+		}
+		canonicalHost := host
+		if port != "" {
+			canonicalHost = net.JoinHostPort(host, port)
+		}
+		seen[scheme+"://"+canonicalHost] = struct{}{}
 	}
 	if len(seen) == 0 {
 		return nil, errors.New("at least one allowed CORS origin is required")
@@ -123,6 +134,21 @@ func ParseAllowedOrigins(raw string) ([]string, error) {
 	}
 	sort.Strings(origins)
 	return origins, nil
+}
+
+func validOriginPort(port string) bool {
+	if port == "" {
+		return true
+	}
+	value, err := strconv.Atoi(port)
+	return err == nil && value > 0 && value <= 65535
+}
+
+func isLoopbackDevelopmentHost(host string) bool {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	return host == "127.0.0.1" || host == "::1"
 }
 
 // CORS allows only supplied origins and does not enable cookies or credentials.

@@ -27,5 +27,5 @@ function ReownConfigurationError({ reason }: { reason: string }) {
   const detail = process.env.NODE_ENV === "production"
     ? "External wallet connection is temporarily unavailable. The public Reown project ID must be configured."
     : `${reason} Add the browser-public Reown project ID to NEXT_PUBLIC_REOWN_PROJECT_ID and restart the web app.`;
-  return <main className="grid min-h-dvh place-items-center bg-[#02060c] p-6"><section className="status-box status-error max-w-lg" role="alert"><h1 className="font-semibold text-white">External wallet connection is not configured</h1><p className="mt-2 text-sm leading-6">{detail}</p></section></main>;
+  return <main className="grid min-h-dvh place-items-center bg-[#05070d] p-6"><section className="status-box status-error max-w-lg" role="alert"><h1 className="font-semibold text-white">External wallet connection is not configured</h1><p className="mt-2 text-sm leading-6">{detail}</p></section></main>;
 }

@@ -21,11 +21,11 @@ export function Navigation() {
   const [searchOpen, setSearchOpen] = useState(false);
 
   return <>
-    <header className="site-header sticky top-0 z-50 border-b border-white/8 bg-[#05090f]/94 backdrop-blur-xl">
+    <header className="site-header sticky top-0 z-50 border-b border-white/8 bg-[#05070d]/94 backdrop-blur-xl">
       <div className="market-container">
         <div className="grid min-h-12 grid-cols-[auto_1fr_auto] items-center gap-3 md:min-h-16">
           <Link href="/" className="flex min-h-11 items-center gap-2 rounded-lg text-lg font-semibold tracking-[-0.04em] text-white md:text-xl" onClick={() => { setOpen(false); setSearchOpen(false); }} aria-label="Cooket home">
-            <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-cyan-300/20 bg-[#07111c]" data-logo-source="/brand/cooket.png"><Image src="/brand/cooket.png" alt="Cooket logo" width={32} height={32} priority className="h-8 w-8 object-contain" /></span>
+            <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-cyan-300/20 bg-[#0d1322]" data-logo-source="/brand/cooket.png"><Image src="/brand/cooket.png" alt="Cooket logo" width={32} height={32} priority className="h-8 w-8 object-contain" /></span>
             <span>Cooket</span>
           </Link>
           <div className="mx-auto hidden w-full max-w-xl px-2 md:block"><HeaderTokenSearch id="desktop-token-search" /></div>

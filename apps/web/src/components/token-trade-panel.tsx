@@ -433,7 +433,7 @@ export function TokenTradePanel(props: Props) {
     <div className="trade-panel-grid grid min-w-0 gap-5">
       <div className="min-w-0" aria-label="Trade inputs and wallet">
         <div className="flex rounded-xl border border-white/8 bg-black/20 p-1" role="group" aria-label="Trade side">
-          <button className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition-colors ${side === "buy" ? "bg-emerald-400 text-[#03251a] shadow-lg shadow-emerald-950/20" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`} aria-pressed={side === "buy"} type="button" disabled={locked} onClick={() => changeSide("buy")}>Buy</button>
+          <button className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition-colors ${side === "buy" ? "bg-emerald-400 text-[#04060b] shadow-lg shadow-emerald-950/20" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`} aria-pressed={side === "buy"} type="button" disabled={locked} onClick={() => changeSide("buy")}>Buy</button>
           <button className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition-colors ${side === "sell" ? "bg-red-500 text-white shadow-lg shadow-red-950/25" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`} aria-pressed={side === "sell"} type="button" disabled={locked} onClick={() => changeSide("sell")}>Sell</button>
         </div>
         <div className="mt-5 flex items-start justify-between gap-3"><div><p className="text-xs text-zinc-500">Protected curve order</p><h3 className="mt-1 text-xl font-semibold text-white">{side === "buy" ? `Buy ${props.symbol}` : `Sell ${props.symbol}`}</h3></div><span className="badge-neutral">60s quote</span></div>

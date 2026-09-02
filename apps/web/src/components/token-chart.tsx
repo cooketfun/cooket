@@ -92,11 +92,11 @@ export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }:
     const chart = createChart(element, {
       width: element.clientWidth,
       height: element.clientHeight,
-      layout: { background: { type: ColorType.Solid, color: "#071019" }, textColor: "#7e91a0", fontFamily: "Geist, sans-serif" },
-      grid: { vertLines: { color: "#10202c" }, horzLines: { color: "#10202c" } },
-      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: "#536978", labelBackgroundColor: "#19303e" }, horzLine: { color: "#536978", labelBackgroundColor: "#19303e" } },
-      rightPriceScale: { autoScale: true, borderColor: "#223443", scaleMargins: PRICE_SCALE_MARGINS },
-      timeScale: { borderColor: "#223443", timeVisible: true, secondsVisible: false, rightOffset: 3, barSpacing: 8, minBarSpacing: 3 },
+      layout: { background: { type: ColorType.Solid, color: "#0a0e18" }, textColor: "#a2aac0", fontFamily: "Geist, sans-serif" },
+      grid: { vertLines: { color: "rgba(233, 238, 250, 0.09)" }, horzLines: { color: "rgba(233, 238, 250, 0.09)" } },
+      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: "#6c7690", labelBackgroundColor: "#0d1322" }, horzLine: { color: "#6c7690", labelBackgroundColor: "#0d1322" } },
+      rightPriceScale: { autoScale: true, borderColor: "rgba(233, 238, 250, 0.16)", scaleMargins: PRICE_SCALE_MARGINS },
+      timeScale: { borderColor: "rgba(233, 238, 250, 0.16)", timeVisible: true, secondsVisible: false, rightOffset: 3, barSpacing: 8, minBarSpacing: 3 },
       localization: { priceFormatter: formatValue },
     });
     const priceSeries = chart.addSeries(CandlestickSeries, {
@@ -138,12 +138,12 @@ export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }:
   const controls = <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-center">
     <div className="flex min-w-0 items-center gap-2">
       <label className="sr-only" htmlFor={`chart-metric-${tokenAddress}`}>Chart metric</label>
-      <select id={`chart-metric-${tokenAddress}`} aria-label="Chart metric" value={view} className="min-h-11 flex-1 rounded-lg border border-white/10 bg-[#09141e] px-3 text-xs font-semibold text-zinc-200 outline-none transition focus:border-cyan-300/50 sm:min-h-9 sm:flex-none" onChange={(event) => { setInspectedTime(null); setView(event.target.value as ChartView); }}>
+      <select id={`chart-metric-${tokenAddress}`} aria-label="Chart metric" value={view} className="min-h-11 flex-1 rounded-lg border border-white/10 bg-[#0d1322] px-3 text-xs font-semibold text-zinc-200 outline-none transition focus:border-cyan-300/50 sm:min-h-9 sm:flex-none" onChange={(event) => { setInspectedTime(null); setView(event.target.value as ChartView); }}>
         <option value="price">Price</option>
         <option value="fdv" disabled={!initialSupply}>FDV</option>
       </select>
       <label className="sr-only" htmlFor={`chart-timeframe-${tokenAddress}`}>Chart timeframe</label>
-      <select id={`chart-timeframe-${tokenAddress}`} aria-label="Chart timeframe" value={timeframe} className="min-h-11 flex-1 rounded-lg border border-white/10 bg-[#09141e] px-3 text-xs font-semibold text-zinc-200 outline-none transition focus:border-cyan-300/50 sm:min-h-9 sm:flex-none" onChange={(event) => { setInspectedTime(null); setTimeframe(event.target.value as ChartInterval); }}>
+      <select id={`chart-timeframe-${tokenAddress}`} aria-label="Chart timeframe" value={timeframe} className="min-h-11 flex-1 rounded-lg border border-white/10 bg-[#0d1322] px-3 text-xs font-semibold text-zinc-200 outline-none transition focus:border-cyan-300/50 sm:min-h-9 sm:flex-none" onChange={(event) => { setInspectedTime(null); setTimeframe(event.target.value as ChartInterval); }}>
         {TIMEFRAMES.map((item) => <option key={item} value={item}>{item}</option>)}
       </select>
     </div>
@@ -169,7 +169,7 @@ export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }:
       </div>
       {controls}
     </div>
-    <div className="bg-[#071019]"><div ref={container} className="h-[min(16.5rem,46dvh)] w-full min-[390px]:h-[min(18.5rem,48dvh)] sm:h-[28rem] lg:h-[40rem] xl:h-[44rem]" role="img" aria-label={`${view === "price" ? "Price" : "FDV"} candlestick chart with volume in ${currency}`} /></div>
+    <div className="bg-[#0a0e18]"><div ref={container} className="h-[min(16.5rem,46dvh)] w-full min-[390px]:h-[min(18.5rem,48dvh)] sm:h-[28rem] lg:h-[40rem] xl:h-[44rem]" role="img" aria-label={`${view === "price" ? "Price" : "FDV"} candlestick chart with volume in ${currency}`} /></div>
     <p className="border-t border-white/8 px-4 py-3 text-xs leading-5 text-zinc-600">{reference ? `USD reference updated ${new Date(reference.asOf).toLocaleString()}.` : "USD conversion unavailable; the chart shows 18-decimal native USDC-indexed values."} No external pool feed is used before graduation.</p>
   </section>;
 }

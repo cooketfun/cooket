@@ -94,6 +94,33 @@ describe("CreateTokenForm", () => {
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ imageSource: "file", imageFile: expect.any(File), imageUrl: "" }), expect.any(Function));
   });
 
+  it("keeps the image URL control controlled across source changes and resets", async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    const initialFileInput = screen.getByLabelText("Image file") as HTMLInputElement;
+    expect(initialFileInput.value).toBe("");
+
+    await user.click(screen.getByRole("button", { name: "Image URL" }));
+    const imageURLInput = screen.getByRole("textbox", { name: "Image URL" }) as HTMLInputElement;
+    expect(imageURLInput).not.toBe(initialFileInput);
+    expect(imageURLInput.value).toBe("");
+
+    await user.type(imageURLInput, "https://example.com/token.png");
+    expect(imageURLInput.value).toBe("https://example.com/token.png");
+    await user.clear(imageURLInput);
+    expect(imageURLInput.value).toBe("");
+
+    await user.type(imageURLInput, "https://example.com/reset.png");
+    await user.click(screen.getByRole("button", { name: "Upload file" }));
+    const resetFileInput = screen.getByLabelText("Image file") as HTMLInputElement;
+    expect(resetFileInput).not.toBe(imageURLInput);
+    expect(resetFileInput.value).toBe("");
+
+    await user.click(screen.getByRole("button", { name: "Image URL" }));
+    expect((screen.getByRole("textbox", { name: "Image URL" }) as HTMLInputElement).value).toBe("");
+  });
+
   it("rejects oversized images", async () => {
     const user = userEvent.setup();
     renderForm();

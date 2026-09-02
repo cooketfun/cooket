@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -133,10 +134,41 @@ func TestCORSUsesExplicitAllowlistWithoutCredentials(t *testing.T) {
 	if rejected.Code != http.StatusForbidden {
 		t.Fatalf("rejected=%d", rejected.Code)
 	}
-	for _, raw := range []string{"https://*.vercel.app", "http://localhost:3200", "https://testnet.cooket.fun/path", ""} {
-		if _, err := ParseAllowedOrigins(raw); err == nil {
-			t.Fatalf("accepted invalid origin %q", raw)
-		}
+}
+
+func TestParseAllowedOrigins(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{name: "HTTPS production", raw: "https://testnet.cooket.fun", want: []string{"https://testnet.cooket.fun"}},
+		{name: "localhost HTTP", raw: "http://localhost:3200", want: []string{"http://localhost:3200"}},
+		{name: "IPv4 loopback HTTP", raw: "http://127.0.0.1:3200", want: []string{"http://127.0.0.1:3200"}},
+		{name: "IPv6 loopback HTTP", raw: "http://[::1]:3200", want: []string{"http://[::1]:3200"}},
+		{name: "localhost subdomain HTTP", raw: "http://app.localhost:3200", want: []string{"http://app.localhost:3200"}},
+		{name: "canonical duplicates", raw: "HTTPS://TESTNET.COOKET.FUN, https://testnet.cooket.fun", want: []string{"https://testnet.cooket.fun"}},
+		{name: "public HTTP", raw: "http://testnet.cooket.fun", want: nil},
+		{name: "wildcard", raw: "https://*.cooket.fun", want: nil},
+		{name: "credentials", raw: "https://user:password@testnet.cooket.fun", want: nil},
+		{name: "path", raw: "https://testnet.cooket.fun/path", want: nil},
+		{name: "query", raw: "https://testnet.cooket.fun?source=test", want: nil},
+		{name: "fragment", raw: "https://testnet.cooket.fun#top", want: nil},
+		{name: "empty", raw: "", want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ParseAllowedOrigins(test.raw)
+			if test.want == nil {
+				if err == nil {
+					t.Fatalf("accepted invalid origin %q: %v", test.raw, got)
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("ParseAllowedOrigins(%q) = %v, %v; want %v, nil", test.raw, got, err, test.want)
+			}
+		})
 	}
 }
 func TestRequestIDValidationAndErrors(t *testing.T) {

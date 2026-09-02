@@ -11,7 +11,7 @@ export function TokenCard({ token, variant = "grid" }: { token: Token; variant?:
   const progress = graduationProgress(token.curve?.sold_supply, token.curve?.graduation_threshold);
   const image = <TokenImage token={token} className={variant === "list" ? "h-20 w-20 rounded-xl sm:h-24 sm:w-24" : "aspect-[4/3] w-full rounded-xl"} />;
 
-  if (variant === "list") return <article className="group market-card relative flex min-w-0 items-center gap-3 p-3 transition-colors hover:border-cyan-300/30 hover:bg-[#0d1721] sm:gap-4">
+  if (variant === "list") return <article className="group market-card relative flex min-w-0 items-center gap-3 p-3 transition-colors hover:border-cyan-300/30 hover:bg-[#0d1322] sm:gap-4">
     <CardLink token={token} />
     {image}
     <div className="min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(8rem,1.25fr)_repeat(4,minmax(5rem,.7fr))] sm:items-center sm:gap-4">
@@ -25,12 +25,12 @@ export function TokenCard({ token, variant = "grid" }: { token: Token; variant?:
     <span className="hidden flex-none text-zinc-600 transition-transform group-hover:translate-x-0.5 group-hover:text-cyan-300 sm:block" aria-hidden>→</span>
   </article>;
 
-  return <article className="group market-card relative min-w-0 overflow-hidden transition duration-150 hover:border-cyan-300/30 hover:bg-[#0d1721] max-md:flex max-md:min-h-16 max-md:items-center max-md:gap-3 max-md:p-3 md:hover:-translate-y-0.5">
+  return <article className="group market-card relative min-w-0 overflow-hidden transition duration-150 hover:border-cyan-300/30 hover:bg-[#0d1322] max-md:flex max-md:min-h-16 max-md:items-center max-md:gap-3 max-md:p-3 md:hover:-translate-y-0.5">
     <CardLink token={token} />
     <div className="relative max-md:flex-none p-2 pb-0 max-md:p-0">
       <TokenImage token={token} className="aspect-[4/3] w-full rounded-xl max-md:h-14 max-md:w-14 max-md:aspect-auto" />
       <span className="absolute left-4 top-4 rounded-full border border-black/20 bg-black/65 px-2 py-1 text-[0.62rem] font-semibold text-zinc-200 backdrop-blur max-md:hidden">Block #{formatCount(token.created_at.block_number)}</span>
-      {token.x_url && <span className="absolute right-4 top-4 rounded-full border border-cyan-300/20 bg-[#071219]/85 px-2 py-1 text-[0.62rem] font-bold text-cyan-200 backdrop-blur max-md:hidden">X linked</span>}
+      {token.x_url && <span className="absolute right-4 top-4 rounded-full border border-cyan-300/20 bg-[#0a0e18]/85 px-2 py-1 text-[0.62rem] font-bold text-cyan-200 backdrop-blur max-md:hidden">X linked</span>}
     </div>
     <div className="min-w-0 flex-1 p-3.5 max-md:p-0">
       <Identity token={token} />
@@ -73,7 +73,7 @@ function CardLink({ token }: { token: Token }) {
 function TokenImage({ token, className }: { token: Token; className: string }) {
   return token.image_url
     ? <div role="img" aria-label={`${token.name} token artwork`} className={`${className} flex-none border border-white/8 bg-cover bg-center bg-no-repeat`} style={{ backgroundImage: `url(${apiAssetURL(token.image_url)})` }} />
-    : <div aria-hidden className={`${className} flex flex-none items-center justify-center border border-cyan-300/12 bg-[radial-gradient(circle_at_30%_20%,rgba(103,232,249,.18),transparent_48%),linear-gradient(145deg,#101d28,#071018)] text-3xl font-semibold text-cyan-200`}>{token.symbol.slice(0, 1)}</div>;
+    : <div aria-hidden className={`${className} flex flex-none items-center justify-center border border-cyan-300/12 bg-[radial-gradient(circle_at_30%_20%,rgba(51,217,230,.18),transparent_48%),linear-gradient(145deg,#0d1322,#0a0e18)] text-3xl font-semibold text-cyan-200`}>{token.symbol.slice(0, 1)}</div>;
 }
 
 function Identity({ token, compact = false }: { token: Token; compact?: boolean }) {
@@ -90,7 +90,7 @@ function ListMetric({ label, value, unavailable = false }: { label: string; valu
 
 function Progress({ value, compact = false }: { value: number | null; compact?: boolean }) {
   if (value === null) return <div className={compact ? "" : "mt-3"}><div className="flex items-center justify-between text-[0.62rem] text-zinc-600"><span>Graduation</span><span>Not indexed</span></div><div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/6" /></div>;
-  return <div className={compact ? "" : "mt-3"}><div className="flex items-center justify-between text-[0.62rem]"><span className="text-zinc-600">Graduation</span><span className="font-medium text-zinc-400">{value.toFixed(value >= 10 ? 1 : 2)}%</span></div><div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/6"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-300" style={{ width: `${value}%` }} /></div></div>;
+  return <div className={compact ? "" : "mt-3"}><div className="flex items-center justify-between text-[0.62rem]"><span className="text-zinc-600">Graduation</span><span className="font-medium text-zinc-400">{value.toFixed(value >= 10 ? 1 : 2)}%</span></div><div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/6"><div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-cyan-400" style={{ width: `${value}%` }} /></div></div>;
 }
 
 function shortAddress(value: string) {

@@ -8,6 +8,20 @@ fi
 
 db_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+ready=false
+for attempt in $(seq 1 20); do
+  if pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; then
+    ready=true
+    break
+  fi
+  echo "Waiting for PostgreSQL to accept connections (attempt $attempt/20)..." >&2
+  sleep 1
+done
+if [ "$ready" != true ]; then
+  echo "PostgreSQL did not become available after 20 seconds; migrations were not applied." >&2
+  exit 1
+fi
+
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
   CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,

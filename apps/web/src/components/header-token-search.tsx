@@ -31,7 +31,7 @@ export function HeaderTokenSearch({ id = "global-token-search", autoFocus = fals
       aria-controls={term ? `${id}-results` : undefined}
       aria-expanded={term ? true : undefined}
     />
-    {term && <div id={`${id}-results`} className="absolute left-0 right-0 top-[calc(100%+0.45rem)] z-50 overflow-hidden rounded-xl border border-white/10 bg-[#09111a] p-1.5 shadow-2xl shadow-black/50" aria-live="polite">
+    {term && <div id={`${id}-results`} className="absolute left-0 right-0 top-[calc(100%+0.45rem)] z-50 overflow-hidden rounded-xl border border-white/10 bg-[#0d1322] p-1.5 shadow-2xl shadow-black/50" aria-live="polite">
       {query.isPending && <p className="px-3 py-3 text-xs text-zinc-500">Searching indexed tokens…</p>}
       {query.isError && <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-rose-300"><span>Search unavailable</span><button type="button" className="text-cyan-300" onClick={() => void query.refetch()}>Retry</button></div>}
       {query.data?.items.length === 0 && <p className="px-3 py-3 text-xs text-zinc-500">No indexed tokens found.</p>}

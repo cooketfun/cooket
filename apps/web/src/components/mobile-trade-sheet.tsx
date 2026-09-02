@@ -52,7 +52,7 @@ export function MobileTradeActions({ symbol }: { symbol: string }) {
   const { open, openSheet } = useTokenTradeSheet();
   if (open) return null;
   return <div className="mobile-trade-actions md:hidden" aria-label="Trade actions">
-    <button type="button" className="min-h-11 flex-1 rounded-xl bg-emerald-400 text-sm font-semibold text-[#03251a]" onClick={openSheet}>Buy {symbol}</button>
+    <button type="button" className="min-h-11 flex-1 rounded-xl bg-emerald-400 text-sm font-semibold text-[#04060b]" onClick={openSheet}>Buy {symbol}</button>
     <button type="button" className="min-h-11 flex-1 rounded-xl bg-red-500 text-sm font-semibold text-white" onClick={openSheet}>Sell {symbol}</button>
   </div>;
 }
