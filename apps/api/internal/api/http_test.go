@@ -23,6 +23,14 @@ type fakeRepo struct {
 	listErr        error
 	calls          int
 	chartIntervals []string
+	ctoStatus      *CTOStatus
+	ctoProposal    CTOProposal
+	ctoProposals   CTOProposalPage
+	ctoTreasury    CTOTreasury
+	ctoTransfers   CTOTreasuryTransferPage
+	ctoFeePulls    CTOFeePullPage
+	ctoCheckpoints CTOCheckpointPage
+	ctoErr         error
 }
 
 type fakeETHUSDReader struct {
@@ -78,6 +86,66 @@ func (f *fakeRepo) Chart(_ context.Context, _ int64, _ string, interval string, 
 }
 func (f *fakeRepo) SaveMetadataDraft(context.Context, MetadataDraft) error                { return nil }
 func (f *fakeRepo) FinalizeMetadata(context.Context, int64, string, string, string) error { return nil }
+func (f *fakeRepo) CTOStatus(_ context.Context, chain int64, token string) (CTOStatus, error) {
+	if f.tokenErr != nil {
+		return CTOStatus{}, f.tokenErr
+	}
+	if f.ctoStatus != nil {
+		return *f.ctoStatus, f.ctoErr
+	}
+	return CTOStatus{ChainID: chain, Token: token, Active: false}, f.ctoErr
+}
+func (f *fakeRepo) CTOProposals(context.Context, int64, string, int, string) (CTOProposalPage, error) {
+	if f.tokenErr != nil {
+		return CTOProposalPage{}, f.tokenErr
+	}
+	if f.ctoProposals.Items == nil {
+		return CTOProposalPage{Items: []CTOProposal{}}, f.ctoErr
+	}
+	return f.ctoProposals, f.ctoErr
+}
+func (f *fakeRepo) CTOProposal(context.Context, int64, string) (CTOProposal, error) {
+	if f.ctoErr != nil {
+		return CTOProposal{}, f.ctoErr
+	}
+	return f.ctoProposal, nil
+}
+func (f *fakeRepo) CTOTreasury(context.Context, int64, string, int) (CTOTreasury, error) {
+	if f.ctoErr != nil {
+		return CTOTreasury{}, f.ctoErr
+	}
+	return f.ctoTreasury, nil
+}
+func (f *fakeRepo) CTOTreasuryTransfers(context.Context, int64, string, int, string) (CTOTreasuryTransferPage, error) {
+	if f.ctoErr != nil {
+		return CTOTreasuryTransferPage{}, f.ctoErr
+	}
+	if f.ctoTransfers.Items == nil {
+		return CTOTreasuryTransferPage{Items: []CTOTreasuryTransfer{}}, nil
+	}
+	return f.ctoTransfers, nil
+}
+func (f *fakeRepo) CTOTreasuryFeePulls(context.Context, int64, string, int, string) (CTOFeePullPage, error) {
+	if f.ctoErr != nil {
+		return CTOFeePullPage{}, f.ctoErr
+	}
+	if f.ctoFeePulls.Items == nil {
+		return CTOFeePullPage{Items: []CTOFeePull{}}, nil
+	}
+	return f.ctoFeePulls, nil
+}
+func (f *fakeRepo) CTOCheckpoints(context.Context, int64, string, int, string) (CTOCheckpointPage, error) {
+	if f.tokenErr != nil {
+		return CTOCheckpointPage{}, f.tokenErr
+	}
+	if f.ctoErr != nil {
+		return CTOCheckpointPage{}, f.ctoErr
+	}
+	if f.ctoCheckpoints.Items == nil {
+		return CTOCheckpointPage{Token: "", Aggregates: []CTOCheckpointAggregate{}, Items: []CTOCheckpointEvent{}}, nil
+	}
+	return f.ctoCheckpoints, nil
+}
 func testHandler(repo Repository) http.Handler {
 	return NewHandler(repo, 5042002, time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 }
@@ -378,12 +446,12 @@ func TestTokenDetailReturnsIndexedTokenAndSafeRepositoryError(t *testing.T) {
 
 func TestTokenDetailOmitsAbsentGraduationSettlementValues(t *testing.T) {
 	address := "0x0000000000000000000000000000000000000001"
-	indexed := Token{Address: address, Creator: "0x0000000000000000000000000000000000000002", Name: "Cooket", Symbol: "ZK", InitialSupply: "1000", Metrics: Metrics{Volume: "0", Fees: "0"}, Graduation: &Graduation{Phase: "graduated", TokenAmount: "200", ETHAmount: "3", SoldSupply: "800"}}
+	indexed := Token{Address: address, Creator: "0x0000000000000000000000000000000000000002", Name: "Cooket", Symbol: "ZK", InitialSupply: "1000", Metrics: Metrics{Volume: "0", Fees: "0"}, Graduation: &Graduation{Phase: "graduated", TokenAmount: "200", NativeUsdcAmount: "3", SoldSupply: "800"}}
 	r := testHandler(&fakeRepo{token: indexed})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/tokens/"+address, nil))
 	body := w.Body.String()
-	if w.Code != http.StatusOK || !strings.Contains(body, `"phase":"graduated"`) || strings.Contains(body, `"liquidity":"0"`) || strings.Contains(body, `"position_token_id":"0"`) || strings.Contains(body, `"liquidity_amount":"0"`) || strings.Contains(body, `"lock_id":"0"`) {
+	if w.Code != http.StatusOK || !strings.Contains(body, `"phase":"graduated"`) || !strings.Contains(body, `"native_usdc_amount":"3"`) || strings.Contains(body, `"eth_amount"`) || strings.Contains(body, `"liquidity":"0"`) || strings.Contains(body, `"position_token_id":"0"`) || strings.Contains(body, `"liquidity_amount":"0"`) || strings.Contains(body, `"lock_id":"0"`) {
 		t.Fatalf("status=%d body=%s", w.Code, body)
 	}
 }

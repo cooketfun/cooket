@@ -16,6 +16,7 @@ import (
 
 var ErrNotFound = errors.New("not found")
 var ErrInvalidCursor = errors.New("invalid cursor")
+var ErrInconsistentAccounting = errors.New("checkpoint claimed exceeds checkpointed")
 
 type Repository interface {
 	Ping(context.Context) error
@@ -30,6 +31,13 @@ type Repository interface {
 	Chart(context.Context, int64, string, string, int) (ChartPage, error)
 	SaveMetadataDraft(context.Context, MetadataDraft) error
 	FinalizeMetadata(context.Context, int64, string, string, string) error
+	CTOStatus(context.Context, int64, string) (CTOStatus, error)
+	CTOProposals(context.Context, int64, string, int, string) (CTOProposalPage, error)
+	CTOProposal(context.Context, int64, string) (CTOProposal, error)
+	CTOTreasury(context.Context, int64, string, int) (CTOTreasury, error)
+	CTOTreasuryTransfers(context.Context, int64, string, int, string) (CTOTreasuryTransferPage, error)
+	CTOTreasuryFeePulls(context.Context, int64, string, int, string) (CTOFeePullPage, error)
+	CTOCheckpoints(context.Context, int64, string, int, string) (CTOCheckpointPage, error)
 }
 type PostgresRepository struct{ pool *pgxpool.Pool }
 
@@ -48,12 +56,21 @@ func NewPostgresRepository(ctx context.Context, url string) (*PostgresRepository
 func (r *PostgresRepository) requireSchema(ctx context.Context) error {
 	var ready bool
 	e := r.pool.QueryRow(ctx, `SELECT
-		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11]
+		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12]
 		AND to_regclass('public.tokens') IS NOT NULL
 		AND to_regclass('public.token_metadata_drafts') IS NOT NULL
 		AND to_regclass('public.token_holder_balances') IS NOT NULL
 			AND to_regclass('public.token_trade_buckets') IS NOT NULL
-			AND to_regclass('public.application_token_exclusions') IS NOT NULL`).Scan(&ready)
+			AND to_regclass('public.application_token_exclusions') IS NOT NULL
+		AND to_regclass('public.cto_treasuries') IS NOT NULL
+		AND to_regclass('public.cto_proposals') IS NOT NULL
+		AND to_regclass('public.cto_token_state') IS NOT NULL
+		AND to_regclass('public.cto_creator_fee_checkpoint_ledger') IS NOT NULL
+		AND to_regclass('public.cto_supported_assets') IS NOT NULL
+		AND to_regclass('public.cto_treasury_transfers') IS NOT NULL
+		AND to_regclass('public.cto_fee_pulls') IS NOT NULL
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='native_usdc_amount')
+		AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='eth_amount')`).Scan(&ready)
 	if e != nil {
 		return fmt.Errorf("database schema is not ready; run db/migrate.sh: %w", e)
 	}
@@ -69,7 +86,7 @@ const tokenSelect = `SELECT t.token_address,t.creator_address,t.name,t.symbol,t.
  c.curve_address,c.canonical_pool_address,c.curve_supply,c.sold_supply,c.reserve_balance,c.starting_price,c.slope,c.graduation_threshold,c.lifecycle,
  m.trade_count,m.buy_count,m.sell_count,m.volume,m.fees,m.unique_trader_count,m.latest_trade_timestamp,m.current_price,m.fully_diluted_value,m.holder_count,
  latest_trade.source,
- g.phase,g.graduation_manager_address,g.token_amount,g.eth_amount,g.sold_supply,g.block_number,g.transaction_hash,g.log_index,
+ g.phase,g.graduation_manager_address,g.token_amount,g.native_usdc_amount::text,g.sold_supply,g.block_number,g.transaction_hash,g.log_index,
  le.lp_custodian_address,le.position_token_id,le.liquidity_amount,le.block_number,le.transaction_hash,le.log_index,
  g.liquidity_token_address,g.quote_amount,g.liquidity_amount,g.lock_id,g.unlock_timestamp
 	 FROM (SELECT DISTINCT ON (token_address) * FROM tokens WHERE chain_id=$1 AND is_canonical
@@ -84,7 +101,7 @@ const tokenSelect = `SELECT t.token_address,t.creator_address,t.name,t.symbol,t.
 func scanToken(row pgx.Row) (Token, error) {
 	var t Token
 	var caddr, poolAddress, csupply, sold, reserve, start, slope, threshold, life *string
-	var phase, manager, ta, ethAmount, graduationSold *string
+	var phase, manager, ta, nativeUsdcAmount, graduationSold *string
 	var custodian, positionTokenID, liquidity *string
 	var legacyLiquidityToken, legacyQuote, legacyLiquidity, legacyLockID *string
 	var tc, bc, sc, uniqueTraders, latestTrade, holders *int64
@@ -92,7 +109,7 @@ func scanToken(row pgx.Row) (Token, error) {
 	var curveBlock, curveLog, settlementBlock, settlementLog *int64
 	var curveTx, settlementTx *string
 	var legacyUnlock *int64
-	e := row.Scan(&t.Address, &t.Creator, &t.Name, &t.Symbol, &t.InitialSupply, &t.Description, &t.ImageURL, &t.MetadataURL, &t.WebsiteURL, &t.XURL, &t.TelegramURL, &t.DiscordURL, &t.CreatedAt.BlockNumber, &t.CreatedAt.TransactionHash, &t.CreatedAt.LogIndex, &caddr, &poolAddress, &csupply, &sold, &reserve, &start, &slope, &threshold, &life, &tc, &bc, &sc, &vol, &fees, &uniqueTraders, &latestTrade, &price, &fullyDilutedValue, &holders, &latestTradeSource, &phase, &manager, &ta, &ethAmount, &graduationSold, &curveBlock, &curveTx, &curveLog, &custodian, &positionTokenID, &liquidity, &settlementBlock, &settlementTx, &settlementLog, &legacyLiquidityToken, &legacyQuote, &legacyLiquidity, &legacyLockID, &legacyUnlock)
+	e := row.Scan(&t.Address, &t.Creator, &t.Name, &t.Symbol, &t.InitialSupply, &t.Description, &t.ImageURL, &t.MetadataURL, &t.WebsiteURL, &t.XURL, &t.TelegramURL, &t.DiscordURL, &t.CreatedAt.BlockNumber, &t.CreatedAt.TransactionHash, &t.CreatedAt.LogIndex, &caddr, &poolAddress, &csupply, &sold, &reserve, &start, &slope, &threshold, &life, &tc, &bc, &sc, &vol, &fees, &uniqueTraders, &latestTrade, &price, &fullyDilutedValue, &holders, &latestTradeSource, &phase, &manager, &ta, &nativeUsdcAmount, &graduationSold, &curveBlock, &curveTx, &curveLog, &custodian, &positionTokenID, &liquidity, &settlementBlock, &settlementTx, &settlementLog, &legacyLiquidityToken, &legacyQuote, &legacyLiquidity, &legacyLockID, &legacyUnlock)
 	if e != nil {
 		return t, e
 	}
@@ -110,7 +127,7 @@ func scanToken(row pgx.Row) (Token, error) {
 			PositionTokenID:          optionalValue(positionTokenID),
 			Liquidity:                optionalValue(liquidity),
 			TokenAmount:              optionalValue(ta),
-			ETHAmount:                optionalValue(ethAmount),
+			NativeUsdcAmount:         optionalValue(nativeUsdcAmount),
 			SoldSupply:               optionalValue(graduationSold),
 			LiquidityToken:           legacyLiquidityToken,
 			QuoteAmount:              legacyQuote,
@@ -212,6 +229,7 @@ type pageCursor struct {
 	RecentTrades     int64  `json:"r,omitempty"`
 	RecentUsers      int64  `json:"u,omitempty"`
 	Query            string `json:"q,omitempty"`
+	ProposalID       string `json:"p,omitempty"`
 }
 
 func encodeCursor(c pageCursor) string {
@@ -237,6 +255,12 @@ func decodeCursor(raw, kind string) (pageCursor, error) {
 		return pageCursor{}, ErrInvalidCursor
 	}
 	if (kind == "trades" || kind == "activity") && (!validCursorHex(c.Transaction, 64) || c.TransactionIndex < 0 || c.LogIndex < 0) {
+		return pageCursor{}, ErrInvalidCursor
+	}
+	if kind == "cto_proposals" && (!validCursorHex(c.Transaction, 64) || !validCursorHex(c.ProposalID, 64) || c.LogIndex < 0) {
+		return pageCursor{}, ErrInvalidCursor
+	}
+	if (kind == "cto_checkpoints" || kind == "cto_transfers" || kind == "cto_fee_pulls") && (!validCursorHex(c.Transaction, 64) || c.LogIndex < 0) {
 		return pageCursor{}, ErrInvalidCursor
 	}
 	return c, nil

@@ -75,6 +75,13 @@ func newHandler(repo Repository, chainID int64, timeout time.Duration, logger *s
 		r.Get("/tokens/{address}/chart", h.chart)
 		r.Get("/tokens/{address}/trades", h.trades)
 		r.Get("/tokens/{address}/activity", h.activity)
+		r.Get("/tokens/{address}/cto", h.ctoStatus)
+		r.Get("/tokens/{address}/cto/proposals", h.ctoProposals)
+		r.Get("/tokens/{address}/cto/checkpoints", h.ctoCheckpoints)
+		r.Get("/cto/proposals/{proposalId}", h.ctoProposal)
+		r.Get("/cto/treasuries/{treasury}", h.ctoTreasury)
+		r.Get("/cto/treasuries/{treasury}/transfers", h.ctoTreasuryTransfers)
+		r.Get("/cto/treasuries/{treasury}/fee-pulls", h.ctoTreasuryFeePulls)
 		r.Get("/creators/{address}", h.creator)
 		r.Get("/creators/{address}/tokens", h.creatorTokens)
 	})
@@ -801,6 +808,9 @@ func validOpaqueCursor(raw string) bool {
 	case "trades", "activity":
 		_, e := decodeCursor(raw, c.Kind)
 		return e == nil
+	case "cto_proposals", "cto_checkpoints", "cto_transfers", "cto_fee_pulls":
+		_, e := decodeCursor(raw, c.Kind)
+		return e == nil
 	default:
 		return false
 	}
@@ -827,12 +837,20 @@ func (h *Handler) repositoryError(w http.ResponseWriter, r *http.Request, e erro
 		writeError(w, 400, "invalid_request", "cursor is invalid")
 		return
 	}
+	if errors.Is(e, ErrInconsistentAccounting) {
+		writeError(w, 500, "inconsistent_accounting", "checkpoint claimed amount exceeds checkpointed amount")
+		return
+	}
 	h.internal(w, r, e)
 }
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+func writeIndexedJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Cache-Control", "public, max-age=5, must-revalidate")
+	writeJSON(w, status, v)
 }
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})

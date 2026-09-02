@@ -281,7 +281,7 @@ func TestPostgresCanonicalGraduationPairsCurveAndManagerEvidence(t *testing.T) {
 	if _, err = repo.pool.Exec(ctx, `INSERT INTO token_metrics(chain_id,token_address,trade_count,buy_count,sell_count,volume,fees,unique_trader_count,recent_volume,recent_trade_count,recent_trader_count,block_number,block_hash) VALUES($1,$2,1,1,0,3,0,1,3,1,1,$3,$4)`, chain, token, block, blockHash); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = repo.pool.Exec(ctx, `INSERT INTO graduations(chain_id,token_address,phase,sold_supply,token_amount,graduation_manager_address,eth_amount,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,'graduated',800,200,$3,3,$4,$5,$6,8)`, chain, token, manager, block, blockHash, graduationTx); err != nil {
+	if _, err = repo.pool.Exec(ctx, `INSERT INTO graduations(chain_id,token_address,phase,sold_supply,token_amount,graduation_manager_address,native_usdc_amount,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,'graduated',800,200,$3,3,$4,$5,$6,8)`, chain, token, manager, block, blockHash, graduationTx); err != nil {
 		t.Fatal(err)
 	}
 	// This canonical row has the same token and transaction but the wrong
@@ -296,7 +296,7 @@ func TestPostgresCanonicalGraduationPairsCurveAndManagerEvidence(t *testing.T) {
 	assertGraduation := func(label string, item Token) {
 		t.Helper()
 		g := item.Graduation
-		if g == nil || g.Phase != "graduated" || g.CanonicalPoolAddress != pool || g.GraduationManagerAddress != manager || g.LPCustodianAddress != custodian || g.PositionTokenID != "77" || g.Liquidity != "1234" || g.TokenAmount != "200" || g.ETHAmount != "3" || g.SoldSupply != "800" || g.CurveTerminalAt == nil || g.CurveTerminalAt.BlockNumber != block || g.CurveTerminalAt.TransactionHash != graduationTx || g.CurveTerminalAt.LogIndex != 8 || g.SettledAt == nil || g.SettledAt.BlockNumber != block || g.SettledAt.TransactionHash != graduationTx || g.SettledAt.LogIndex != 7 {
+		if g == nil || g.Phase != "graduated" || g.CanonicalPoolAddress != pool || g.GraduationManagerAddress != manager || g.LPCustodianAddress != custodian || g.PositionTokenID != "77" || g.Liquidity != "1234" || g.TokenAmount != "200" || g.NativeUsdcAmount != "3" || g.SoldSupply != "800" || g.CurveTerminalAt == nil || g.CurveTerminalAt.BlockNumber != block || g.CurveTerminalAt.TransactionHash != graduationTx || g.CurveTerminalAt.LogIndex != 8 || g.SettledAt == nil || g.SettledAt.BlockNumber != block || g.SettledAt.TransactionHash != graduationTx || g.SettledAt.LogIndex != 7 {
 			t.Fatalf("%s graduation=%+v", label, g)
 		}
 		if g.LiquidityToken != nil || g.QuoteAmount != nil || g.LiquidityAmount != nil || g.LockID != nil || g.UnlockTimestamp != nil {
