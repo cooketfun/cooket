@@ -15,7 +15,4 @@ func TestProjectedTokenAddressMakesReplayExclusionsTokenSpecific(t *testing.T) {
 	if got := projectedTokenAddress("TokensBoughtV3", map[string]any{"token": other}); got != other.Hex() {
 		t.Fatalf("other token=%s want=%s", got, other.Hex())
 	}
-	if got := projectedTokenAddress("UniswapV3Swap", map[string]any{"token": token}); got != "" {
-		t.Fatalf("pool swap must resolve through the exclusion-aware canonical curve query: %s", got)
-	}
 }

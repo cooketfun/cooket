@@ -48,7 +48,7 @@ func integrationStore(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
-	for _, table := range []string{"token_trade_buckets", "token_holder_balances", "token_metrics", "liquidity_events", "graduations", "fees", "trades", "curves", "tokens", "chain_events", "chain_blocks", "indexer_checkpoints", "application_token_exclusions"} {
+	for _, table := range []string{"cto_fee_pulls", "cto_treasury_transfers", "cto_supported_assets", "cto_creator_fee_checkpoint_ledger", "cto_token_state", "cto_proposals", "cto_treasuries", "token_trade_buckets", "token_holder_balances", "token_metrics", "liquidity_events", "graduations", "fees", "trades", "curves", "tokens", "chain_events", "chain_blocks", "indexer_checkpoints", "application_token_exclusions"} {
 		if _, err = s.pool.Exec(context.Background(), "TRUNCATE "+table+" CASCADE"); err != nil {
 			t.Fatal(err)
 		}
@@ -171,44 +171,6 @@ func TestV3TransferAnalyticsAndIdempotency(t *testing.T) {
 	}
 	if *openPrice != expectedClose.String() || *highPrice != expectedClose.String() || *lowPrice != expectedClose.String() || *closePrice != expectedClose.String() {
 		t.Fatalf("bucket candle=%s/%s/%s/%s want=%s", *openPrice, *highPrice, *lowPrice, *closePrice, expectedClose)
-	}
-}
-
-func TestCanonicalUniswapV3SwapIsNormalizedAfterGraduation(t *testing.T) {
-	s := integrationStore(t)
-	ctx := context.Background()
-	token := common.HexToAddress("0x7000000000000000000000000000000000000111")
-	creator := common.HexToAddress("0x0000000000000000000000000000000000000112")
-	curve := common.HexToAddress("0x0000000000000000000000000000000000000113")
-	pool := common.HexToAddress("0x0000000000000000000000000000000000000114")
-	router := common.HexToAddress("0x0000000000000000000000000000000000000115")
-	wallet := common.HexToAddress("0x0000000000000000000000000000000000000116")
-	launchBlock := &types.Header{Number: big.NewInt(20), Time: 10_000}
-	launch := v3LaunchWithPool(t, token, creator, curve, pool)
-	launch.Address = common.HexToAddress("0x0000000000000000000000000000000000000117")
-	launchLogs := stamp(launchBlock, launch)
-	metadata := map[string]TokenMetadata{token.Hex(): {Name: "Uniswap", Symbol: "UNI", Decimals: 18}}
-	if err := s.ApplyWithMetadata(ctx, BaseSepoliaChainID, "v3-uniswap", launchBlock, launchLogs, metadata); err != nil {
-		t.Fatal(err)
-	}
-	tradeBlock := &types.Header{Number: big.NewInt(21), Time: 10_100}
-	settled := eventLog(t, v3GraduationABI.Events, "GraduatedV3", []common.Hash{common.BytesToHash(token.Bytes()), common.BytesToHash(creator.Bytes()), common.BigToHash(big.NewInt(1))}, big.NewInt(1))
-	settled.Address = creator
-	graduated := eventLog(t, contractABI.Events, "Graduated", []common.Hash{common.BytesToHash(token.Bytes()), common.BytesToHash(creator.Bytes())}, big.NewInt(900), big.NewInt(100), big.NewInt(800))
-	graduated.Address = curve
-	swap := eventLog(t, uniswapV3PoolABI.Events, "Swap", []common.Hash{common.BytesToHash(router.Bytes()), common.BytesToHash(wallet.Bytes())}, big.NewInt(100), big.NewInt(-1000), big.NewInt(1), big.NewInt(1), big.NewInt(1))
-	swap.Address = pool
-	tradeLogs := stamp(tradeBlock, settled, graduated, swap)
-	tradeLogs[1].TxHash = tradeLogs[0].TxHash
-	if err := s.ApplyWithMetadataAndSenders(ctx, BaseSepoliaChainID, "v3-uniswap", tradeBlock, tradeLogs, metadata, map[common.Hash]common.Address{tradeLogs[2].TxHash: wallet}); err != nil {
-		t.Fatal(err)
-	}
-	var source, side, trader, tokenAmount, reserve string
-	if err := s.pool.QueryRow(ctx, `SELECT source,side,trader_address,token_amount::text,reserve_amount::text FROM trades WHERE chain_id=$1 AND transaction_hash=$2`, BaseSepoliaChainID, tradeLogs[2].TxHash.Hex()).Scan(&source, &side, &trader, &tokenAmount, &reserve); err != nil {
-		t.Fatal(err)
-	}
-	if source != "uniswap_v3" || side != "buy" || trader != wallet.Hex() || tokenAmount != "1000" || reserve != "100" {
-		t.Fatalf("normalized swap=%s/%s/%s/%s/%s", source, side, trader, tokenAmount, reserve)
 	}
 }
 

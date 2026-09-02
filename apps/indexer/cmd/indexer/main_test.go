@@ -6,13 +6,13 @@ import (
 	indexer "github.com/cooketfun/cooket/apps/indexer"
 )
 
-func TestConfiguredContractsUsesOnlyV3FactoryWhenNoExplicitList(t *testing.T) {
-	addresses, err := configuredContracts("", "0x0000000000000000000000000000000000000001")
-	if err != nil || len(addresses) != 1 || addresses[0].Hex() != "0x0000000000000000000000000000000000000001" {
-		t.Fatalf("addresses=%v err=%v", addresses, err)
+func TestConfiguredRootsRequiresFactoryAndFeeManager(t *testing.T) {
+	factory, fees, err := configuredRoots("0x0000000000000000000000000000000000000001", "0x0000000000000000000000000000000000000002")
+	if err != nil || factory.Hex() != "0x0000000000000000000000000000000000000001" || fees.Hex() != "0x0000000000000000000000000000000000000002" {
+		t.Fatalf("factory=%v fees=%v err=%v", factory, fees, err)
 	}
-	if _, err := configuredContracts("", ""); err == nil {
-		t.Fatal("expected V3 factory configuration error")
+	if _, _, err := configuredRoots("", ""); err == nil {
+		t.Fatal("expected root configuration error")
 	}
 }
 
@@ -31,23 +31,24 @@ func TestResolveChainRuntimeRejectsUnsupportedOrInvalidChain(t *testing.T) {
 	}
 }
 
-func TestArcIndexerRejectsActiveBaseDerivedProjection(t *testing.T) {
+func TestArcIndexerAcceptsOnlyExplicitModes(t *testing.T) {
 	if err := validateArcIndexerMode("idle"); err != nil {
 		t.Fatalf("idle mode should remain available: %v", err)
 	}
 	for _, mode := range []string{"active", "once"} {
-		if err := validateArcIndexerMode(mode); err == nil {
-			t.Fatalf("expected %q mode to fail closed", mode)
+		if err := validateArcIndexerMode(mode); err != nil {
+			t.Fatalf("expected %q mode to be recognized: %v", mode, err)
 		}
+	}
+	if err := validateArcIndexerMode("unsafe"); err == nil {
+		t.Fatal("expected unknown mode rejection")
 	}
 }
 
-func TestConfiguredContractsAcceptsExplicitV3ContractList(t *testing.T) {
-	addresses, err := configuredContracts("0x0000000000000000000000000000000000000001,0x0000000000000000000000000000000000000002", "")
-	if err != nil || len(addresses) != 2 {
-		t.Fatalf("addresses=%v err=%v", addresses, err)
-	}
-	if _, err := configuredContracts("not-an-address", ""); err == nil {
-		t.Fatal("expected invalid configured contract error")
+func TestConfiguredRootsRejectsMalformedOrZeroValues(t *testing.T) {
+	for _, values := range [][2]string{{"not-an-address", "0x0000000000000000000000000000000000000002"}, {"0x0000000000000000000000000000000000000001", ""}, {"0x0000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000002"}} {
+		if _, _, err := configuredRoots(values[0], values[1]); err == nil {
+			t.Fatalf("expected invalid roots %q/%q", values[0], values[1])
+		}
 	}
 }

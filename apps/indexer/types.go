@@ -14,6 +14,7 @@ import (
 const (
 	ArcTestnetChainID int64 = 5042002
 	ArcTestnetRPCURL        = "https://rpc.testnet.arc.io"
+	ArcCanonicalUsdc        = "0x3600000000000000000000000000000000000000"
 	// BaseSepoliaChainID is retained only for historical projection fixtures.
 	// It is rejected by ResolveChainRuntime and Config.Validate.
 	BaseSepoliaChainID int64 = 84532
@@ -66,6 +67,11 @@ type Config struct {
 	ChainID                                         int64
 	StartBlock, StopBlock, Confirmations, BatchSize uint64
 	Contracts                                       []common.Address
+	Factory, FeeManager                             common.Address
+}
+
+type CTOProvenance struct {
+	Factory, FeeManager, Registry common.Address
 }
 
 func (c *Config) defaults() {
@@ -88,6 +94,9 @@ func (c Config) Validate() error {
 	}
 	if c.Mode != "idle" && c.DatabaseURL == "" {
 		return fmt.Errorf("database url is required in active mode")
+	}
+	if c.Mode != "idle" && (c.Factory == (common.Address{}) || c.FeeManager == (common.Address{})) {
+		return fmt.Errorf("verified factory and fee manager roots are required in active mode")
 	}
 	if c.BatchSize == 0 {
 		return fmt.Errorf("batch size must be positive")

@@ -19,6 +19,7 @@ type Indexer struct {
 	cfg   Config
 	rpc   RPC
 	store *Store
+	roots CTOProvenance
 }
 
 func New(cfg Config, rpc RPC, store *Store) *Indexer {
@@ -26,6 +27,15 @@ func New(cfg Config, rpc RPC, store *Store) *Indexer {
 	return &Indexer{cfg: cfg, rpc: rpc, store: store}
 }
 func (x *Indexer) Run(ctx context.Context) error {
+	if x.cfg.Mode != "active" && x.cfg.Mode != "once" {
+		return fmt.Errorf("indexer run is disabled in %q mode", x.cfg.Mode)
+	}
+	roots, e := DiscoverCTORoots(ctx, x.rpc, x.cfg.Factory, x.cfg.FeeManager)
+	if e != nil {
+		return e
+	}
+	x.roots = roots
+	x.cfg.Contracts = []common.Address{roots.Factory, roots.FeeManager, roots.Registry}
 	last, lastHash, e := x.store.Checkpoint(ctx, x.cfg.ChainID, x.cfg.IndexerName)
 	if e != nil {
 		return e
@@ -85,6 +95,10 @@ func (x *Indexer) Run(ctx context.Context) error {
 			if e != nil {
 				return e
 			}
+			logs, e = x.discoverCTOTreasuryLogs(ctx, x.roots, end, logs)
+			if e != nil {
+				return e
+			}
 			logs, e = canonicalLogs(logs)
 			if e != nil {
 				return e
@@ -118,11 +132,7 @@ func (x *Indexer) Run(ctx context.Context) error {
 				if e != nil {
 					return e
 				}
-				senders, e := x.transactionSenders(ctx, by[n])
-				if e != nil {
-					return e
-				}
-				if e = x.store.ApplyWithMetadataAndSenders(ctx, x.cfg.ChainID, x.cfg.IndexerName, b, by[n], metadata, senders); e != nil {
+				if e = x.store.ApplyWithProvenance(ctx, x.cfg.ChainID, x.cfg.IndexerName, b, by[n], metadata, nil, x.roots); e != nil {
 					return e
 				}
 				last = n
@@ -140,37 +150,9 @@ func (x *Indexer) Run(ctx context.Context) error {
 	}
 }
 
-func (x *Indexer) transactionSenders(ctx context.Context, logs []types.Log) (map[common.Hash]common.Address, error) {
-	provider, ok := x.rpc.(transactionSenderRPC)
-	if !ok {
-		return nil, nil
-	}
-	seen := map[common.Hash]struct{}{}
-	out := map[common.Hash]common.Address{}
-	for _, l := range logs {
-		if _, exists := seen[l.TxHash]; exists {
-			continue
-		}
-		seen[l.TxHash] = struct{}{}
-		tx, pending, err := provider.TransactionByHash(ctx, l.TxHash)
-		if err != nil {
-			return nil, fmt.Errorf("load transaction sender %s: %w", l.TxHash.Hex(), err)
-		}
-		if pending || tx == nil {
-			return nil, fmt.Errorf("transaction sender unavailable for finalized transaction %s", l.TxHash.Hex())
-		}
-		sender, err := types.Sender(types.LatestSignerForChainID(big.NewInt(x.cfg.ChainID)), tx)
-		if err != nil {
-			return nil, fmt.Errorf("decode transaction sender %s: %w", l.TxHash.Hex(), err)
-		}
-		out[l.TxHash] = sender
-	}
-	return out, nil
-}
-
 type launchDiscovery struct {
-	token, curve, pool common.Address
-	block              uint64
+	token, curve common.Address
+	block        uint64
 }
 
 // discoverLaunchLogs closes the range-query address-discovery gap without a
@@ -188,11 +170,10 @@ func (x *Indexer) discoverLaunchLogs(ctx context.Context, end uint64, logs []typ
 		}
 		token, tokenOK := values["token"].(common.Address)
 		curve, curveOK := values["curve"].(common.Address)
-		pool, poolOK := values["canonicalPool"].(common.Address)
-		if !tokenOK || !curveOK || !poolOK || token == (common.Address{}) || curve == (common.Address{}) || pool == (common.Address{}) {
+		if !tokenOK || !curveOK || token == (common.Address{}) || curve == (common.Address{}) {
 			return nil, fmt.Errorf("decode launch discovery: invalid token or curve")
 		}
-		discovery := launchDiscovery{token: token, curve: curve, pool: pool, block: l.BlockNumber}
+		discovery := launchDiscovery{token: token, curve: curve, block: l.BlockNumber}
 		if prior, ok := seen[token]; ok && prior != discovery {
 			return nil, fmt.Errorf("contradictory launch discovery for token %s", token.Hex())
 		}
@@ -247,21 +228,8 @@ func (x *Indexer) discoverLaunchLogs(ctx context.Context, end uint64, logs []typ
 				return nil, fmt.Errorf("curve discovery returned unexpected log from %s", discovered.Address.Hex())
 			}
 		}
-		poolLogs, err := x.rpc.FilterLogs(ctx, ethereum.FilterQuery{
-			FromBlock: new(big.Int).SetUint64(discovery.block), ToBlock: new(big.Int).SetUint64(end),
-			Addresses: []common.Address{discovery.pool}, Topics: [][]common.Hash{{uniswapV3PoolABI.Events["Swap"].ID}},
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, discovered := range poolLogs {
-			if discovered.BlockNumber < discovery.block || discovered.BlockNumber > end || discovered.Address != discovery.pool || len(discovered.Topics) == 0 || discovered.Topics[0] != uniswapV3PoolABI.Events["Swap"].ID {
-				return nil, fmt.Errorf("pool discovery returned unexpected log from %s", discovered.Address.Hex())
-			}
-		}
 		out = append(out, transfers...)
 		out = append(out, curveLogs...)
-		out = append(out, poolLogs...)
 	}
 	return out, nil
 }

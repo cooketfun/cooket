@@ -81,11 +81,6 @@ func TestSameBatchLaunchAndGraduationDiscovery(t *testing.T) {
 				return nil, errors.New("invalid curve discovery query")
 			}
 			return []types.Log{graduated, buy, graduated}, nil
-		case pool:
-			if query.FromBlock.Uint64() != 10 || query.ToBlock.Uint64() != 12 || query.Topics[0][0] != uniswapV3PoolABI.Events["Swap"].ID {
-				return nil, errors.New("invalid pool discovery query")
-			}
-			return nil, nil
 		case manager:
 			if query.FromBlock.Uint64() != 11 || query.ToBlock.Uint64() != 11 || query.Topics[0][0] != v3GraduationABI.Events["GraduatedV3"].ID {
 				return nil, errors.New("invalid manager discovery query")

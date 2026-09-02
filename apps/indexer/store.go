@@ -27,7 +27,7 @@ func (s *Store) ScanContracts(ctx context.Context, chain int64, configured []com
 		UNION
 		SELECT DISTINCT token_address AS address FROM tokens WHERE chain_id=$1 AND is_canonical AND token_address <> ''
 		UNION
-		SELECT DISTINCT canonical_pool_address AS address FROM curves WHERE chain_id=$1 AND is_canonical AND canonical_pool_address <> ''
+		SELECT DISTINCT treasury_address AS address FROM cto_treasuries WHERE chain_id=$1 AND is_canonical
 		UNION
 		SELECT DISTINCT e.decoded->>'token' AS address FROM chain_events e
 		JOIN application_token_exclusions x ON x.chain_id=e.chain_id AND x.token_address=lower(e.decoded->>'token')
@@ -63,6 +63,23 @@ func (s *Store) ScanContracts(ctx context.Context, chain int64, configured []com
 	return out, rows.Err()
 }
 
+var blockNumberProjectionTables = []string{
+	"tokens", "curves", "trades", "fees", "graduations", "liquidity_events",
+	"cto_treasuries", "cto_token_state", "cto_creator_fee_checkpoint_ledger",
+	"cto_supported_assets", "cto_treasury_transfers", "cto_fee_pulls",
+}
+
+func orphanCanonicalByBlock(ctx context.Context, tx pgx.Tx, predicate string, args ...any) error {
+	for _, table := range blockNumberProjectionTables {
+		if _, err := tx.Exec(ctx, `UPDATE `+table+` SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND is_canonical AND `+predicate, args...); err != nil {
+			return err
+		}
+	}
+	proposalPredicate := strings.NewReplacer("block_number", "lifecycle_block_number", "block_hash", "lifecycle_block_hash").Replace(predicate)
+	_, err := tx.Exec(ctx, `UPDATE cto_proposals SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND is_canonical AND `+proposalPredicate, args...)
+	return err
+}
+
 func NewStore(ctx context.Context, url string) (*Store, error) {
 	p, e := pgxpool.New(ctx, url)
 	if e != nil {
@@ -74,11 +91,20 @@ func NewStore(ctx context.Context, url string) (*Store, error) {
 	}
 	var ready bool
 	e = p.QueryRow(ctx, `SELECT
-		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11]
+		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12]
 		AND to_regclass('public.chain_events') IS NOT NULL
 		AND to_regclass('public.tokens') IS NOT NULL
 		AND to_regclass('public.curves') IS NOT NULL
-		AND to_regclass('public.application_token_exclusions') IS NOT NULL`).Scan(&ready)
+		AND to_regclass('public.application_token_exclusions') IS NOT NULL
+		AND to_regclass('public.cto_treasuries') IS NOT NULL
+		AND to_regclass('public.cto_proposals') IS NOT NULL
+		AND to_regclass('public.cto_token_state') IS NOT NULL
+		AND to_regclass('public.cto_creator_fee_checkpoint_ledger') IS NOT NULL
+		AND to_regclass('public.cto_supported_assets') IS NOT NULL
+		AND to_regclass('public.cto_treasury_transfers') IS NOT NULL
+		AND to_regclass('public.cto_fee_pulls') IS NOT NULL
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='native_usdc_amount')
+		AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='eth_amount')`).Scan(&ready)
 	if e != nil {
 		p.Close()
 		return nil, fmt.Errorf("database schema is not ready; run db/migrate.sh: %w", e)
@@ -116,12 +142,13 @@ func (s *Store) Rewind(ctx context.Context, chain int64, name string, from uint6
 	if _, e = tx.Exec(ctx, `UPDATE chain_blocks SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND block_number >= $2 AND is_canonical`, chain, from); e != nil {
 		return e
 	}
-	for _, table := range []string{"tokens", "curves", "trades", "fees", "graduations", "liquidity_events"} {
-		if _, e = tx.Exec(ctx, `UPDATE `+table+` SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND block_number >= $2 AND is_canonical`, chain, from); e != nil {
-			return e
-		}
+	if e = orphanCanonicalByBlock(ctx, tx, "block_number >= $2", chain, from); e != nil {
+		return e
 	}
 	if _, e = tx.Exec(ctx, `UPDATE chain_events SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND block_number >= $2 AND is_canonical`, chain, from); e != nil {
+		return e
+	}
+	if e = rebuildCTOTx(ctx, tx, chain); e != nil {
 		return e
 	}
 	if e = rebuildMetricsTx(ctx, tx, chain); e != nil {
@@ -156,7 +183,14 @@ func (s *Store) ApplyWithMetadata(ctx context.Context, chain int64, name string,
 	return s.ApplyWithMetadataAndSenders(ctx, chain, name, b, logs, metadata, nil)
 }
 func (s *Store) ApplyWithMetadataAndSenders(ctx context.Context, chain int64, name string, b *types.Header, logs []types.Log, metadata map[string]TokenMetadata, senders map[common.Hash]common.Address) error {
+	return s.ApplyWithProvenance(ctx, chain, name, b, logs, metadata, senders, CTOProvenance{})
+}
+
+func (s *Store) ApplyWithProvenance(ctx context.Context, chain int64, name string, b *types.Header, logs []types.Log, metadata map[string]TokenMetadata, senders map[common.Hash]common.Address, roots CTOProvenance) error {
 	if e := validateGraduationPairs(logs); e != nil {
+		return e
+	}
+	if e := validateCTOActivationPairs(logs, roots); e != nil {
 		return e
 	}
 	tx, e := s.pool.Begin(ctx)
@@ -171,10 +205,11 @@ func (s *Store) ApplyWithMetadataAndSenders(ctx context.Context, chain int64, na
 	if _, e = tx.Exec(ctx, `UPDATE chain_blocks SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND block_number=$2 AND block_hash<>$3 AND is_canonical`, chain, b.Number.Uint64(), hash); e != nil {
 		return e
 	}
-	for _, table := range []string{"tokens", "curves", "trades", "fees", "graduations", "liquidity_events", "chain_events"} {
-		if _, e = tx.Exec(ctx, `UPDATE `+table+` SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND block_number=$2 AND block_hash<>$3 AND is_canonical`, chain, b.Number.Uint64(), hash); e != nil {
-			return e
-		}
+	if e = orphanCanonicalByBlock(ctx, tx, "block_number=$2 AND block_hash<>$3", chain, b.Number.Uint64(), hash); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE chain_events SET is_canonical=false,orphaned_at=now() WHERE chain_id=$1 AND block_number=$2 AND block_hash<>$3 AND is_canonical`, chain, b.Number.Uint64(), hash); e != nil {
+		return e
 	}
 	_, e = tx.Exec(ctx, `INSERT INTO chain_blocks(chain_id,block_number,block_hash,parent_hash,block_timestamp) VALUES($1,$2,$3,$4,$5) ON CONFLICT(chain_id,block_hash) DO UPDATE SET block_number=excluded.block_number,parent_hash=excluded.parent_hash,block_timestamp=excluded.block_timestamp,is_canonical=true,orphaned_at=NULL`, chain, b.Number.Uint64(), hash, parent, b.Time)
 	if e != nil {
@@ -184,9 +219,12 @@ func (s *Store) ApplyWithMetadataAndSenders(ctx context.Context, chain int64, na
 		if l.BlockNumber != b.Number.Uint64() || l.BlockHash != b.Hash() {
 			return fmt.Errorf("log provenance does not match block header: block=%d tx=%s log_index=%d", l.BlockNumber, l.TxHash.Hex(), l.Index)
 		}
-		if e = insertEvent(ctx, tx, chain, l, metadata, senders); e != nil {
+		if e = insertEvent(ctx, tx, chain, l, metadata, senders, roots); e != nil {
 			return e
 		}
+	}
+	if e = rebuildCTOTx(ctx, tx, chain); e != nil {
+		return e
 	}
 	if e = rebuildMetricsTx(ctx, tx, chain); e != nil {
 		return e
@@ -342,9 +380,8 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 		FROM prices p WHERE m.chain_id=$1 AND lower(m.token_address)=p.token_address`, chain); e != nil {
 		return e
 	}
-	// Once a canonical post-graduation execution exists, its actual Swap
-	// amounts become the indexed market price instead of the terminal curve
-	// formula. The ratio is integer-only and uses WETH wei per whole token.
+	// Historical post-graduation rows, if present from a prior verified replay,
+	// remain readable. D2a does not discover or decode a market venue.
 	if _, e := tx.Exec(ctx, `WITH latest AS (
 		SELECT DISTINCT ON (lower(t.token_address)) lower(t.token_address) token_address,
 			floor(t.reserve_amount * 1000000000000000000::numeric / NULLIF(t.token_amount,0)) price
@@ -361,8 +398,8 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 	if _, e := tx.Exec(ctx, `DELETE FROM token_trade_buckets WHERE chain_id=$1`, chain); e != nil {
 		return e
 	}
-	// Curve state advances only for curve trades. Post-graduation candles use
-	// each Swap's executed WETH/token ratio, preserving chain order across the
+	// Curve state advances only for curve trades. Historical post-graduation
+	// candles preserve their already indexed quote/token ratio and chain order across the
 	// graduation boundary.
 	_, e := tx.Exec(ctx, `WITH ordered AS (
 		SELECT lower(t.token_address) token_address,(b.block_timestamp / 3600) * 3600 bucket_start,t.side,t.source,t.token_amount,t.reserve_amount,t.curve_value,t.trader_address,t.block_number,t.block_hash,t.transaction_hash,t.transaction_index,t.log_index,
@@ -393,44 +430,35 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 	FROM totals t JOIN latest l USING(token_address,bucket_start) LEFT JOIN candles c USING(token_address,bucket_start)`, chain)
 	return e
 }
-func insertEvent(ctx context.Context, tx pgx.Tx, chain int64, l types.Log, metadata map[string]TokenMetadata, senders map[common.Hash]common.Address) error {
+func insertEvent(ctx context.Context, tx pgx.Tx, chain int64, l types.Log, metadata map[string]TokenMetadata, senders map[common.Hash]common.Address, roots CTOProvenance) error {
 	if len(l.Topics) == 0 {
 		return nil
 	}
-	ev, ok := eventByTopic[l.Topics[0]]
+	ev, decoderABI, decoderEvent, ctoKind, ok := selectedEvent(l.Topics[0])
+	if ok && ctoKind != "" {
+		if !isExactCTOEvent(ev) {
+			return nil
+		}
+		trusted, err := trustedCTOEmitter(ctx, tx, chain, l.Address, ctoKind, roots)
+		if err != nil {
+			return err
+		}
+		if !trusted {
+			return nil
+		}
+	}
 	if !ok && l.Topics[0] == v3TradeABI.Events["TokensBought"].ID {
-		ev, ok = "TokensBoughtV3", true
+		ev, decoderABI, decoderEvent, ok = "TokensBoughtV3", v3TradeABI, "TokensBought", true
 	}
 	if !ok && l.Topics[0] == v3TradeABI.Events["TokensSold"].ID {
-		ev, ok = "TokensSoldV3", true
+		ev, decoderABI, decoderEvent, ok = "TokensSoldV3", v3TradeABI, "TokensSold", true
 	}
 	if !ok && l.Topics[0] == v3GraduationABI.Events["GraduatedV3"].ID {
-		ev, ok = "GraduatedV3", true
-	}
-	if !ok && l.Topics[0] == uniswapV3PoolABI.Events["Swap"].ID {
-		ev, ok = "UniswapV3Swap", true
+		ev, decoderABI, decoderEvent, ok = "GraduatedV3", v3GraduationABI, "GraduatedV3", true
 	}
 	if !ok {
 		log.Printf("cooket-indexer: unknown event chain_id=%d contract=%s tx=%s block=%d log_index=%d topic=%s", chain, l.Address.Hex(), l.TxHash.Hex(), l.BlockNumber, l.Index, l.Topics[0].Hex())
 		return nil
-	}
-	decoderABI := contractABI
-	decoderEvent := ev
-	if ev == "TokensBoughtV3" {
-		decoderABI = v3TradeABI
-		decoderEvent = "TokensBought"
-	}
-	if ev == "TokensSoldV3" {
-		decoderABI = v3TradeABI
-		decoderEvent = "TokensSold"
-	}
-	if ev == "GraduatedV3" {
-		decoderABI = v3GraduationABI
-		decoderEvent = "GraduatedV3"
-	}
-	if ev == "UniswapV3Swap" {
-		decoderABI = uniswapV3PoolABI
-		decoderEvent = "Swap"
 	}
 	vals := map[string]any{}
 	if e := decoderABI.UnpackIntoMap(vals, decoderEvent, l.Data); e != nil {
@@ -439,26 +467,48 @@ func insertEvent(ctx context.Context, tx pgx.Tx, chain int64, l types.Log, metad
 	if e := abi.ParseTopicsIntoMap(vals, indexedArguments(decoderABI.Events[decoderEvent].Inputs), l.Topics[1:]); e != nil {
 		return fmt.Errorf("decode indexed %s: %w", ev, e)
 	}
-	raw, _ := json.Marshal(vals)
+	raw, _ := json.Marshal(normalizedEventValues(vals))
 	topics := make([]string, len(l.Topics))
 	for i, t := range l.Topics {
 		topics[i] = t.Hex()
 	}
 	tb, _ := json.Marshal(topics)
-	_, e := tx.Exec(ctx, `INSERT INTO chain_events(chain_id,block_number,block_hash,transaction_hash,transaction_index,log_index,contract_address,topic0,topics,data,event_name,decoded) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(chain_id,transaction_hash,log_index) DO UPDATE SET block_number=excluded.block_number,block_hash=excluded.block_hash,transaction_index=excluded.transaction_index,contract_address=excluded.contract_address,topic0=excluded.topic0,topics=excluded.topics,data=excluded.data,event_name=excluded.event_name,decoded=excluded.decoded,is_canonical=true,orphaned_at=NULL`, chain, l.BlockNumber, l.BlockHash.Hex(), l.TxHash.Hex(), l.TxIndex, l.Index, l.Address.Hex(), l.Topics[0].Hex(), tb, l.Data, ev, raw)
+	eventData := l.Data
+	if eventData == nil {
+		eventData = []byte{}
+	}
+	_, e := tx.Exec(ctx, `INSERT INTO chain_events(chain_id,block_number,block_hash,transaction_hash,transaction_index,log_index,contract_address,topic0,topics,data,event_name,decoded) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(chain_id,transaction_hash,log_index) DO UPDATE SET block_number=excluded.block_number,block_hash=excluded.block_hash,transaction_index=excluded.transaction_index,contract_address=excluded.contract_address,topic0=excluded.topic0,topics=excluded.topics,data=excluded.data,event_name=excluded.event_name,decoded=excluded.decoded,is_canonical=true,orphaned_at=NULL`, chain, l.BlockNumber, l.BlockHash.Hex(), l.TxHash.Hex(), l.TxIndex, l.Index, l.Address.Hex(), l.Topics[0].Hex(), tb, eventData, ev, raw)
 	if e != nil {
 		return e
 	}
 	return projection(ctx, tx, chain, l, ev, vals, metadata, senders)
 }
 
-var eventByTopic = func() map[common.Hash]string {
-	m := map[common.Hash]string{}
-	for n, e := range contractABI.Events {
-		m[e.ID] = n
+func selectedEvent(topic common.Hash) (string, abi.ABI, string, string, bool) {
+	for _, candidate := range []struct {
+		decoder abi.ABI
+		kind    string
+	}{
+		{ctoRegistryABI, "registry"}, {feeManagerABI, "feeManager"}, {ctoTreasuryABI, "treasury"}, {contractABI, ""},
+	} {
+		for name, event := range candidate.decoder.Events {
+			if event.ID != topic {
+				continue
+			}
+			if candidate.kind != "" && !isExactCTOEvent(name) {
+				continue
+			}
+			if candidate.kind == "" && name == "TokensBought" {
+				return "TokensBoughtV3", candidate.decoder, name, "", true
+			}
+			if candidate.kind == "" && name == "TokensSold" {
+				return "TokensSoldV3", candidate.decoder, name, "", true
+			}
+			return name, candidate.decoder, name, candidate.kind, true
+		}
 	}
-	return m
-}()
+	return "", abi.ABI{}, "", "", false
+}
 
 func indexedArguments(args abi.Arguments) abi.Arguments {
 	out := make(abi.Arguments, 0, len(args))
@@ -485,61 +535,6 @@ func str(v any) string {
 		return "false"
 	}
 	return fmt.Sprint(v)
-}
-
-func absoluteInt(v *big.Int) *big.Int {
-	return new(big.Int).Abs(v)
-}
-
-func projectUniswapV3Swap(ctx context.Context, tx pgx.Tx, chain int64, l types.Log, v map[string]any, senders map[common.Hash]common.Address) error {
-	var token string
-	var graduationBlock, graduationLog int64
-		err := tx.QueryRow(ctx, `SELECT lower(c.token_address),g.block_number,g.log_index
-			FROM curves c JOIN graduations g ON g.chain_id=c.chain_id AND lower(g.token_address)=lower(c.token_address) AND g.is_canonical
-			WHERE c.chain_id=$1 AND c.is_canonical AND lower(c.canonical_pool_address)=lower($2)
-				AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=c.chain_id AND x.token_address=lower(c.token_address))
-				AND (g.block_number < $3 OR (g.block_number=$3 AND g.log_index < $4))
-		ORDER BY g.block_number DESC,g.log_index DESC LIMIT 1`, chain, l.Address.Hex(), l.BlockNumber, l.Index).Scan(&token, &graduationBlock, &graduationLog)
-	if err == pgx.ErrNoRows {
-		// The pool is either not trusted canonical state or the Swap occurred
-		// before the graduation event. Keep it out of the trade projection.
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	_ = graduationBlock
-	_ = graduationLog
-	amount0, ok0 := v["amount0"].(*big.Int)
-	amount1, ok1 := v["amount1"].(*big.Int)
-	if !ok0 || !ok1 || amount0.Sign() == 0 || amount1.Sign() == 0 || amount0.Sign() == amount1.Sign() {
-		return fmt.Errorf("invalid Uniswap V3 Swap signed amounts at %s", l.TxHash.Hex())
-	}
-	// Uniswap orders pool tokens by address. This comparison handles the
-	// canonical Base WETH predeploy as either token0 or token1.
-	quoteSigned, tokenSigned := amount0, amount1
-	if strings.ToLower(baseWETH) > strings.ToLower(token) {
-		quoteSigned, tokenSigned = amount1, amount0
-	}
-	side := "buy"
-	if quoteSigned.Sign() < 0 && tokenSigned.Sign() > 0 {
-		side = "sell"
-	} else if quoteSigned.Sign() <= 0 || tokenSigned.Sign() >= 0 {
-		return fmt.Errorf("unsupported Uniswap V3 Swap direction at %s", l.TxHash.Hex())
-	}
-	quoteAmount := absoluteInt(quoteSigned)
-	tokenAmount := absoluteInt(tokenSigned)
-	trader := v["recipient"]
-	if side == "sell" {
-		trader = v["sender"]
-	}
-	if sender, ok := senders[l.TxHash]; ok {
-		trader = sender
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO trades(chain_id,token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,transaction_index,block_number,block_hash,transaction_hash,log_index)
-		VALUES($1,$2,$3,$4,$5,$6,$6,0,0,'uniswap_v3',$7,$8,$9,$10,$11)
-		ON CONFLICT (chain_id,transaction_hash,log_index) DO UPDATE SET token_address=excluded.token_address,trader_address=excluded.trader_address,side=excluded.side,token_amount=excluded.token_amount,reserve_amount=excluded.reserve_amount,curve_value=excluded.curve_value,protocol_fee=0,creator_fee=0,source='uniswap_v3',transaction_index=excluded.transaction_index,block_number=excluded.block_number,block_hash=excluded.block_hash,is_canonical=true,orphaned_at=NULL`, chain, token, u(trader), side, tokenAmount.String(), quoteAmount.String(), l.TxIndex, l.BlockNumber, l.BlockHash.Hex(), l.TxHash.Hex(), l.Index)
-	return err
 }
 
 func u(v any) string {
@@ -610,12 +605,10 @@ func projection(ctx context.Context, tx pgx.Tx, c int64, l types.Log, n string, 
 			return e
 		}
 		return nil
-	case "UniswapV3Swap":
-		return projectUniswapV3Swap(ctx, tx, c, l, v, senders)
 	case "Graduated":
-		// V3 emits the graduation manager, forwarded ETH, and terminal sold supply.
-		_, e := tx.Exec(ctx, `INSERT INTO graduations(chain_id,token_address,phase,sold_supply,token_amount,graduation_manager_address,eth_amount,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,'graduated',$3,$4,$5,$6,$7,$8,$9,$10)
-			ON CONFLICT (chain_id,transaction_hash,log_index) DO UPDATE SET token_address=excluded.token_address,phase='graduated',sold_supply=excluded.sold_supply,reserve_balance=NULL,token_amount=excluded.token_amount,graduation_manager_address=excluded.graduation_manager_address,eth_amount=excluded.eth_amount,liquidity_token_address=NULL,quote_amount=NULL,liquidity_amount=NULL,lock_id=NULL,unlock_timestamp=NULL,block_number=excluded.block_number,block_hash=excluded.block_hash,is_canonical=true,orphaned_at=NULL`, c, u(v["token"]), u(v["soldSupply"]), u(v["tokenAmount"]), u(v["graduationManager"]), u(v["ethAmount"]), l.BlockNumber, b, t, i)
+		// V3 emits the graduation manager, forwarded native USDC, and terminal sold supply.
+		_, e := tx.Exec(ctx, `INSERT INTO graduations(chain_id,token_address,phase,sold_supply,token_amount,graduation_manager_address,native_usdc_amount,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,'graduated',$3,$4,$5,$6,$7,$8,$9,$10)
+			ON CONFLICT (chain_id,transaction_hash,log_index) DO UPDATE SET token_address=excluded.token_address,phase='graduated',sold_supply=excluded.sold_supply,reserve_balance=NULL,token_amount=excluded.token_amount,graduation_manager_address=excluded.graduation_manager_address,native_usdc_amount=excluded.native_usdc_amount,liquidity_token_address=NULL,quote_amount=NULL,liquidity_amount=NULL,lock_id=NULL,unlock_timestamp=NULL,block_number=excluded.block_number,block_hash=excluded.block_hash,is_canonical=true,orphaned_at=NULL`, c, u(v["token"]), u(v["soldSupply"]), u(v["tokenAmount"]), u(v["graduationManager"]), u(v["nativeUsdcAmount"]), l.BlockNumber, b, t, i)
 		return e
 	case "GraduatedV3":
 		_, e := tx.Exec(ctx, `INSERT INTO liquidity_events(chain_id,token_address,event_name,graduation_manager_address,lp_custodian_address,position_token_id,liquidity_amount,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,'GraduatedV3',$3,$4,$5,$6,$7,$8,$9,$10)
@@ -626,9 +619,6 @@ func projection(ctx context.Context, tx pgx.Tx, c int64, l types.Log, n string, 
 }
 
 func projectedTokenAddress(event string, values map[string]any) string {
-	if event == "UniswapV3Swap" {
-		return ""
-	}
 	if token, ok := values["token"]; ok {
 		return u(token)
 	}

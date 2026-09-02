@@ -5,6 +5,11 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "scripts": {
+    "generate-abi": "node scripts/check-abi-parity.mjs --write",
+    "check-abi-parity": "node scripts/check-abi-parity.mjs",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
   "dependencies": {
     "viem": "^2.55.13"
   }

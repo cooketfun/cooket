@@ -48,16 +48,16 @@ for migration in "$db_dir"/migrations/[0-9][0-9][0-9]_*.sql; do
   expected=$((expected + 1))
 done
 
-if [ "$expected" -ne 12 ]; then
-  echo "migration set must contain exactly 001 through 011" >&2
+if [ "$expected" -ne 13 ]; then
+  echo "migration set must contain exactly 001 through 012" >&2
   exit 1
 fi
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
   DO \$\$ BEGIN
-    IF (SELECT array_agg(version ORDER BY version) FROM schema_migrations) IS DISTINCT FROM ARRAY[1,2,3,4,5,6,7,8,9,10,11] THEN
-      RAISE EXCEPTION 'schema_migrations must contain exactly versions 001 through 011';
+    IF (SELECT array_agg(version ORDER BY version) FROM schema_migrations) IS DISTINCT FROM ARRAY[1,2,3,4,5,6,7,8,9,10,11,12] THEN
+      RAISE EXCEPTION 'schema_migrations must contain exactly versions 001 through 012';
     END IF;
   END \$\$" >/dev/null
 
-echo "Database migrations 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 -> 009 -> 010 -> 011 complete."
+echo "Database migrations 001 through 012 complete."

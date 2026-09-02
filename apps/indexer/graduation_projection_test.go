@@ -46,11 +46,11 @@ func TestV3GraduationProjectionReplayRewindAndReplacement(t *testing.T) {
 		}
 	}
 
-	var gotPool, gotManager, tokenAmount, ethAmount, soldSupply string
+	var gotPool, gotManager, tokenAmount, nativeUsdcAmount, soldSupply string
 	if err := s.pool.QueryRow(ctx, `SELECT canonical_pool_address FROM curves WHERE chain_id=$1 AND token_address=$2 AND is_canonical`, BaseSepoliaChainID, token.Hex()).Scan(&gotPool); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.pool.QueryRow(ctx, `SELECT graduation_manager_address,token_amount::text,eth_amount::text,sold_supply::text FROM graduations WHERE chain_id=$1 AND token_address=$2 AND is_canonical`, BaseSepoliaChainID, token.Hex()).Scan(&gotManager, &tokenAmount, &ethAmount, &soldSupply); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT graduation_manager_address,token_amount::text,native_usdc_amount::text,sold_supply::text FROM graduations WHERE chain_id=$1 AND token_address=$2 AND is_canonical`, BaseSepoliaChainID, token.Hex()).Scan(&gotManager, &tokenAmount, &nativeUsdcAmount, &soldSupply); err != nil {
 		t.Fatal(err)
 	}
 	var gotSettlementManager, gotCustodian, positionTokenID, liquidity string
@@ -64,8 +64,8 @@ func TestV3GraduationProjectionReplayRewindAndReplacement(t *testing.T) {
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM liquidity_events WHERE chain_id=$1 AND token_address=$2`, BaseSepoliaChainID, token.Hex()).Scan(&settlementCount); err != nil {
 		t.Fatal(err)
 	}
-	if gotPool != pool.Hex() || gotManager != manager.Hex() || gotSettlementManager != manager.Hex() || tokenAmount != "200" || ethAmount != "3" || soldSupply != "800" || gotCustodian != custodian.Hex() || positionTokenID != "77" || liquidity != "1234" || graduationCount != 1 || settlementCount != 1 {
-		t.Fatalf("projection pool=%s manager=%s/%s amounts=%s/%s/%s settlement=%s/%s/%s counts=%d/%d", gotPool, gotManager, gotSettlementManager, tokenAmount, ethAmount, soldSupply, gotCustodian, positionTokenID, liquidity, graduationCount, settlementCount)
+	if gotPool != pool.Hex() || gotManager != manager.Hex() || gotSettlementManager != manager.Hex() || tokenAmount != "200" || nativeUsdcAmount != "3" || soldSupply != "800" || gotCustodian != custodian.Hex() || positionTokenID != "77" || liquidity != "1234" || graduationCount != 1 || settlementCount != 1 {
+		t.Fatalf("projection pool=%s manager=%s/%s amounts=%s/%s/%s settlement=%s/%s/%s counts=%d/%d", gotPool, gotManager, gotSettlementManager, tokenAmount, nativeUsdcAmount, soldSupply, gotCustodian, positionTokenID, liquidity, graduationCount, settlementCount)
 	}
 
 	if err := s.Rewind(ctx, BaseSepoliaChainID, "v3-graduation", 31); err != nil {

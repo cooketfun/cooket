@@ -68,12 +68,12 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		addresses, err := configuredContracts(os.Getenv("COOKET_INDEXER_CONTRACTS"), os.Getenv("COOKET_FACTORY_V3_ADDRESS"))
+		factory, feeManager, err := configuredRoots(os.Getenv("COOKET_FACTORY_V3_ADDRESS"), os.Getenv("COOKET_FEE_MANAGER_V3_ADDRESS"))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cooket-indexer: %v\n", err)
 			os.Exit(1)
 		}
-		cfg := indexer.Config{RPCURL: rpcURL, DatabaseURL: dbURL, Mode: mode, ChainID: chain.ChainID, IndexerName: chain.Name, StartBlock: start, StopBlock: stopBlock, Confirmations: confirm, BatchSize: batch, Contracts: addresses}
+		cfg := indexer.Config{RPCURL: rpcURL, DatabaseURL: dbURL, Mode: mode, ChainID: chain.ChainID, IndexerName: chain.Name, StartBlock: start, StopBlock: stopBlock, Confirmations: confirm, BatchSize: batch, Factory: factory, FeeManager: feeManager}
 		if err := cfg.Validate(); err != nil {
 			panic(err)
 		}
@@ -98,30 +98,20 @@ func main() {
 }
 
 func validateArcIndexerMode(mode string) error {
-	if mode != "idle" {
-		return errors.New("active Arc indexing is disabled until protocol economics, event semantics, and graduation projections are migrated")
+	if mode != "idle" && mode != "active" && mode != "once" {
+		return errors.New("INDEXER_MODE must be idle, active, or once")
 	}
 	return nil
 }
 
-func configuredContracts(contractEnv, factoryAddress string) ([]common.Address, error) {
-	contractEnv = strings.TrimSpace(contractEnv)
-	if contractEnv == "" {
-		if !common.IsHexAddress(strings.TrimSpace(factoryAddress)) {
-			return nil, errors.New("COOKET_FACTORY_V3_ADDRESS is required when COOKET_INDEXER_CONTRACTS is not set")
-		}
-		contractEnv = factoryAddress
+func configuredRoots(factoryValue, feeManagerValue string) (common.Address, common.Address, error) {
+	factoryValue = strings.TrimSpace(factoryValue)
+	feeManagerValue = strings.TrimSpace(feeManagerValue)
+	if !common.IsHexAddress(factoryValue) || common.HexToAddress(factoryValue) == (common.Address{}) {
+		return common.Address{}, common.Address{}, errors.New("COOKET_FACTORY_V3_ADDRESS is required in active mode")
 	}
-	addresses := []common.Address{}
-	for _, raw := range strings.Split(contractEnv, ",") {
-		value := strings.TrimSpace(raw)
-		if !common.IsHexAddress(value) {
-			return nil, fmt.Errorf("COOKET_INDEXER_CONTRACTS contains an invalid contract address: %q", value)
-		}
-		addresses = append(addresses, common.HexToAddress(value))
+	if !common.IsHexAddress(feeManagerValue) || common.HexToAddress(feeManagerValue) == (common.Address{}) {
+		return common.Address{}, common.Address{}, errors.New("COOKET_FEE_MANAGER_V3_ADDRESS is required in active mode")
 	}
-	if len(addresses) == 0 {
-		return nil, errors.New("COOKET_FACTORY_V3_ADDRESS or COOKET_INDEXER_CONTRACTS is required in active mode")
-	}
-	return addresses, nil
+	return common.HexToAddress(factoryValue), common.HexToAddress(feeManagerValue), nil
 }
