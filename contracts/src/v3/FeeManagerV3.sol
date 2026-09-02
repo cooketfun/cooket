@@ -11,10 +11,13 @@ import {ICooketTokenV3} from "./interfaces/ICooketTokenV3.sol";
 import {ITokenCommunityVaultV3} from "./interfaces/ITokenCommunityVaultV3.sol";
 import {ITraderRewardsVaultV3} from "./interfaces/ITraderRewardsVaultV3.sol";
 import {EndpointConstantsV3} from "./libraries/EndpointConstantsV3.sol";
+import {ICTORegistryV3} from "./interfaces/ICTORegistryV3.sol";
+import {CTORegistryV3} from "./CTORegistryV3.sol";
 
 /// @notice Pull-based custody of endpoint curve ETH fees and recipient lifecycle only.
 contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
     bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("endpoint-cp-v3");
+    bytes32 public constant CTO_POLICY_HASH = keccak256("cooket-voluntary-cto-v1");
     uint64 public constant TREASURY_ROTATION_DELAY = 48 hours;
 
     address public override factory;
@@ -36,12 +39,17 @@ contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
     mapping(address token => uint256 amount) public override traderRewardsFeesAccruedByToken;
     address public override communityVault;
     address public override traderRewardsVault;
+    address public immutable override ctoRegistry;
+    mapping(address token => bool active) public override ctoActive;
+    mapping(address token => address treasury_) public override ctoTreasuryOf;
+    mapping(address token => mapping(address recipient => uint256 amount)) public override checkpointedCreatorFees;
 
     constructor(address governance, address initialTreasury) Ownable(governance) {
         if (initialTreasury == address(0)) revert InvalidTreasury();
         factoryBootstrapAuthority = governance;
         ecosystemBootstrapAuthority = governance;
         treasury = initialTreasury;
+        ctoRegistry = address(new CTORegistryV3(address(this)));
     }
 
     function protocolVersionHash() external pure override returns (bytes32) {
@@ -50,6 +58,10 @@ contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
 
     function feePolicyHash() external pure override returns (bytes32) {
         return EndpointConstantsV3.FEE_POLICY_HASH;
+    }
+
+    function ctoPolicyHash() external pure override returns (bytes32) {
+        return CTO_POLICY_HASH;
     }
 
     function setFactoryOnce(address factory_) external override {
@@ -138,6 +150,7 @@ contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
     }
 
     function proposeCreatorPayout(address token, address proposedPayout) external override {
+        if (ctoActive[token]) revert CTOActive();
         if (msg.sender != creatorOf[token]) revert UnauthorizedCreator();
         if (proposedPayout == address(0)) revert InvalidPayoutRecipient();
         if (proposedPayout == creatorPayoutOf[token]) revert CreatorPayoutUnchanged();
@@ -146,6 +159,7 @@ contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
     }
 
     function acceptCreatorPayout(address token) external override {
+        if (ctoActive[token]) revert CTOActive();
         address proposedPayout = pendingCreatorPayoutOf[token];
         if (msg.sender != proposedPayout || proposedPayout == address(0)) revert UnauthorizedPendingPayout();
         address previousPayout = creatorPayoutOf[token];
@@ -155,6 +169,7 @@ contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
     }
 
     function cancelCreatorPayout(address token) external override {
+        if (ctoActive[token]) revert CTOActive();
         if (msg.sender != creatorOf[token]) revert UnauthorizedCreator();
         address cancelledPayout = pendingCreatorPayoutOf[token];
         if (cancelledPayout == address(0)) revert NoPendingProposal();
@@ -206,6 +221,46 @@ contract FeeManagerV3 is IFeeManagerV3, Ownable2Step, ReentrancyGuard {
         address payout = creatorPayoutOf[token];
         _sendNative(payout, amount);
         emit CreatorFeesClaimed(token, payout, msg.sender, amount);
+    }
+
+    function activateCTO(address token, address ctoTreasury) external override {
+        if (msg.sender != ctoRegistry) revert UnauthorizedCTORegistry();
+        if (ctoActive[token]) revert CTOAlreadyActive();
+        address previousRecipient = creatorPayoutOf[token];
+        if (
+            previousRecipient == address(0) || ctoTreasury == address(0) || ctoTreasury.code.length == 0
+                || !ICTORegistryV3(ctoRegistry).isCanonicalTreasury(token, ctoTreasury)
+        ) revert InvalidCTOTreasury();
+
+        uint256 checkpointed = creatorFeesAccrued[token];
+        if (checkpointed != 0) {
+            creatorFeesAccrued[token] = 0;
+            checkpointedCreatorFees[token][previousRecipient] += checkpointed;
+            emit CreatorFeeCheckpointed(token, previousRecipient, checkpointed);
+        }
+        address cancelledPayout = pendingCreatorPayoutOf[token];
+        if (cancelledPayout != address(0)) {
+            delete pendingCreatorPayoutOf[token];
+            emit PendingCreatorPayoutInvalidated(token, cancelledPayout);
+        }
+        creatorPayoutOf[token] = ctoTreasury;
+        ctoTreasuryOf[token] = ctoTreasury;
+        ctoActive[token] = true;
+        emit CTOFeeRouteActivated(token, previousRecipient, ctoTreasury);
+    }
+
+    function claimCheckpointedCreatorFees(address token, address recipient)
+        external
+        override
+        nonReentrant
+        returns (uint256 amount)
+    {
+        amount = checkpointedCreatorFees[token][recipient];
+        if (amount == 0) revert NothingToClaim();
+        checkpointedCreatorFees[token][recipient] = 0;
+        totalCreatorFeesAccrued -= amount;
+        _sendNative(recipient, amount);
+        emit CheckpointedCreatorFeesClaimed(token, recipient, msg.sender, amount);
     }
 
     function fundCommunityVault(address token) external override nonReentrant returns (uint256 amount) {

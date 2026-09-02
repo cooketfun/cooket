@@ -19,11 +19,11 @@ import {PermanentResidualEscrowV3} from "./PermanentResidualEscrowV3.sol";
 contract GraduationManagerV3 is GraduationManagerV3Boundary, ReentrancyGuard {
     using SafeERC20 for IERC20;
     address public dependencyBootstrapAuthority;
-    address public permanentLPFeeVault;
-    address public permanentLPCustodianDeployer;
+    address public override permanentLPFeeVault;
+    address public override permanentLPCustodianDeployer;
     address public nonfungiblePositionManager;
     address public settlementExecutor;
-    mapping(address => bool) public settled;
+    mapping(address => bool) public override settled;
     mapping(address => address) public override residualEscrowOf;
     event DependenciesBound(address indexed vault, address indexed deployer, address indexed positionManager);
     event GraduatedV3(address indexed token, address indexed custodian, uint256 indexed tokenId, uint128 liquidity);

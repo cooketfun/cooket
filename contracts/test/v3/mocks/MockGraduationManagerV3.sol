@@ -6,6 +6,9 @@ import {GraduationManagerV3Boundary} from "../../../src/v3/GraduationManagerV3Bo
 
 contract MockGraduationManagerV3 is GraduationManagerV3Boundary {
     mapping(address => address) public override residualEscrowOf;
+    address public override permanentLPFeeVault;
+    address public override permanentLPCustodianDeployer;
+    mapping(address => bool) public override settled;
     bool public shouldRevert;
     bool public shouldRevertRegistration;
     address public reentryTarget;

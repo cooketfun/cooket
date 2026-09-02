@@ -32,6 +32,10 @@ interface IFeeManagerV3 {
     error UnauthorizedBootstrap();
     error FactoryVersionMismatch();
     error TokenRelationshipMismatch();
+    error CTOAlreadyActive();
+    error CTOActive();
+    error InvalidCTOTreasury();
+    error UnauthorizedCTORegistry();
 
     event FactorySet(address indexed factory);
     event FactoryBootstrapConsumed(address indexed previousBootstrapAuthority);
@@ -60,6 +64,12 @@ interface IFeeManagerV3 {
     event CreatorFeesClaimed(
         address indexed token, address indexed payout, address indexed triggeredBy, uint256 amount
     );
+    event CreatorFeeCheckpointed(address indexed token, address indexed previousRecipient, uint256 amount);
+    event PendingCreatorPayoutInvalidated(address indexed token, address indexed cancelledPayout);
+    event CTOFeeRouteActivated(address indexed token, address indexed previousRecipient, address indexed treasury);
+    event CheckpointedCreatorFeesClaimed(
+        address indexed token, address indexed recipient, address indexed triggeredBy, uint256 amount
+    );
 
     function setFactoryOnce(address factory_) external;
     function bindEcosystemVaultsOnce(address communityVault, address traderRewardsVault) external;
@@ -81,6 +91,8 @@ interface IFeeManagerV3 {
     function cancelTreasuryProposal() external;
     function claimProtocolFees() external returns (uint256 amount);
     function claimCreatorFees(address token) external returns (uint256 amount);
+    function activateCTO(address token, address treasury) external;
+    function claimCheckpointedCreatorFees(address token, address recipient) external returns (uint256 amount);
     function fundCommunityVault(address token) external returns (uint256 amount);
     function fundTraderRewardsVault(address token) external returns (uint256 amount);
 
@@ -105,5 +117,10 @@ interface IFeeManagerV3 {
     function traderRewardsFeesAccruedByToken(address token) external view returns (uint256);
     function communityVault() external view returns (address);
     function traderRewardsVault() external view returns (address);
+    function ctoRegistry() external view returns (address);
+    function ctoActive(address token) external view returns (bool);
+    function ctoTreasuryOf(address token) external view returns (address);
+    function checkpointedCreatorFees(address token, address recipient) external view returns (uint256);
+    function ctoPolicyHash() external pure returns (bytes32);
     function totalLiabilities() external view returns (uint256);
 }

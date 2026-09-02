@@ -64,6 +64,9 @@ interface IGraduationManagerV3 {
     function uniswapV3Factory() external view returns (address);
     function canonicalUsdc() external view returns (address);
     function residualEscrowOf(address token) external view returns (address);
+    function permanentLPFeeVault() external view returns (address);
+    function permanentLPCustodianDeployer() external view returns (address);
+    function settled(address token) external view returns (bool);
     function launchOf(address token)
         external
         view

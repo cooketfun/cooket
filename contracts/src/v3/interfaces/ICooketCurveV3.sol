@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {IFeeManagerV3} from "./IFeeManagerV3.sol";
+import {IGraduationManagerV3} from "./IGraduationManagerV3.sol";
+
 interface ICooketCurveV3 {
     struct FeeSplit {
         uint256 totalFee;
@@ -106,6 +109,8 @@ interface ICooketCurveV3 {
     function factory() external view returns (address);
     function token() external view returns (address);
     function creator() external view returns (address);
+    function feeManager() external view returns (IFeeManagerV3);
+    function graduationManager() external view returns (IGraduationManagerV3);
     function feePolicyHash() external pure returns (bytes32);
     function grossRequiredForNet(uint256 netAmount) external pure returns (uint256);
     function splitFee(uint256 grossAmount) external pure returns (FeeSplit memory fees);
