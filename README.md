@@ -10,6 +10,8 @@ current and only runtime target is **Arc Testnet** (chain ID `5042002`).
 - Explorer: `https://testnet.arcscan.app`
 - Native gas/value currency: USDC with 18-decimal native representation
 - USDC ERC-20 representation: 6 decimals; it is a distinct representation
+- Graduation indexed field: `native_usdc_amount` (not `eth_amount`, not ETH)
+- CTO HTTP API and token-page UI are read-only indexed views
 - Frontend, API, and indexer reject Base chain IDs
 - Token creation, trading, graduation, indexing, oracle reads, and deployment
   are fail-closed
@@ -17,7 +19,9 @@ current and only runtime target is **Arc Testnet** (chain ID `5042002`).
   configured or approved
 
 See [COOKET_ARC_READINESS.md](COOKET_ARC_READINESS.md) before changing any
-financial, contract, or deployment code.
+financial, contract, or deployment code. Live environment application of
+migration 012, Arc RPC/DEX verification, deployment, and testnet execution
+remain later phases.
 
 ## Repository layout
 

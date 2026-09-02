@@ -3,7 +3,7 @@ title: "Create a token"
 description: "Launch a fixed-supply community token from the production interface."
 ---
 
-The launch form creates a metadata draft first, then asks your browser wallet to call `CooketFactoryV3.createToken` on Base Mainnet.
+The launch form creates a metadata draft first, then asks your browser wallet to call `CooketFactoryV3.createToken` on Arc Testnet. Launch execution remains fail-closed until later phases.
 
 ## Fields
 
@@ -17,7 +17,7 @@ The launch form creates a metadata draft first, then asks your browser wallet to
 | Telegram | Optional `t.me` or `telegram.me` URL |
 | Discord | Optional `discord.gg` or `discord.com` URL |
 | Image | Required PNG, JPEG, WebP, or GIF; upload up to 5 MB, or use a public HTTPS image URL |
-| Dev buy | Optional ETH amount for a separate curve buy after launch |
+| Dev buy | Optional native USDC amount for a separate curve buy after launch |
 
 The initial supply is not user-selectable. Every V3 launch has a fixed supply of `1,000,000,000` tokens with 18 decimals.
 
@@ -42,7 +42,7 @@ sequenceDiagram
   A-->>W: Indexed token record
 ```
 
-The factory atomically deploys and registers the ERC-20 token and its dedicated curve, places the full supply in the curve, registers fee and graduation relationships, and reserves the canonical token/WETH pool.
+The factory atomically deploys and registers the ERC-20 token and its dedicated curve, places the full supply in the curve, registers fee and graduation relationships, and reserves the canonical token/native-USDC pool.
 
 ## Optional dev buy
 

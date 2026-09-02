@@ -7,11 +7,16 @@ A token page brings together two distinct sources:
 
 | Information | Source |
 | --- | --- |
-| Live curve availability, balances, allowance, quotes | Base Mainnet contract reads |
+| Live curve availability, balances, allowance, quotes | Arc Testnet contract reads when configured |
 | Token identity, social links, trades, chart, metrics, graduation event fields | Indexed API |
-| Submitted transaction status | Base receipt |
-| Optional USD display | API's validated Base Mainnet Chainlink ETH/USD read |
+| Community takeover status, proposals, treasury, checkpoints | Read-only indexed CTO API |
+| Submitted transaction status | ArcScan receipt |
+| Optional USD display | Unavailable until an Arc oracle is approved |
 
-The activity and trade history are confirmed indexed records and can lag the wallet receipt. Before graduation, the trade panel targets the dedicated curve. After a matched curve terminal event and `GraduatedV3` settlement are indexed, the page can use the canonical Uniswap V3 pool.
+The activity and trade history are confirmed indexed records and can lag the wallet receipt. Graduation amounts are 18-decimal native USDC integer strings (`native_usdc_amount`), not ETH. Existing graduated-swap execution remains disabled.
+
+CTO presentation is read-only. A token with no active CTO shows a non-error empty state. Proposal `metadata_uri` values are displayed as inert text and are never fetched or rendered as HTML.
+
+Live environment application of migration 012, Arc RPC/DEX verification, deployment, and testnet execution remain later phases.
 
 Chart candles are built from indexed trades. A candle is shown only when complete OHLC data exists; its direction is based on `close >= open`.

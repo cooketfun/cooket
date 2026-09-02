@@ -55,7 +55,7 @@
       },
       {
         "group": "API Reference",
-        "pages": ["docs/api-reference/overview", "docs/api-reference/tokens", "docs/api-reference/discovery", "docs/api-reference/trades", "docs/api-reference/metadata", "docs/api-reference/errors"]
+        "pages": ["docs/api-reference/overview", "docs/api-reference/tokens", "docs/api-reference/cto", "docs/api-reference/discovery", "docs/api-reference/trades", "docs/api-reference/metadata", "docs/api-reference/errors"]
       },
       {
         "group": "Security",

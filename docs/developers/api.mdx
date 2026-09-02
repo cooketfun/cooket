@@ -3,9 +3,15 @@ title: "API architecture"
 description: "The public Go HTTP service and its trust boundary."
 ---
 
-The Go API uses chi and PostgreSQL. It serves health/readiness, immutable stored objects, metadata draft/finalization writes, and indexed token resources scoped to Arc Testnet. It rejects Base chain IDs. The inherited ETH/USD endpoint remains schema-compatible but returns unavailable because no Arc oracle is configured in Phase 0.
+The Go API uses chi and PostgreSQL. It serves health/readiness, immutable stored objects, metadata draft/finalization writes, indexed token resources, and read-only CTO projections scoped to Arc Testnet. It rejects Base chain IDs. The inherited ETH/USD endpoint remains schema-compatible but returns unavailable because no Arc oracle is configured in Phase 0.
 
-All `/api/v1` token list endpoints scope queries to the configured chain ID and canonical, non-excluded application projections. Addresses are normalized as 20-byte hex strings. Cursor pagination is opaque and limited to 100 items; chart queries allow up to 1,000 candles.
+All `/api/v1` token list endpoints scope queries to the configured chain ID and canonical, non-excluded application projections. Addresses are normalized as 20-byte hex strings. Cursor pagination is opaque, kind-scoped, and limited to 100 items; chart queries allow up to 1,000 candles. CTO list cursors cannot be reused on token, trade, or activity routes.
+
+Native USDC amounts in graduation and related indexed fields are 18-decimal native units stored and serialized as decimal integer strings. They are not ETH and are not the 6-decimal USDC ERC-20 representation.
+
+CTO HTTP routes are GET-only indexed reads. They do not verify controllers, fetch `metadata_uri`, or accept transactions. See [CTO](/docs/api-reference/cto).
+
+Live environment application of migration 012, Arc RPC/DEX verification, deployment, and testnet execution remain later phases.
 
 The service returns JSON and attaches `X-Request-ID`. Repository failures are logged server-side but returned as a generic `internal_error`, preventing internal database details from leaking.
 

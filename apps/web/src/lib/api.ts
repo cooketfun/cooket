@@ -1,10 +1,11 @@
-import type { ActivityPage, ApiError, ChartPage, CreatorProfile, ETHUSDPrice, Pricing, Token, TokenPage, TradePage } from "@cooket/types";
+import type { ActivityPage, ApiError, ChartPage, CreatorProfile, CTOCheckpointPage, CTOFeePullPage, CTOProposal, CTOProposalPage, CTOStatus, CTOTreasury, CTOTreasuryTransferPage, ETHUSDPrice, Pricing, Token, TokenPage, TradePage } from "@cooket/types";
 import { z } from "zod";
 
 const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const transactionHashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const integerStringSchema = z.string().regex(/^\d+$/);
 const blockRefSchema = z.object({ block_number: z.number().int().nonnegative(), transaction_hash: transactionHashSchema, log_index: z.number().int().nonnegative() });
+const indexedProvenanceSchema = z.object({ block_number: z.number().int().nonnegative(), block_hash: transactionHashSchema, transaction_hash: transactionHashSchema, log_index: z.number().int().nonnegative() });
 const graduationSchema = z.object({
   phase: z.string(),
   canonical_pool_address: addressSchema.optional(),
@@ -13,11 +14,75 @@ const graduationSchema = z.object({
   position_token_id: integerStringSchema.optional(),
   liquidity: integerStringSchema.optional(),
   token_amount: integerStringSchema.optional(),
-  eth_amount: integerStringSchema.optional(),
+  native_usdc_amount: integerStringSchema.optional(),
   sold_supply: integerStringSchema.optional(),
   curve_terminal_at: blockRefSchema.optional(),
   settled_at: blockRefSchema.optional(),
 }).passthrough();
+const ctoStatusSchema = z.object({
+  chain_id: z.number().int(),
+  token: addressSchema,
+  active: z.boolean(),
+  registry: addressSchema.optional(),
+  treasury: addressSchema.optional(),
+  controller: addressSchema.optional(),
+  previous_recipient: addressSchema.optional(),
+  active_proposal_id: transactionHashSchema.optional(),
+  activation: indexedProvenanceSchema.optional(),
+});
+const ctoProposalSchema = z.object({
+  proposal_id: transactionHashSchema,
+  token: addressSchema,
+  registry: addressSchema,
+  treasury: addressSchema,
+  creator: addressSchema,
+  controller: addressSchema,
+  previous_recipient: addressSchema,
+  nonce: integerStringSchema,
+  metadata_hash: transactionHashSchema,
+  metadata_uri: z.string(),
+  state: z.string(),
+  created_timestamp: z.number().int(),
+  created: indexedProvenanceSchema,
+  acceptance_deadline: z.number().int(),
+  accepted_at: z.number().int().optional(),
+  accepted: indexedProvenanceSchema.optional(),
+  execute_after: z.number().int().optional(),
+  execute_deadline: z.number().int().optional(),
+  ready: indexedProvenanceSchema.optional(),
+  cancelled_at: z.number().int().optional(),
+  cancelled: indexedProvenanceSchema.optional(),
+  expired_at: z.number().int().optional(),
+  expired: indexedProvenanceSchema.optional(),
+  activated_at: z.number().int().optional(),
+  activated: indexedProvenanceSchema.optional(),
+});
+const ctoProposalPageSchema = z.object({ items: z.array(ctoProposalSchema), next_cursor: z.string().optional() });
+const ctoSupportedAssetSchema = z.object({ asset: addressSchema, controller: addressSchema, registered: indexedProvenanceSchema });
+const ctoTreasuryTransferSchema = z.object({ asset: addressSchema, recipient: addressSchema, amount: integerStringSchema, controller: addressSchema, provenance: indexedProvenanceSchema });
+const ctoFeePullSchema = z.object({ token: addressSchema, asset: addressSchema, amount: integerStringSchema, triggered_by: addressSchema, provenance: indexedProvenanceSchema });
+const ctoTreasurySchema = z.object({
+  treasury: addressSchema,
+  registry: addressSchema,
+  token: addressSchema,
+  controller: addressSchema,
+  canonical_usdc: addressSchema.optional(),
+  nonce: integerStringSchema,
+  deployment: indexedProvenanceSchema,
+  supported_assets: z.array(ctoSupportedAssetSchema),
+  recent_transfers: z.array(ctoTreasuryTransferSchema),
+  transfers_next_cursor: z.string().optional(),
+  recent_fee_pulls: z.array(ctoFeePullSchema),
+  fee_pulls_next_cursor: z.string().optional(),
+});
+const ctoTreasuryTransferPageSchema = z.object({ items: z.array(ctoTreasuryTransferSchema), next_cursor: z.string().optional() });
+const ctoFeePullPageSchema = z.object({ items: z.array(ctoFeePullSchema), next_cursor: z.string().optional() });
+const ctoCheckpointPageSchema = z.object({
+  token: addressSchema,
+  aggregates: z.array(z.object({ token: addressSchema, recipient: addressSchema, checkpointed: integerStringSchema, claimed: integerStringSchema, outstanding: integerStringSchema })),
+  items: z.array(z.object({ recipient: addressSchema, action: z.string(), amount: integerStringSchema, triggered_by: addressSchema.optional(), provenance: indexedProvenanceSchema })),
+  next_cursor: z.string().optional(),
+});
 const tokenSchema = z.object({ address: z.string(), creator: z.string(), name: z.string(), symbol: z.string(), initial_supply: z.string(), description: z.string().optional(), image_url: z.string().optional(), metadata_url: z.string().optional(), website_url: z.url().optional(), x_url: z.url().optional(), telegram_url: z.url().optional(), discord_url: z.url().optional(), created_at: z.object({ block_number: z.number(), transaction_hash: z.string(), log_index: z.number() }), metrics: z.object({ trade_count: z.number(), buy_count: z.number(), sell_count: z.number(), volume: z.string(), fees: z.string(), unique_trader_count: z.number(), latest_trade_timestamp: z.number().nullable(), current_price: z.string().nullable(), fully_diluted_value: z.string().nullable(), holder_count: z.number().nullable() }), curve: z.object({ address: z.string(), canonical_pool_address: addressSchema.optional(), sold_supply: z.string(), reserve_balance: z.string() }).passthrough().optional(), graduation: graduationSchema.optional() });
 const tokenPageSchema = z.object({ items: z.array(tokenSchema), next_cursor: z.string().optional() });
 const errorSchema = z.object({ error: z.object({ code: z.string(), message: z.string() }) });
@@ -77,6 +142,13 @@ export const api = {
   chart: (address: string, query = "") => request<ChartPage>(`/api/v1/tokens/${encodeURIComponent(address)}/chart${query}`, z.object({ interval: z.enum(["1m", "5m", "15m", "1h", "4h", "1d", "1w"]), supported_intervals: z.array(z.enum(["1m", "5m", "15m", "1h", "4h", "1d", "1w"])), candles: z.array(z.object({ bucket_start: z.number(), trade_count: z.number(), buy_count: z.number(), sell_count: z.number(), volume: z.string(), unique_trader_count: z.number(), open_price: z.string().nullable(), high_price: z.string().nullable(), low_price: z.string().nullable(), close_price: z.string().nullable() })) })),
   uploadMetadata: (form: FormData) => mutation("/api/v1/token-metadata",{method:"POST",body:form},draftSchema),
   finalizeMetadata: (draft:string,tokenAddress:string,transactionHash:string) => mutation(`/api/v1/token-metadata/${encodeURIComponent(draft)}/finalize`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token_address:tokenAddress,transaction_hash:transactionHash})},tokenSchema),
+  ctoStatus: (address: string) => request<CTOStatus>(`/api/v1/tokens/${encodeURIComponent(address)}/cto`, ctoStatusSchema),
+  ctoProposals: (address: string, query = "") => request<CTOProposalPage>(`/api/v1/tokens/${encodeURIComponent(address)}/cto/proposals${query}`, ctoProposalPageSchema),
+  ctoCheckpoints: (address: string, query = "") => request<CTOCheckpointPage>(`/api/v1/tokens/${encodeURIComponent(address)}/cto/checkpoints${query}`, ctoCheckpointPageSchema),
+  ctoProposal: (proposalId: string) => request<CTOProposal>(`/api/v1/cto/proposals/${encodeURIComponent(proposalId)}`, ctoProposalSchema),
+  ctoTreasury: (treasury: string) => request<CTOTreasury>(`/api/v1/cto/treasuries/${encodeURIComponent(treasury)}`, ctoTreasurySchema),
+  ctoTreasuryTransfers: (treasury: string, query = "") => request<CTOTreasuryTransferPage>(`/api/v1/cto/treasuries/${encodeURIComponent(treasury)}/transfers${query}`, ctoTreasuryTransferPageSchema),
+  ctoTreasuryFeePulls: (treasury: string, query = "") => request<CTOFeePullPage>(`/api/v1/cto/treasuries/${encodeURIComponent(treasury)}/fee-pulls${query}`, ctoFeePullPageSchema),
 };
 
-export type { ActivityPage, ApiError, ChartPage, CreatorProfile, ETHUSDPrice, Pricing, Token, TokenPage, TradePage };
+export type { ActivityPage, ApiError, ChartPage, CreatorProfile, CTOCheckpointPage, CTOFeePullPage, CTOProposal, CTOProposalPage, CTOStatus, CTOTreasury, CTOTreasuryTransferPage, ETHUSDPrice, Pricing, Token, TokenPage, TradePage };

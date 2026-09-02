@@ -5,7 +5,8 @@ description: "Terms used throughout Cooket."
 
 | Term | Definition |
 | --- | --- |
-| Base | The Ethereum L2 network used by Cooket production; chain ID 8453. |
+| Arc Testnet | The only runtime target of this repository; chain ID `5042002`. Native gas/value is 18-decimal USDC. |
+| Base | Historical Cooket production network (chain ID 8453). This repository rejects Base chain IDs. |
 | Bonding curve | A contract that prices buys and sells from its current virtual reserves. |
 | Builder Code | Cooket's Base transaction-attribution code, `bc_tea0a669`. |
 | ERC-20 | The fungible token interface implemented by launched tokens. |
@@ -17,7 +18,8 @@ description: "Terms used throughout Cooket."
 | LP | Liquidity provider or liquidity position; here, the Uniswap V3 position NFT. |
 | Protocol fee | The fee share accounted to the protocol treasury. |
 | Creator fee | The fee share accounted to the token's registered creator payout. |
-| Reserve | Net ETH principal backing active curve redemptions before graduation. |
+| Native USDC | Arc native value units with 18 decimals. Distinct from 6-decimal ERC-20 USDC; never interchangeable. |
+| Reserve | Net native-USDC principal backing active curve redemptions before graduation. |
 | Slippage | Difference between a quote and allowed execution; protected by a minimum output. |
 | Uniswap V3 | The external concentrated-liquidity protocol used after graduation. |
 | Virtual reserve | A mathematical coordinate used for pricing that is not identical to the contract's redeemable asset balance. |

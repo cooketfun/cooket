@@ -194,7 +194,8 @@ button:disabled { cursor: not-allowed; }
 .token-terminal-support { grid-area: support; }
 .token-terminal-support > aside > .terminal-panel { height: 100%; }
 .token-terminal-history { margin-top: 0.75rem; }
-.terminal-chart, .terminal-market, .terminal-trade, .terminal-graduation { min-width: 0; max-width: 100%; }
+.terminal-chart, .terminal-market, .terminal-trade, .terminal-graduation, .terminal-cto { min-width: 0; max-width: 100%; }
+.terminal-cto { grid-column: 1 / -1; }
 
 .button-primary, .button-secondary, .button-ghost {
   display: inline-flex;

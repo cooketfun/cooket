@@ -28,10 +28,21 @@ curl "$API_ORIGIN/api/v1/tokens?limit=20"
 | GET | `/api/v1/tokens/{address}/chart` | Indexed OHLC candles |
 | GET | `/api/v1/tokens/{address}/trades` | Indexed trades |
 | GET | `/api/v1/tokens/{address}/activity` | Indexed raw activity view |
+| GET | `/api/v1/tokens/{address}/cto` | Read-only indexed CTO status |
+| GET | `/api/v1/tokens/{address}/cto/proposals` | Read-only indexed CTO proposals |
+| GET | `/api/v1/tokens/{address}/cto/checkpoints` | Read-only indexed creator-fee checkpoints |
+| GET | `/api/v1/cto/proposals/{proposalId}` | Read-only indexed CTO proposal |
+| GET | `/api/v1/cto/treasuries/{treasury}` | Read-only indexed CTO treasury |
+| GET | `/api/v1/cto/treasuries/{treasury}/transfers` | Read-only indexed treasury transfers |
+| GET | `/api/v1/cto/treasuries/{treasury}/fee-pulls` | Read-only indexed treasury fee pulls |
 | GET | `/api/v1/creators/{address}` | Creator profile and tokens |
 | GET | `/api/v1/creators/{address}/tokens` | Creator token page |
 
-All JSON responses include an `X-Request-ID` header. Token and activity values are indexed and can lag chain receipts. Integer financial amounts are decimal strings in base units.
+All JSON responses include an `X-Request-ID` header. Token, activity, and CTO values are indexed and can lag chain receipts. Integer financial amounts are decimal strings in base units. Native USDC amounts are 18-decimal native units, not 6-decimal ERC-20 USDC and not ETH.
+
+CTO routes are GET-only indexed reads. See [CTO](/docs/api-reference/cto) for cursor pagination and the metadata-URI trust boundary.
+
+Live environment application of migration 012, Arc RPC/DEX verification, deployment, and testnet execution remain later phases.
 
 ## Service and object responses
 

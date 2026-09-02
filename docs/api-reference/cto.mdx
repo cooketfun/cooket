@@ -1,0 +1,132 @@
+---
+title: "CTO"
+description: "Read-only indexed community-takeover status, proposals, treasuries, and checkpoints."
+---
+
+The CTO HTTP surface is **read-only indexed data**. It does not accept writes, signatures, or controller actions. Clients must not treat these responses as live chain authority.
+
+All routes are `GET` only. They use the API's configured Arc Testnet chain ID and ignore caller-supplied `chain_id` query values. Responses include `X-Request-ID` and `Cache-Control: public, max-age=5, must-revalidate`.
+
+Addresses are normalized 20-byte hex strings. Proposal IDs are 32-byte hex strings. Amounts and nonce values are decimal integer strings (`NUMERIC(78,0)` / uint256-compatible). Do not parse them as IEEE floats.
+
+`metadata_uri` is untrusted indexed text. The API does not fetch it, does not validate it as a URL, and does not interpret HTML. Clients must display it as inert text.
+
+<Warning>
+  Live environment application of migration 012, Arc RPC/DEX verification, deployment, and testnet execution remain later phases. This API documents the indexed read contract only.
+</Warning>
+
+## Pagination and cursors
+
+List routes accept:
+
+| Query | Default | Constraints |
+| --- | --- | --- |
+| `limit` | `20` | Integer 1–100 |
+| `cursor` | empty | Opaque cursor from the prior page of the **same** resource |
+
+Cursors are kind-scoped (`cto_proposals`, `cto_checkpoints`, `cto_transfers`, `cto_fee_pulls`). A malformed cursor, a replayed cursor that cannot be decoded, or a cursor from another resource returns `400 invalid_request`. An absent next page omits `next_cursor`.
+
+Treasury detail embeds a first page of transfers and fee pulls (`recent_transfers`, `recent_fee_pulls`) plus `transfers_next_cursor` / `fee_pulls_next_cursor` when more rows exist. Continue those histories through the dedicated list routes below.
+
+## Token CTO status
+
+`GET /api/v1/tokens/{address}/cto`
+
+Unknown canonical tokens return `404 not_found`. A known token with no active CTO returns `200` with `active: false`. That is not an error.
+
+```json
+{
+  "chain_id": 5042002,
+  "token": "0x1111111111111111111111111111111111111111",
+  "active": false
+}
+```
+
+When a CTO is active, optional registry, treasury, controller, previous recipient, proposal id, and activation provenance fields are present:
+
+```json
+{
+  "chain_id": 5042002,
+  "token": "0x1111111111111111111111111111111111111111",
+  "active": true,
+  "registry": "0x2222222222222222222222222222222222222222",
+  "treasury": "0x3333333333333333333333333333333333333333",
+  "controller": "0x4444444444444444444444444444444444444444",
+  "previous_recipient": "0x5555555555555555555555555555555555555555",
+  "active_proposal_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "activation": {
+    "block_number": 9,
+    "block_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "transaction_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+    "log_index": 3
+  }
+}
+```
+
+## Token proposals
+
+`GET /api/v1/tokens/{address}/cto/proposals`
+
+Returns `{ "items": [...], "next_cursor": "..." }`. An empty history is `200` with `"items": []`.
+
+## Token checkpoints
+
+`GET /api/v1/tokens/{address}/cto/checkpoints`
+
+Returns checkpoint aggregates plus a page of ledger events. Aggregate `checkpointed`, `claimed`, and `outstanding` values are decimal integer strings. If claimed exceeds checkpointed, the API returns `500 inconsistent_accounting` rather than a negative outstanding amount.
+
+## Proposal detail
+
+`GET /api/v1/cto/proposals/{proposalId}`
+
+`proposalId` must be 32-byte hex (`0x` optional in the path; the response is normalized `0x`-prefixed lowercase). Malformed ids return `400 invalid_proposal_id`. Unknown canonical proposals return `404 not_found`.
+
+```json
+{
+  "proposal_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "token": "0x1111111111111111111111111111111111111111",
+  "registry": "0x2222222222222222222222222222222222222222",
+  "treasury": "0x3333333333333333333333333333333333333333",
+  "creator": "0x5555555555555555555555555555555555555555",
+  "controller": "0x4444444444444444444444444444444444444444",
+  "previous_recipient": "0x5555555555555555555555555555555555555555",
+  "nonce": "18446744073709551615",
+  "metadata_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+  "metadata_uri": "ipfs://untrusted",
+  "state": "active",
+  "created_timestamp": 1,
+  "created": {
+    "block_number": 1,
+    "block_hash": "0x4444444444444444444444444444444444444444444444444444444444444444",
+    "transaction_hash": "0x5555555555555555555555555555555555555555555555555555555555555555",
+    "log_index": 0
+  },
+  "acceptance_deadline": 2
+}
+```
+
+The example is illustrative. `metadata_uri` may contain arbitrary text, including content that looks like a URL or HTML. Display it only as text.
+
+## Treasury detail
+
+`GET /api/v1/cto/treasuries/{treasury}`
+
+Unknown canonical treasuries return `404 not_found`. The body includes `nonce` as a decimal integer string, optional `canonical_usdc`, supported assets, and preview transfer / fee-pull pages.
+
+## Treasury transfers and fee pulls
+
+- `GET /api/v1/cto/treasuries/{treasury}/transfers`
+- `GET /api/v1/cto/treasuries/{treasury}/fee-pulls`
+
+Both return `{ "items": [...], "next_cursor": "..." }`. `amount` is a decimal integer string in the asset's indexed base units.
+
+## Trust boundary
+
+| Client may | Client must not |
+| --- | --- |
+| Display indexed status, proposals, treasuries, and checkpoints | Submit CTO transactions or signatures |
+| Follow opaque `next_cursor` values from the same resource | Infer controller authorization or verify metadata offchain |
+| Render `metadata_uri` as text | Fetch, execute, or HTML-render `metadata_uri` |
+| Use explorer links built from normalized addresses and transaction hashes | Treat API rows as a substitute for contract reads |
+
+See [API architecture](/docs/developers/api) for the service trust boundary and [Errors](/docs/api-reference/errors) for status codes.

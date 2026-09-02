@@ -32,5 +32,15 @@ reviewed amounts, hash, and current phase. Links use ArcScan.
 ## Indexed reads
 
 Zod schemas fail closed on malformed API responses. Native values are formatted
-as 18-decimal native USDC. The distinct 6-decimal USDC ERC-20 representation is
-not used interchangeably. USD reference values remain unavailable in Phase 0.
+as 18-decimal native USDC using integer-string payloads and BigInt-safe
+formatters. Graduation uses `native_usdc_amount`; the frontend does not display
+`eth_amount` as ETH. The distinct 6-decimal USDC ERC-20 representation is not
+used interchangeably. USD reference values remain unavailable in Phase 0.
+
+Token pages include a read-only CTO panel that consumes only the indexed GET
+CTO endpoints. It treats `metadata_uri` as inert text, does not fetch that URI,
+does not render untrusted HTML, and does not start wallet, signature, or
+transaction flows. Existing graduated-swap execution remains disabled.
+
+Live environment application of migration 012, Arc RPC/DEX verification,
+deployment, and testnet execution remain later phases.

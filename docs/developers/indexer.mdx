@@ -3,9 +3,11 @@ title: "Indexer"
 description: "Finalized event ingestion, discovery, projections, replay, and reorg handling."
 ---
 
-The Go indexer is configured only for Arc Testnet. Phase 0 permits idle mode
-only: non-idle modes fail closed because the inherited event, ETH reserve,
-WETH, and Uniswap projection semantics have not been migrated.
+The Go indexer is configured only for Arc Testnet. The committed schema and
+projection code index native-USDC graduation (`nativeUsdcAmount` /
+`native_usdc_amount`) and voluntary CTO v1 events. Phase 0 still permits idle
+mode by default. Live indexer activation, Arc RPC/DEX verification, and
+applying migration 012 to a persistent environment remain later phases.
 
 ## Historical processing loop (migration reference)
 

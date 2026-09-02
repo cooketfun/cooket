@@ -12,10 +12,10 @@ Cooket combines an onchain launch and trading protocol with a web interface and 
 | Browse tokens and activity | Indexed web data | None |
 | Launch a token | `CooketFactoryV3` | Browser wallet transaction |
 | Buy or sell on the curve | Per-token `CooketCurveV3` | Browser wallet transaction |
-| Swap a graduated token | Uniswap V3 periphery | Browser wallet transaction |
-| Verify activity | BaseScan | None |
+| Swap a graduated token | Uniswap V3 periphery (execution deferred) | Browser wallet transaction |
+| Verify activity | ArcScan | None |
 
-The protocol creates a fixed-supply ERC-20 and a dedicated curve for each launch. The token trades on that curve until the precise terminal condition is reached. If it is reached, the contract implements an atomic transition into a pre-reserved canonical token/WETH Uniswap V3 pool. See [Graduation](/docs/protocol/graduation).
+The protocol creates a fixed-supply ERC-20 and a dedicated curve for each launch. The token trades on that curve until the precise terminal condition is reached. Curve reserve and graduation principal are 18-decimal native USDC, not ETH. If the terminal condition is reached, the contract implements an atomic transition into a pre-reserved canonical token/native-USDC Uniswap V3 pool. Existing graduated-swap execution in this repository remains deferred. See [Graduation](/docs/protocol/graduation).
 
 <Note>
   “Permissionless” means the launch function does not require approval. It does not mean every token is trustworthy, valuable, or likely to graduate.

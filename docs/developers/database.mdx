@@ -3,7 +3,7 @@ title: "Database"
 description: "Logical PostgreSQL model and canonical projection design."
 ---
 
-The migration set currently contains versions 1 through 11.
+The committed migration set currently contains versions 1 through 12.
 
 | Entity | Purpose |
 | --- | --- |
@@ -14,14 +14,25 @@ The migration set currently contains versions 1 through 11.
 | `curves` | Curve address, reserves, sold supply, lifecycle, canonical pool |
 | `trades` | Curve and Uniswap V3 buys/sells with exact integer amounts |
 | `fees` | Indexed fee events |
-| `graduations` | Curve terminal event and forwarded assets |
+| `graduations` | Curve terminal event and forwarded 18-decimal native USDC |
 | `liquidity_events` | Matched `GraduatedV3` custodian, NFT ID, and liquidity |
 | `token_metrics` | Replayable aggregate discovery metrics |
 | `token_holder_balances` | Canonical ERC-20 balance projections |
 | `token_trade_buckets` | UTC buckets and nullable OHLC data |
 | `token_metadata_drafts` | Offchain draft/finalization lifecycle |
 | `application_token_exclusions` | Reversible application-only projection exclusions |
+| `cto_treasuries` | Indexed CTO treasury deployments |
+| `cto_proposals` | Indexed CTO proposal lifecycle |
+| `cto_token_state` | Per-token active CTO pointer |
+| `cto_supported_assets` | Treasury supported-asset registry |
+| `cto_treasury_transfers` | Indexed treasury asset transfers |
+| `cto_fee_pulls` | Indexed treasury fee pulls |
+| `cto_creator_fee_checkpoint_ledger` | Creator-fee checkpoint and claim ledger |
 
 Amounts use `NUMERIC(78,0)` for uint256-compatible integers. Canonical rows reference the exact block hash. OHLC fields are nullable; missing history is not replaced by a current price.
 
+`graduations.native_usdc_amount` is the 18-decimal Arc native-USDC principal. Migration 009 still introduces the historical `eth_amount` column; migration 012 is the committed rename to `native_usdc_amount` and the CTO v1 tables.
+
 Migration 010 requires replay of existing history to restore the actual transaction index because a migration cannot infer it from a transaction hash.
+
+Live environment application of migration 012 remains a later phase. Do not treat the presence of the committed SQL file as proof that a persistent database has been migrated.

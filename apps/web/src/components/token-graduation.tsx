@@ -1,5 +1,5 @@
 import type { Token } from "@cooket/types";
-import { formatTokenAmount, graduationProgress } from "@/lib/format";
+import { formatNative, formatTokenAmount, graduationProgress } from "@/lib/format";
 import { explorerAddressURL, explorerTransactionURL } from "@/lib/chain";
 
 export function isGraduatedToken(token: Token) {
@@ -29,13 +29,13 @@ export function TokenGraduation({ token }: { token: Token }) {
         <div><p className="eyebrow text-violet-300">Bonding curve complete</p><h2 className="mt-1 text-lg font-semibold text-white">Graduated</h2></div>
         <span className={hasSettlement ? "badge-success" : "badge-warning"}>{hasSettlement ? "External liquidity active" : "Settlement indexing pending"}</span>
       </div>
-      <p className="mt-3 text-sm leading-6 text-zinc-400">Legacy Base graduation projection shown for reference only. Arc graduation and liquidity execution are disabled in Phase 0.</p>
+      <p className="mt-3 text-sm leading-6 text-zinc-400">Indexed 18-decimal native USDC graduation. External swap execution remains deferred.</p>
     </div>
 
     <div className="p-4">
-      {(graduation.token_amount || graduation.eth_amount) && <dl className="grid grid-cols-2 gap-2">
+      {(graduation.token_amount || graduation.native_usdc_amount) && <dl className="grid grid-cols-2 gap-2">
         <GraduationStat label="Token liquidity" value={formatTokenAmount(graduation.token_amount, 18, token.symbol)} />
-        <GraduationStat label="Legacy ETH field (unsupported)" value={graduation.eth_amount ?? "Unavailable"} />
+        <GraduationStat label="Native USDC" value={formatNative(graduation.native_usdc_amount)} title={graduation.native_usdc_amount} />
       </dl>}
 
       {hasSettlement ? <>
@@ -69,8 +69,8 @@ function ActiveGraduation({ token }: { token: Token }) {
   </section>;
 }
 
-function GraduationStat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-white/8 bg-black/20 p-3"><dt className="text-[0.68rem] text-zinc-600">{label}</dt><dd className="mt-1 text-sm font-semibold text-zinc-100">{value}</dd></div>;
+function GraduationStat({ label, value, title }: { label: string; value: string; title?: string }) {
+  return <div className="rounded-xl border border-white/8 bg-black/20 p-3"><dt className="text-[0.68rem] text-zinc-600">{label}</dt><dd className="mt-1 text-sm font-semibold text-zinc-100" title={title ?? value}>{value}</dd></div>;
 }
 
 function GraduationDetail({ label, value, href }: { label: string; value: string; href?: string }) {

@@ -15,7 +15,8 @@ describe("token terminal responsive layout", () => {
     expect(page.indexOf('className="terminal-chart"')).toBeLessThan(page.indexOf('className="terminal-trade"'));
     expect(page.indexOf('className="terminal-trade"')).toBeLessThan(page.indexOf('className="terminal-market"'));
     expect(page.indexOf('className="terminal-market"')).toBeLessThan(page.indexOf('className="terminal-graduation"'));
-    expect(page.indexOf('className="terminal-graduation"')).toBeLessThan(page.indexOf('className="token-terminal-history"'));
+    expect(page.indexOf('className="terminal-graduation"')).toBeLessThan(page.indexOf('className="terminal-cto"'));
+    expect(page.indexOf('className="terminal-cto"')).toBeLessThan(page.indexOf('className="token-terminal-history"'));
   });
 
   it("uses a token-specific wide container and a chart-dominant desktop grid", () => {
@@ -48,9 +49,11 @@ describe("token terminal responsive layout", () => {
     expect(sidebarSource).toContain("<TokenTrading ");
     expect(sidebarSource).not.toContain("<MarketOverview ");
     expect(sidebarSource).not.toContain("<TokenGraduation ");
+    expect(sidebarSource).not.toContain("<TokenCTO ");
     expect(sidebarSource).not.toContain("<TokenTradeHistory ");
     expect(supportSource).toContain("<MarketOverview ");
     expect(supportSource).toContain("<TokenGraduation ");
+    expect(supportSource).toContain("<TokenCTO ");
     expect(supportSource).not.toContain("<TokenTrading ");
     expect(page.slice(historyStart)).toContain("<TokenTradeHistory ");
     expect(page.match(/<TokenChart /g)).toHaveLength(1);
@@ -74,6 +77,10 @@ describe("token terminal responsive layout", () => {
     expect(page).not.toContain('label="Liquidity"');
     expect(page).toContain("graduated={graduated}");
     expect(graduation).toContain('label="V3 liquidity"');
+    expect(graduation).toContain("native_usdc_amount");
+    expect(graduation).toContain("formatNative(graduation.native_usdc_amount)");
+    expect(graduation).not.toContain("eth_amount");
+    expect(graduation).not.toContain("ethAmount");
     expect(graduation).not.toContain("formatNative(graduation.liquidity");
     expect(graduation).not.toContain("formatWeiUsd(graduation.liquidity");
   });

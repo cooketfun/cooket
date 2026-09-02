@@ -29,11 +29,11 @@ ERC-20 tokens require an allowance before the curve or Uniswap router can transf
 
 ## What is graduation?
 
-It is the one-way transition when all 800M curve tokens are sold and the curve holds exactly 3 ETH net active reserve.
+It is the one-way transition when all 800M curve tokens are sold and the curve holds exactly 7,245 native USDC (18-decimal native units) net active reserve.
 
 ## What happens after graduation?
 
-Curve trading closes and the implemented settlement path creates a full-range token/WETH Uniswap V3 position. The token page uses the external pool for swaps.
+Curve trading closes and the implemented settlement path creates a full-range token/native-USDC Uniswap V3 position. In this repository, graduated-swap execution remains deferred. The token page shows indexed 18-decimal native USDC graduation amounts and does not present them as ETH.
 
 ## Are LP positions removable?
 

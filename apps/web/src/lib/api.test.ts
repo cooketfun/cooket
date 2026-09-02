@@ -65,7 +65,7 @@ describe("API client", () => {
       position_token_id: "77",
       liquidity: "123456789",
       token_amount: "200000000000000000000000000",
-      eth_amount: "3000000000000000000",
+      native_usdc_amount: "3000000000000000000",
       sold_supply: "800000000000000000000000000",
       curve_terminal_at: { block_number: 100, transaction_hash: transactionHash, log_index: 8 },
       settled_at: { block_number: 100, transaction_hash: transactionHash, log_index: 4 },
@@ -75,7 +75,7 @@ describe("API client", () => {
   });
 
   it("accepts graduated curve evidence when optional settlement fields are absent", async () => {
-    const graduation = { phase: "graduated", canonical_pool_address: pool, graduation_manager_address: manager, token_amount: "200", eth_amount: "3", curve_terminal_at: { block_number: 100, transaction_hash: transactionHash, log_index: 8 } };
+    const graduation = { phase: "graduated", canonical_pool_address: pool, graduation_manager_address: manager, token_amount: "200", native_usdc_amount: "3", curve_terminal_at: { block_number: 100, transaction_hash: transactionHash, log_index: 8 } };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(tokenPayload(graduation)), { status: 200 })));
     await expect(api.token(address)).resolves.toMatchObject({ graduation });
   });
@@ -86,5 +86,31 @@ describe("API client", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(tokenPayload({ phase: "graduated", settled_at: { block_number: 1, transaction_hash: "0xdeadbeef", log_index: 2 } })), { status: 200 })));
     await expect(api.token(address)).rejects.toMatchObject({ code: "invalid_response" });
     await expect(api.token(address)).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("parses read-only CTO status, proposal, treasury, and checkpoint payloads", async () => {
+    const proposalId = `0x${"ab".repeat(32)}`;
+    const blockHash = `0x${"11".repeat(32)}`;
+    const txHash = `0x${"22".repeat(32)}`;
+    const provenance = { block_number: 9, block_hash: blockHash, transaction_hash: txHash, log_index: 3 };
+    const status = { chain_id: 5042002, token: address, active: true, registry: manager, treasury: custodian, controller: pool, previous_recipient: address, active_proposal_id: proposalId, activation: provenance };
+    const proposal = { proposal_id: proposalId, token: address, registry: manager, treasury: custodian, creator: address, controller: pool, previous_recipient: address, nonce: "18446744073709551615", metadata_hash: `0x${"33".repeat(32)}`, metadata_uri: "ipfs://untrusted", state: "active", created_timestamp: 1, created: provenance, acceptance_deadline: 2 };
+    const treasury = { treasury: custodian, registry: manager, token: address, controller: pool, canonical_usdc: pool, nonce: "1", deployment: provenance, supported_assets: [], recent_transfers: [], recent_fee_pulls: [] };
+    const checkpoints = { token: address, aggregates: [{ token: address, recipient: pool, checkpointed: "10", claimed: "1", outstanding: "9" }], items: [{ recipient: pool, action: "checkpoint", amount: "10", provenance }] };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(status), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [proposal] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(proposal), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(treasury), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(checkpoints), { status: 200 })));
+    await expect(api.ctoStatus(address)).resolves.toEqual(status);
+    await expect(api.ctoProposals(address, "?limit=20")).resolves.toEqual({ items: [proposal] });
+    await expect(api.ctoProposal(proposalId)).resolves.toMatchObject({ nonce: "18446744073709551615", metadata_uri: "ipfs://untrusted" });
+    await expect(api.ctoTreasury(custodian)).resolves.toEqual(treasury);
+    await expect(api.ctoTreasuryTransfers(custodian, "?limit=20")).resolves.toEqual({ items: [] });
+    await expect(api.ctoTreasuryFeePulls(custodian, "?limit=20")).resolves.toEqual({ items: [] });
+    await expect(api.ctoCheckpoints(address, "?limit=20")).resolves.toEqual(checkpoints);
   });
 });

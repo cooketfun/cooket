@@ -49,6 +49,10 @@ The values above are illustrative, not live market data.
 
 `GET /api/v1/tokens/{address}` returns the token record plus current curve, metrics, optional metadata, and optional graduation fields. A missing canonical token returns `404 not_found`.
 
+When present, `graduation.native_usdc_amount` is the 18-decimal Arc native-USDC principal as a decimal integer string. It is not ETH, not WETH, and not 6-decimal ERC-20 USDC. The API does not emit `eth_amount`.
+
+Read-only CTO status for the same token is a separate resource: [CTO](/docs/api-reference/cto).
+
 ## Pricing
 
 `GET /api/v1/tokens/{address}/pricing`

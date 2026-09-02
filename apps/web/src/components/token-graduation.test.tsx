@@ -47,7 +47,7 @@ describe("TokenGraduation", () => {
       position_token_id: "77",
       liquidity: "12345678901234567890",
       token_amount: "200000000000000000000000000",
-      eth_amount: "3000000000000000000",
+      native_usdc_amount: "3000000000000000000",
       sold_supply: "800000000000000000000000000",
       curve_terminal_at: { block_number: 200, transaction_hash: graduationHash, log_index: 8 },
       settled_at: { block_number: 200, transaction_hash: settlementHash, log_index: 4 },
@@ -60,13 +60,35 @@ describe("TokenGraduation", () => {
     expect(screen.getByText("#77")).toBeTruthy();
     expect(screen.getByText("12,345,678,901,234,567,890")).toBeTruthy();
     expect(screen.getByText("200M GRAD")).toBeTruthy();
-    expect(screen.getByText("Legacy ETH field (unsupported)")).toBeTruthy();
-    expect(screen.getByText("3000000000000000000")).toBeTruthy();
+    expect(screen.getByText("Native USDC")).toBeTruthy();
+    expect(screen.getByText("3 USDC")).toBeTruthy();
+    expect(screen.getByTitle("3000000000000000000")).toBeTruthy();
+    expect(screen.queryByText("Legacy ETH field (unsupported)")).toBeNull();
+    expect(screen.queryByText("eth_amount")).toBeNull();
+    expect(screen.queryByText("ETH")).toBeNull();
     expect(screen.getByRole("link", { name: `${pool} ↗` }).getAttribute("href")).toBe(`https://testnet.arcscan.app/address/${pool}`);
     expect(screen.getByRole("link", { name: `${custodian} ↗` }).getAttribute("href")).toBe(`https://testnet.arcscan.app/address/${custodian}`);
     expect(screen.getByRole("link", { name: "Graduation transaction ↗" }).getAttribute("href")).toBe(`https://testnet.arcscan.app/tx/${graduationHash}`);
     expect(screen.getByRole("link", { name: "Settlement transaction ↗" }).getAttribute("href")).toBe(`https://testnet.arcscan.app/tx/${settlementHash}`);
     expect(screen.queryByText(/12,345,678,901,234,567,890 ETH/)).toBeNull();
+    expect(screen.queryByText(/999 ETH/)).toBeNull();
+  });
+
+  it("ignores leftover eth_amount fields and still renders native USDC", () => {
+    const token = {
+      ...baseToken,
+      graduation: {
+        phase: "graduated",
+        canonical_pool_address: pool,
+        token_amount: "200000000000000000000000000",
+        native_usdc_amount: "3000000000000000000",
+        eth_amount: "999000000000000000000",
+      },
+    } as Token;
+    render(<TokenGraduation token={token} />);
+    expect(screen.getByText("3 USDC")).toBeTruthy();
+    expect(screen.queryByText("999000000000000000000")).toBeNull();
+    expect(screen.queryByText("Legacy ETH field (unsupported)")).toBeNull();
     expect(screen.queryByText(/999 ETH/)).toBeNull();
   });
 
@@ -76,7 +98,7 @@ describe("TokenGraduation", () => {
       canonical_pool_address: pool,
       graduation_manager_address: manager,
       token_amount: "200000000000000000000000000",
-      eth_amount: "3000000000000000000",
+      native_usdc_amount: "3000000000000000000",
       curve_terminal_at: { block_number: 200, transaction_hash: graduationHash, log_index: 8 },
     } };
     render(<TokenGraduation token={token} />);

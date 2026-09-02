@@ -17,7 +17,7 @@ Selling lets another contract transfer the specified token amount from your wall
 
 ## Graduated-token sell flow
 
-The spender is Uniswap's configured SwapRouter02 rather than the curve. The same approval-first rule applies. The swap uses the canonical 1% token/WETH pool and unwraps WETH output to ETH for the active wallet.
+The inherited graduated sell path remains disabled in this repository. When it is enabled in a later phase, the spender is the configured Uniswap router rather than the curve, and output is native USDC rather than WETH/ETH.
 
 <Warning>
   Approval and sale can require two wallet confirmations and two gas payments. A successful approval does not guarantee the subsequent sell will succeed. Verify the spender and amount before approving.

@@ -3,22 +3,24 @@ title: "Buy tokens"
 description: "Quote and execute curve buys or graduated Uniswap V3 swaps."
 ---
 
+Arc Testnet curve buys use 18-decimal native USDC, not ETH. Existing graduated-swap execution remains deferred.
+
 ## Before graduation
 
-1. Enter an ETH budget.
+1. Enter a native USDC budget.
 2. The web app resolves the token's curve from the factory and reads current onchain state.
 3. It calls `quoteBuy` and calculates a slippage-protected minimum token output.
 4. Immediately before requesting a signature, it simulates the exact `buy(minTokensOut, deadline)` call.
-5. Your wallet sends ETH to the curve on Base Mainnet.
+5. Your wallet sends native USDC to the curve on Arc Testnet.
 6. The app waits for the receipt and refreshes contract and indexed views.
 
 The default curve slippage is 1%. The interface permits a custom value from 0.01% through 20%. A quote has a deadline and is invalidated when the amount, wallet, network, side, or relevant state changes.
 
-If a buy would cross the terminal reserve, the contract accepts only the exact gross input required, sends the remaining curve inventory, triggers graduation, and refunds excess submitted ETH.
+If a buy would cross the terminal reserve, the contract accepts only the exact gross input required, sends the remaining curve inventory, triggers graduation, and refunds excess submitted native USDC.
 
 ## After graduation
 
-The token page switches to a validated Uniswap V3 swap flow. The UI checks the canonical pool, factory, WETH, QuoterV2, and SwapRouter02 relationships; obtains an exact-input quote; simulates the transaction; and submits it through the browser wallet.
+Indexed graduation principal is 18-decimal native USDC. The inherited Uniswap V3 swap path remains disabled in this repository; do not treat it as live Arc execution.
 
 <Warning>
   Expected output is not guaranteed. The transaction reverts if output falls below the reviewed minimum, but gas can still be spent on a reverted transaction.

@@ -18,6 +18,7 @@ Errors use this envelope:
 | ---: | --- | --- |
 | 400 | `invalid_request` | Invalid pagination, cursor, body, or search |
 | 400 | `invalid_address` | Path address is not 20-byte hexadecimal |
+| 400 | `invalid_proposal_id` | Path proposal id is not 32-byte hexadecimal |
 | 400 | `invalid_interval` | Unsupported chart interval |
 | 400 | `invalid_upload`, `invalid_image` | Invalid metadata upload |
 | 400 | `invalid_name`, `invalid_symbol`, `invalid_description`, `invalid_supply` | Metadata field validation failure |
@@ -27,6 +28,7 @@ Errors use this envelope:
 | 503 | `not_ready` | Database readiness failed |
 | 503 | `storage_unavailable` | Metadata object store unavailable |
 | 503 | `oracle_unavailable` | ETH/USD reference cannot be validated |
+| 500 | `inconsistent_accounting` | Checkpoint claimed amount exceeds checkpointed amount |
 | 500 | `internal_error` | Internal failure with details withheld |
 
 Request timeout responses use code `timeout`. Clients should preserve the `X-Request-ID` when reporting a problem and avoid retrying invalid requests unchanged.

@@ -9,6 +9,7 @@ import { TokenTrading, TokenTradeHistory } from "@/components/token-trading";
 import { TokenActivity } from "@/components/token-activity";
 import { TokenChart } from "@/components/token-chart";
 import { hasIndexedSettlement, isGraduatedToken, TokenGraduation } from "@/components/token-graduation";
+import { TokenCTO } from "@/components/token-cto";
 import { MobileTradeActions, TokenTradeSheetProvider, TradeSheetSurface } from "@/components/mobile-trade-sheet";
 import { api, apiAssetURL } from "@/lib/api";
 import { explorerAddressURL, explorerTransactionURL, selectedCooketChainId, selectedCooketChainName, validAddress } from "@/lib/chain";
@@ -86,6 +87,7 @@ export default function TokenDetailPage() {
           <div className="token-terminal-support" data-mobile-section={mobileSection}>
             <aside className="terminal-market"><MarketOverview token={token} onchain={onchain} reference={reference} /></aside>
             <aside className="terminal-graduation"><TokenGraduation token={token} /></aside>
+            <aside className="terminal-cto"><TokenCTO tokenAddress={address} /></aside>
           </div>
         </div>
         <div className="token-terminal-history" data-mobile-section={mobileSection}><TokenTradeHistory tokenAddress={address} symbol={token.symbol} /></div>
