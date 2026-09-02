@@ -7,7 +7,7 @@ The CTO HTTP surface is **read-only indexed data**. It does not accept writes, s
 
 All routes are `GET` only. They use the API's configured Arc Testnet chain ID and ignore caller-supplied `chain_id` query values. Responses include `X-Request-ID` and `Cache-Control: public, max-age=5, must-revalidate`.
 
-Addresses are normalized 20-byte hex strings. Proposal IDs are 32-byte hex strings. Amounts and nonce values are decimal integer strings (`NUMERIC(78,0)` / uint256-compatible). Do not parse them as IEEE floats.
+Addresses are normalized 20-byte hex strings. Proposal IDs are 32-byte hex strings. Amounts are decimal integer strings (`NUMERIC(78,0)` / uint256-compatible). Nonce is a decimal integer string (`NUMERIC(20,0)` / uint64, maximum `18446744073709551615`). Do not parse either as IEEE floats.
 
 `metadata_uri` is untrusted indexed text. The API does not fetch it, does not validate it as a URL, and does not interpret HTML. Clients must display it as inert text.
 
