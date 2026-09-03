@@ -13,7 +13,7 @@ describe("Cooket production brand metadata", () => {
     expect(navigation).toContain('alt="Cooket logo"');
   });
   it("publishes Cooket metadata without an external branding asset", () => {
-    expect(layout).toContain("https://testnet.cooket.fun");
+    expect(layout).toContain("https://cooket.fun");
     expect(layout).toContain("/brand/cooket-icon.png");
     expect(layout).toContain("/brand/cooket-og.png");
     expect(layout).toContain("Cooket | Arc Testnet development");

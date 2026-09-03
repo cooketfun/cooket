@@ -16,19 +16,27 @@ description: "Safe Arc Testnet runtime configuration."
 | `ARC_TESTNET_RPC_URL` | Server-side Arc Testnet RPC; defaults to the official public RPC |
 | `NEXT_PUBLIC_ARC_TESTNET_RPC_URL` | Browser-safe Arc Testnet RPC; defaults to the official public RPC |
 | `NEXT_PUBLIC_COOKET_CHAIN_ID` | Defaults to `5042002`; any other value is rejected |
-| `NEXT_PUBLIC_API_URL` | Browser-visible API origin; defaults to `http://localhost:4200` locally and must be `https://api.testnet.cooket.fun` in production |
+| `NEXT_PUBLIC_API_URL` | Browser-visible API origin; defaults to `http://localhost:4200` locally and must be `https://api.cooket.fun` in production |
 | `INTERNAL_API_URL` | Internal web-to-API origin; service port remains `4000` |
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Required browser-public Reown project ID; missing or placeholder values fail at the wallet boundary |
 | `NEXT_PUBLIC_APP_NAME` | Optional AppKit metadata name; defaults to `Cooket` |
-| `NEXT_PUBLIC_APP_URL` | AppKit metadata origin; defaults to `http://localhost:3200` locally and must be `https://testnet.cooket.fun` in production |
+| `NEXT_PUBLIC_APP_URL` | AppKit metadata origin; defaults to `http://localhost:3200` locally and must be `https://cooket.fun` in production |
 
 ## Data and indexer
 
 `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DATABASE_URL`, and
-`REDIS_URL` configure local services. `INDEXER_MODE` defaults to `idle`.
-`COOKET_INDEXER_CONTRACTS` and the Cooket contract address variables must remain
-blank until an Arc deployment is explicitly approved and verified.
+`REDIS_URL` configure local services. `INDEXER_MODE` defaults to `idle` in local
+Compose. Production requires an explicit mode. For active or once production
+indexing, use the verified `COOKET_FACTORY_V3_ADDRESS` and
+`COOKET_FEE_MANAGER_V3_ADDRESS`, `INDEXER_START_BLOCK=60231838`, and the retry,
+batch, confirmation, and optional stop-block values in `.env.example`.
 
-Phase 0 defines no Arc DEX, wrapped-native, oracle, governance, treasury, or
+The verified `uniswap-v3-periphery.json` manifest provides
+`NEXT_PUBLIC_ARC_TESTNET_UNISWAP_V3_SWAP_ROUTER` and
+`NEXT_PUBLIC_ARC_TESTNET_UNISWAP_V3_QUOTER_V2`; do not substitute addresses from
+another network.
+
+Only the verified Arc manifest values documented above may configure the runtime;
+do not add inferred DEX, wrapped-native, oracle, governance, treasury, or
 deployment variables. Base-named variables are intentionally not consumed by
 the Arc runtime.

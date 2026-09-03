@@ -10,12 +10,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes: ["cooket_production_postgres_data:/var/lib/postgresql/data"]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""], interval: 5s, timeout: 5s, retries: 10 }
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
 
   redis:
     image: redis:8-alpine
     restart: unless-stopped
     volumes: ["cooket_production_redis_data:/data"]
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 5s, retries: 10 }
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
 
   migrate:
     image: postgres:17-alpine
@@ -25,6 +27,7 @@ services:
     volumes: ["./db:/cooket-db:ro"]
     depends_on: { postgres: { condition: service_healthy } }
     command: ["/bin/sh", "/cooket-db/migrate.sh"]
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
 
   api:
     build: { context: ., dockerfile: apps/api/Dockerfile }
@@ -43,19 +46,29 @@ services:
     volumes: ["cooket_production_object_data:/data/cooket-objects"]
     depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_healthy }, migrate: { condition: service_completed_successfully } }
     healthcheck: { test: ["CMD", "wget", "--quiet", "--output-document=-", "http://127.0.0.1:4000/health"], interval: 5s, timeout: 3s, retries: 10 }
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
 
   indexer:
     build: { context: ., dockerfile: apps/indexer/Dockerfile }
     restart: unless-stopped
     environment:
-      INDEXER_MODE: ${INDEXER_MODE:-idle}
+      INDEXER_MODE: ${INDEXER_MODE:?INDEXER_MODE must be set}
       COOKET_CHAIN_ID: ${COOKET_CHAIN_ID:-5042002}
       ARC_TESTNET_RPC_URL: ${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.io}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       COOKET_INDEXER_CONTRACTS: ${COOKET_INDEXER_CONTRACTS:-}
-      COOKET_FACTORY_V3_ADDRESS: ${COOKET_FACTORY_V3_ADDRESS:-}
+      COOKET_FACTORY_V3_ADDRESS: ${COOKET_FACTORY_V3_ADDRESS:?COOKET_FACTORY_V3_ADDRESS must be set}
+      COOKET_FEE_MANAGER_V3_ADDRESS: ${COOKET_FEE_MANAGER_V3_ADDRESS:?COOKET_FEE_MANAGER_V3_ADDRESS must be set}
+      INDEXER_START_BLOCK: ${INDEXER_START_BLOCK:?INDEXER_START_BLOCK must be set}
+      INDEXER_STOP_BLOCK: ${INDEXER_STOP_BLOCK:-}
+      INDEXER_CONFIRMATIONS: ${INDEXER_CONFIRMATIONS:-6}
+      INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-500}
+      INDEXER_RPC_MAX_ATTEMPTS: ${INDEXER_RPC_MAX_ATTEMPTS:-3}
+      INDEXER_RPC_INITIAL_DELAY_MS: ${INDEXER_RPC_INITIAL_DELAY_MS:-100}
+      INDEXER_RPC_MAX_DELAY_MS: ${INDEXER_RPC_MAX_DELAY_MS:-2000}
     depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_healthy }, migrate: { condition: service_completed_successfully } }
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
 
 volumes:
   cooket_production_postgres_data: { name: cooket_production_postgres_data }

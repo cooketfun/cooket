@@ -23,9 +23,9 @@ afterEach(() => vi.unstubAllGlobals());
 describe("API client", () => {
   it("requires the intended API origin for production while preserving local development", () => {
     expect(resolvePublicApiURL(undefined, false)).toBe("http://localhost:4200");
-    expect(resolvePublicApiURL("https://api.testnet.cooket.fun/", true)).toBe("https://api.testnet.cooket.fun");
+    expect(resolvePublicApiURL("https://api.cooket.fun/", true)).toBe("https://api.cooket.fun");
     expect(() => resolvePublicApiURL(undefined, true)).toThrow(/required/i);
-    expect(() => resolvePublicApiURL("https://preview.example", true)).toThrow(/api\.testnet\.cooket\.fun/i);
+    expect(() => resolvePublicApiURL("https://preview.example", true)).toThrow(/api\.cooket\.fun/i);
     expect(() => resolvePublicApiURL("not-a-url", false)).toThrow(/absolute/i);
   });
   it("parses successful and empty collections", async () => {

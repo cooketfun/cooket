@@ -73,7 +73,7 @@ export type AppMetadataConfiguration = {
 
 export function resolveAppMetadata(nameValue: string | undefined, urlValue: string | undefined): AppMetadataConfiguration {
   const name = nameValue?.trim() || "Cooket";
-  const url = urlValue?.trim() || "https://testnet.cooket.fun";
+  const url = urlValue?.trim() || "http://localhost:3200";
   let parsed: URL;
   try {
     parsed = new URL(url);

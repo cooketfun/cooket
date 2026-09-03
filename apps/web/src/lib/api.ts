@@ -98,7 +98,7 @@ export function resolvePublicApiURL(value: string | undefined, production = proc
   let parsed: URL;
   try { parsed = new URL(configured); } catch { throw new Error("NEXT_PUBLIC_API_URL must be an absolute http(s) URL."); }
   if (!/^https?:$/.test(parsed.protocol)) throw new Error("NEXT_PUBLIC_API_URL must use http or https.");
-  if (production && parsed.origin !== "https://api.testnet.cooket.fun") throw new Error("Production Cooket frontend builds require NEXT_PUBLIC_API_URL=https://api.testnet.cooket.fun.");
+  if (production && parsed.origin !== "https://api.cooket.fun") throw new Error("Production Cooket frontend builds require NEXT_PUBLIC_API_URL=https://api.cooket.fun.");
   return parsed.origin;
 }
 const publicApiUrl = resolvePublicApiURL(process.env.NEXT_PUBLIC_API_URL);

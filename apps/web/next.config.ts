@@ -9,8 +9,8 @@ if (process.env.VERCEL_ENV === "production") {
   for (const [name, value] of Object.entries(required)) {
     if (!value?.trim() || /replace|example|changeme/i.test(value)) throw new Error(`${name} is required for a production Cooket Vercel build.`);
   }
-  if (required.NEXT_PUBLIC_APP_URL !== "https://testnet.cooket.fun") throw new Error("Production Cooket Vercel builds require NEXT_PUBLIC_APP_URL=https://testnet.cooket.fun.");
-  if (required.NEXT_PUBLIC_API_URL !== "https://api.testnet.cooket.fun") throw new Error("Production Cooket Vercel builds require NEXT_PUBLIC_API_URL=https://api.testnet.cooket.fun.");
+  if (required.NEXT_PUBLIC_APP_URL !== "https://cooket.fun") throw new Error("Production Cooket Vercel builds require NEXT_PUBLIC_APP_URL=https://cooket.fun.");
+  if (required.NEXT_PUBLIC_API_URL !== "https://api.cooket.fun") throw new Error("Production Cooket Vercel builds require NEXT_PUBLIC_API_URL=https://api.cooket.fun.");
 }
 
 const nextConfig: NextConfig = {

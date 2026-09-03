@@ -59,9 +59,9 @@ describe("Reown AppKit and Wagmi Arc Testnet configuration", () => {
     expect(resolveReownProjectId(testId)).toEqual({ configured: true, projectId: testId });
   });
 
-  it("uses Cooket testnet metadata by default and permits a local development override", () => {
-    expect(appKitMetadata).toMatchObject({ name: "Cooket", description: "Cooket is an Arc-native token launch protocol in testnet development.", url: "https://testnet.cooket.fun" });
-    expect(resolveAppMetadata(undefined, undefined)).toMatchObject({ name: "Cooket", url: "https://testnet.cooket.fun" });
+  it("uses local metadata by default and permits a local development override", () => {
+    expect(appKitMetadata).toMatchObject({ name: "Cooket", description: "Cooket is an Arc-native token launch protocol in testnet development.", url: "http://localhost:3200" });
+    expect(resolveAppMetadata(undefined, undefined)).toMatchObject({ name: "Cooket", url: "http://localhost:3200" });
     expect(resolveAppMetadata("Cooket", "http://localhost:3200")).toMatchObject({ name: "Cooket", url: "http://localhost:3200" });
     expect(resolveAppMetadata("Preview", "https://preview.example/path")).toMatchObject({ name: "Preview", url: "https://preview.example" });
     expect(() => resolveAppMetadata("Preview", "file:///tmp/app")).toThrow(/http or https/i);

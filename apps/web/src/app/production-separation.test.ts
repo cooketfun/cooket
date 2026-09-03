@@ -13,7 +13,7 @@ describe("split production configuration", () => {
     const config = readFileSync(resolve(process.cwd(), "next.config.ts"), "utf8");
     expect(config).toContain('process.env.VERCEL_ENV === "production"');
     expect(config).toContain("NEXT_PUBLIC_REOWN_PROJECT_ID");
-    expect(config).toContain("https://testnet.cooket.fun");
-    expect(config).toContain("https://api.testnet.cooket.fun");
+    expect(config).toContain("https://cooket.fun");
+    expect(config).toContain("https://api.cooket.fun");
   });
 });

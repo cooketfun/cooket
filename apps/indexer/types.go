@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	ArcTestnetChainID int64 = 5042002
-	ArcTestnetRPCURL        = "https://rpc.testnet.arc.io"
-	ArcCanonicalUsdc        = "0x3600000000000000000000000000000000000000"
+	ArcTestnetChainID     int64 = 5042002
+	ArcTestnetRPCURL            = "https://rpc.testnet.arc.io"
+	ArcCanonicalUsdc            = "0x3600000000000000000000000000000000000000"
+	ArcCooketFactoryV3          = "0x96a1F09F0E85B3f1800eFBFb0CD6BE7EDD7a9BE5"
+	ArcCooketFeeManagerV3       = "0x252BDd768Cc44070a84A4b8E86634eae25372571"
 	// BaseSepoliaChainID is retained only for historical projection fixtures.
 	// It is rejected by ResolveChainRuntime and Config.Validate.
 	BaseSepoliaChainID int64 = 84532

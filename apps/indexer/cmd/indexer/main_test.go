@@ -7,8 +7,8 @@ import (
 )
 
 func TestConfiguredRootsRequiresFactoryAndFeeManager(t *testing.T) {
-	factory, fees, err := configuredRoots("0x0000000000000000000000000000000000000001", "0x0000000000000000000000000000000000000002")
-	if err != nil || factory.Hex() != "0x0000000000000000000000000000000000000001" || fees.Hex() != "0x0000000000000000000000000000000000000002" {
+	factory, fees, err := configuredRoots(indexer.ArcCooketFactoryV3, indexer.ArcCooketFeeManagerV3)
+	if err != nil || factory.Hex() != indexer.ArcCooketFactoryV3 || fees.Hex() != indexer.ArcCooketFeeManagerV3 {
 		t.Fatalf("factory=%v fees=%v err=%v", factory, fees, err)
 	}
 	if _, _, err := configuredRoots("", ""); err == nil {
@@ -46,7 +46,7 @@ func TestArcIndexerAcceptsOnlyExplicitModes(t *testing.T) {
 }
 
 func TestConfiguredRootsRejectsMalformedOrZeroValues(t *testing.T) {
-	for _, values := range [][2]string{{"not-an-address", "0x0000000000000000000000000000000000000002"}, {"0x0000000000000000000000000000000000000001", ""}, {"0x0000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000002"}} {
+	for _, values := range [][2]string{{"not-an-address", indexer.ArcCooketFeeManagerV3}, {indexer.ArcCooketFactoryV3, ""}, {"0x0000000000000000000000000000000000000000", indexer.ArcCooketFeeManagerV3}, {"0x0000000000000000000000000000000000000001", indexer.ArcCooketFeeManagerV3}} {
 		if _, _, err := configuredRoots(values[0], values[1]); err == nil {
 			t.Fatalf("expected invalid roots %q/%q", values[0], values[1])
 		}

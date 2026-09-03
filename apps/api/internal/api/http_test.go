@@ -183,16 +183,16 @@ func TestHealthAndReadiness(t *testing.T) {
 }
 
 func TestCORSUsesExplicitAllowlistWithoutCredentials(t *testing.T) {
-	origins, err := ParseAllowedOrigins("https://testnet.cooket.fun, https://preview.example")
+	origins, err := ParseAllowedOrigins("https://cooket.fun, https://preview.example")
 	if err != nil || len(origins) != 2 {
 		t.Fatalf("origins=%v err=%v", origins, err)
 	}
 	handler := CORS(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }), origins)
 	allowed := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodOptions, "/health", nil)
-	req.Header.Set("Origin", "https://testnet.cooket.fun")
+	req.Header.Set("Origin", "https://cooket.fun")
 	handler.ServeHTTP(allowed, req)
-	if allowed.Code != http.StatusNoContent || allowed.Header().Get("Access-Control-Allow-Origin") != "https://testnet.cooket.fun" || allowed.Header().Get("Access-Control-Allow-Credentials") != "" {
+	if allowed.Code != http.StatusNoContent || allowed.Header().Get("Access-Control-Allow-Origin") != "https://cooket.fun" || allowed.Header().Get("Access-Control-Allow-Credentials") != "" {
 		t.Fatalf("allowed=%d headers=%v", allowed.Code, allowed.Header())
 	}
 	rejected := httptest.NewRecorder()
@@ -210,18 +210,18 @@ func TestParseAllowedOrigins(t *testing.T) {
 		raw  string
 		want []string
 	}{
-		{name: "HTTPS production", raw: "https://testnet.cooket.fun", want: []string{"https://testnet.cooket.fun"}},
+		{name: "HTTPS production", raw: "https://cooket.fun", want: []string{"https://cooket.fun"}},
 		{name: "localhost HTTP", raw: "http://localhost:3200", want: []string{"http://localhost:3200"}},
 		{name: "IPv4 loopback HTTP", raw: "http://127.0.0.1:3200", want: []string{"http://127.0.0.1:3200"}},
 		{name: "IPv6 loopback HTTP", raw: "http://[::1]:3200", want: []string{"http://[::1]:3200"}},
 		{name: "localhost subdomain HTTP", raw: "http://app.localhost:3200", want: []string{"http://app.localhost:3200"}},
-		{name: "canonical duplicates", raw: "HTTPS://TESTNET.COOKET.FUN, https://testnet.cooket.fun", want: []string{"https://testnet.cooket.fun"}},
-		{name: "public HTTP", raw: "http://testnet.cooket.fun", want: nil},
+		{name: "canonical duplicates", raw: "HTTPS://COOKET.FUN, https://cooket.fun", want: []string{"https://cooket.fun"}},
+		{name: "public HTTP", raw: "http://cooket.fun", want: nil},
 		{name: "wildcard", raw: "https://*.cooket.fun", want: nil},
-		{name: "credentials", raw: "https://user:password@testnet.cooket.fun", want: nil},
-		{name: "path", raw: "https://testnet.cooket.fun/path", want: nil},
-		{name: "query", raw: "https://testnet.cooket.fun?source=test", want: nil},
-		{name: "fragment", raw: "https://testnet.cooket.fun#top", want: nil},
+		{name: "credentials", raw: "https://user:password@cooket.fun", want: nil},
+		{name: "path", raw: "https://cooket.fun/path", want: nil},
+		{name: "query", raw: "https://cooket.fun?source=test", want: nil},
+		{name: "fragment", raw: "https://cooket.fun#top", want: nil},
 		{name: "empty", raw: "", want: nil},
 	}
 	for _, test := range tests {

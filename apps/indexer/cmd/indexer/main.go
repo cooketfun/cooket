@@ -113,5 +113,10 @@ func configuredRoots(factoryValue, feeManagerValue string) (common.Address, comm
 	if !common.IsHexAddress(feeManagerValue) || common.HexToAddress(feeManagerValue) == (common.Address{}) {
 		return common.Address{}, common.Address{}, errors.New("COOKET_FEE_MANAGER_V3_ADDRESS is required in active mode")
 	}
-	return common.HexToAddress(factoryValue), common.HexToAddress(feeManagerValue), nil
+	factory := common.HexToAddress(factoryValue)
+	feeManager := common.HexToAddress(feeManagerValue)
+	if factory != common.HexToAddress(indexer.ArcCooketFactoryV3) || feeManager != common.HexToAddress(indexer.ArcCooketFeeManagerV3) {
+		return common.Address{}, common.Address{}, errors.New("active mode requires the verified Arc Testnet CooketFactoryV3 and FeeManagerV3 roots")
+	}
+	return factory, feeManager, nil
 }

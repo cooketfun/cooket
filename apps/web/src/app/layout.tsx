@@ -22,11 +22,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://testnet.cooket.fun"),
+  metadataBase: new URL("https://cooket.fun"),
   title: "Cooket | Arc Testnet development",
   description: `Cooket is an Arc-native token launch protocol in testnet development on ${selectedCooketChainName}.`,
   icons: { icon: "/brand/cooket-icon.png", apple: "/brand/cooket-icon.png", shortcut: "/brand/cooket-icon.png" },
-  openGraph: { type: "website", url: "https://testnet.cooket.fun", siteName: "Cooket", title: "Cooket | Arc Testnet development", description: "Cooket is an Arc-native token launch protocol in testnet development.", images: [{ url: "/brand/cooket-og.png", width: 1200, height: 630, alt: "Cooket" }] },
+  openGraph: { type: "website", url: "https://cooket.fun", siteName: "Cooket", title: "Cooket | Arc Testnet development", description: "Cooket is an Arc-native token launch protocol in testnet development.", images: [{ url: "/brand/cooket-og.png", width: 1200, height: 630, alt: "Cooket" }] },
   twitter: { card: "summary_large_image", title: "Cooket | Arc Testnet development", description: "Cooket is an Arc-native token launch protocol in testnet development.", images: ["/brand/cooket-og.png"] },
 };
 
