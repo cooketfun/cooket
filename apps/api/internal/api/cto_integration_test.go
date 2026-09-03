@@ -333,7 +333,7 @@ func TestCTOHTTPUsesConfiguredChainAndDoesNotFetchMetadataURI(t *testing.T) {
 	}
 	defer repo.Close()
 	fetches := 0
-	handler := newHandler(repo, ctoTestChain, time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)), nil, nil, func(context.Context, string) ([]byte, string, error) {
+	handler := newHandler(repo, ctoTestChain, time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)), nil, func(context.Context, string) ([]byte, string, error) {
 		fetches++
 		return nil, "", nil
 	})

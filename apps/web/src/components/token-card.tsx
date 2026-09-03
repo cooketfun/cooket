@@ -3,11 +3,9 @@
 import Link from "next/link";
 import type { Token } from "@cooket/types";
 import { apiAssetURL } from "@/lib/api";
-import { formatCount, formatWeiUsd, graduationProgress } from "@/lib/format";
-import { useOraclePrice } from "@/providers/oracle-price-provider";
+import { formatCount, formatNative, graduationProgress } from "@/lib/format";
 
 export function TokenCard({ token, variant = "grid" }: { token: Token; variant?: "grid" | "list" }) {
-  const { reference } = useOraclePrice();
   const progress = graduationProgress(token.curve?.sold_supply, token.curve?.graduation_threshold);
   const image = <TokenImage token={token} className={variant === "list" ? "h-20 w-20 rounded-xl sm:h-24 sm:w-24" : "aspect-[4/3] w-full rounded-xl"} />;
 
@@ -15,11 +13,11 @@ export function TokenCard({ token, variant = "grid" }: { token: Token; variant?:
     <CardLink token={token} />
     {image}
     <div className="min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(8rem,1.25fr)_repeat(4,minmax(5rem,.7fr))] sm:items-center sm:gap-4">
-      <div className="min-w-0"><Identity token={token} /><p className="mt-2 truncate text-xs font-semibold text-zinc-300 sm:hidden">{formatWeiUsd(token.metrics.current_price, reference)}</p><p className="mt-1 truncate text-[0.62rem] text-zinc-600 sm:hidden">{formatCount(token.metrics.holder_count)} holders</p></div>
-      <ListMetric label="Price" value={formatWeiUsd(token.metrics.current_price, reference)} />
+      <div className="min-w-0"><Identity token={token} /><p className="mt-2 truncate text-xs font-semibold text-zinc-300 sm:hidden">{formatNative(token.metrics.current_price)}</p><p className="mt-1 truncate text-[0.62rem] text-zinc-600 sm:hidden">{formatCount(token.metrics.holder_count)} holders</p></div>
+      <ListMetric label="Price" value={formatNative(token.metrics.current_price)} />
       <ListMetric label="24h" value="—" unavailable />
-      <ListMetric label="FDV" value={formatWeiUsd(token.metrics.fully_diluted_value, reference)} />
-      <ListMetric label="Volume" value={formatWeiUsd(token.metrics.volume, reference)} />
+      <ListMetric label="FDV" value={formatNative(token.metrics.fully_diluted_value)} />
+      <ListMetric label="Volume" value={formatNative(token.metrics.volume)} />
     </div>
     <div className="relative z-10 hidden w-28 flex-none sm:block"><Progress value={progress} compact /></div>
     <span className="hidden flex-none text-zinc-600 transition-transform group-hover:translate-x-0.5 group-hover:text-cyan-300 sm:block" aria-hidden>→</span>
@@ -35,12 +33,12 @@ export function TokenCard({ token, variant = "grid" }: { token: Token; variant?:
     <div className="min-w-0 flex-1 p-3.5 max-md:p-0">
       <Identity token={token} />
       <div className="mt-3 flex items-end justify-between gap-3 border-b border-white/7 pb-3 max-md:mt-1.5 max-md:border-0 max-md:pb-0">
-        <div className="min-w-0"><p className="text-[0.65rem] text-zinc-600 max-md:hidden">USD price</p><p className="mt-0.5 truncate text-base font-semibold text-zinc-50 max-md:text-sm" title={formatWeiUsd(token.metrics.current_price, reference)}>{formatWeiUsd(token.metrics.current_price, reference)}</p></div>
+        <div className="min-w-0"><p className="text-[0.65rem] text-zinc-600 max-md:hidden">USDC price</p><p className="mt-0.5 truncate text-base font-semibold text-zinc-50 max-md:text-sm" title={formatNative(token.metrics.current_price)}>{formatNative(token.metrics.current_price)}</p></div>
         <div className="text-right" title="The current API does not expose a 24-hour price-change field"><p className="text-[0.65rem] text-zinc-600">24h</p><p className="mt-0.5 text-sm font-semibold text-zinc-600">—</p></div>
       </div>
       <dl className="mt-3 grid grid-cols-3 gap-2 max-md:mt-2">
-        <Metric label="FDV" value={formatWeiUsd(token.metrics.fully_diluted_value, reference)} />
-        <Metric label="Volume" value={formatWeiUsd(token.metrics.volume, reference)} />
+        <Metric label="FDV" value={formatNative(token.metrics.fully_diluted_value)} />
+        <Metric label="Volume" value={formatNative(token.metrics.volume)} />
         <Metric label="Holders" value={formatCount(token.metrics.holder_count)} />
       </dl>
       <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/7 pt-3 text-[0.68rem] max-md:hidden">
@@ -53,15 +51,14 @@ export function TokenCard({ token, variant = "grid" }: { token: Token; variant?:
 }
 
 export function TopTokenCard({ token, rank }: { token: Token; rank: number }) {
-  const { reference } = useOraclePrice();
   return <article className="top-token-card group relative">
     <CardLink token={token} />
     <span className="absolute left-2 top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-md border border-white/10 bg-black/70 px-1 text-[0.6rem] font-bold text-zinc-300">{rank}</span>
     <TokenImage token={token} className="h-16 w-16 rounded-xl" />
     <div className="min-w-0 flex-1">
       <Identity token={token} compact />
-      <div className="mt-2 flex items-end justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{formatWeiUsd(token.metrics.current_price, reference)}</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">USD price</p></div><div className="text-right" title="The current API does not expose a 24-hour price-change field"><p className="text-xs font-semibold text-zinc-600">—</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">24h</p></div></div>
-      <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/7 pt-2 text-[0.65rem] text-zinc-600"><span>Vol <strong className="font-medium text-zinc-400">{formatWeiUsd(token.metrics.volume, reference)}</strong></span><span>{formatCount(token.metrics.holder_count)} holders</span></div>
+      <div className="mt-2 flex items-end justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{formatNative(token.metrics.current_price)}</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">USDC price</p></div><div className="text-right" title="The current API does not expose a 24-hour price-change field"><p className="text-xs font-semibold text-zinc-600">—</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">24h</p></div></div>
+      <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/7 pt-2 text-[0.65rem] text-zinc-600"><span>Vol <strong className="font-medium text-zinc-400">{formatNative(token.metrics.volume)}</strong></span><span>{formatCount(token.metrics.holder_count)} holders</span></div>
     </div>
   </article>;
 }

@@ -12,7 +12,6 @@ export type ChartPoint = { bucket_start: number; trade_count: number; buy_count:
 export type ChartInterval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w";
 export type ChartPage = { interval: ChartInterval; supported_intervals: ChartInterval[]; candles: ChartPoint[] };
 export type Pricing = { token_address: string; current_price: string | null; fully_diluted_value: string | null; source: "indexed_v3_curve" | "indexed_v3_market" };
-export type ETHUSDPrice = { price: string; price_decimals: 8; updated_at: string; feed: string; source: "chainlink_eth_usd"; max_age_seconds: number };
 export type CreatorProfile = { address: string; token_count: number; volume: string; tokens: Token[]; next_cursor?: string };
 export type IndexedProvenance = { block_number: number; block_hash: string; transaction_hash: string; log_index: number };
 export type CTOStatus = { chain_id: number; token: string; active: boolean; registry?: string; treasury?: string; controller?: string; previous_recipient?: string; active_proposal_id?: string; activation?: IndexedProvenance };

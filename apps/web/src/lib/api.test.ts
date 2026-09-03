@@ -40,9 +40,12 @@ describe("API client", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: "invalid_request", message: "limit must be between 1 and 100" } }), { status: 400 })));
     await expect(api.listTokens("?limit=101")).rejects.toMatchObject({ status: 400, code: "invalid_request" });
   });
-  it("parses the runtime Chainlink ETH/USD reference", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ price: "2500.12345678", price_decimals: 8, updated_at: "2026-08-15T10:00:00Z", feed: "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70", source: "chainlink_eth_usd", max_age_seconds: 3600 }), { status: 200 })));
-    await expect(api.ethUsdPrice()).resolves.toMatchObject({ price: "2500.12345678", price_decimals: 8, source: "chainlink_eth_usd" });
+  it("does not expose or request the obsolete ETH/USD endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(emptyPage), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect("ethUsdPrice" in api).toBe(false);
+    await api.listTokens();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/api/v1/prices/eth-usd"), expect.anything());
   });
   it("normalizes malformed HTTP errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("oops", { status: 500 })));

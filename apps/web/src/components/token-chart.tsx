@@ -5,8 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CandlestickSeries, ColorType, createChart, CrosshairMode, HistogramSeries, type CandlestickData, type HistogramData, type Time } from "lightweight-charts";
 import type { ChartInterval, ChartPoint } from "@cooket/types";
 import { api } from "@/lib/api";
-import { presentationNumber, weiToUsdUnits, type EthUsdReference } from "@/lib/format";
-import { useOraclePrice } from "@/providers/oracle-price-provider";
+import { presentationNumber } from "@/lib/format";
 
 type CanonicalCandle = ChartPoint & { open_price: string; high_price: string; low_price: string; close_price: string };
 type ChartView = "price" | "fdv";
@@ -46,7 +45,7 @@ export function chartCandles(points: ChartPoint[]): { candles: CandlestickData<T
   }) };
 }
 
-export function chartDisplayData(points: ChartPoint[], view: ChartView, initialSupply: string | undefined, reference: EthUsdReference | null) {
+export function chartDisplayData(points: ChartPoint[], view: ChartView, initialSupply: string | undefined) {
   const complete = points.filter(completeCandle);
   const priceValue = (value: string) => {
     let wei = BigInt(value);
@@ -54,12 +53,10 @@ export function chartDisplayData(points: ChartPoint[], view: ChartView, initialS
       if (!initialSupply) return 0;
       wei = wei * BigInt(initialSupply) / BigInt(1_000_000_000_000_000_000);
     }
-    const usd = weiToUsdUnits(wei, reference);
-    return usd === null ? presentationNumber(wei) : presentationNumber(usd, 8);
+    return presentationNumber(wei);
   };
   const volumeValue = (value: string) => {
-    const usd = weiToUsdUnits(value, reference);
-    return usd === null ? presentationNumber(BigInt(value)) : presentationNumber(usd, 8);
+    return presentationNumber(BigInt(value));
   };
   return {
     candles: complete.map((point) => {
@@ -75,14 +72,13 @@ export function headerCandle(candles: readonly DisplayCandle[], hoveredTime?: Ti
 }
 
 export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }: { tokenAddress: string; initialSupply?: string; className?: string }) {
-  const { reference } = useOraclePrice();
   const container = useRef<HTMLDivElement>(null);
   const [timeframe, setTimeframe] = useState<ChartInterval>("1h");
   const [view, setView] = useState<ChartView>("price");
   const [inspectedTime, setInspectedTime] = useState<Time | null>(null);
   const query = useQuery({ queryKey: ["token-chart", tokenAddress, timeframe], queryFn: () => api.chart(tokenAddress, `?interval=${timeframe}&limit=500`), refetchInterval: 15_000 });
-  const chartData = useMemo(() => query.data ? chartDisplayData(query.data.candles, view, initialSupply, reference) : { candles: [], volumes: [] }, [initialSupply, query.data, reference, view]);
-  const currency = reference ? "USD" : "USDC";
+  const chartData = useMemo(() => query.data ? chartDisplayData(query.data.candles, view, initialSupply) : { candles: [], volumes: [] }, [initialSupply, query.data, view]);
+  const currency = "USDC";
   const displayedCandle = headerCandle(chartData.candles, inspectedTime);
 
   useEffect(() => {
@@ -163,14 +159,14 @@ export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }:
           <OHLCValue label="H" value={displayedCandle ? formatChartValue(displayedCandle.high, currency) : "—"} />
           <OHLCValue label="L" value={displayedCandle ? formatChartValue(displayedCandle.low, currency) : "—"} />
           <OHLCValue label="C" value={displayedCandle ? formatChartValue(displayedCandle.close, currency) : "—"} />
-          <span className={reference ? "badge-success" : "badge-warning"}>{currency}</span>
+          <span className="badge-success">{currency}</span>
         </div>
         <p className="mt-1 text-[0.65rem] text-zinc-600">Canonical V3 {timeframe} OHLC · indexed volume · UTC</p>
       </div>
       {controls}
     </div>
     <div className="bg-[#0a0e18]"><div ref={container} className="h-[min(16.5rem,46dvh)] w-full min-[390px]:h-[min(18.5rem,48dvh)] sm:h-[28rem] lg:h-[40rem] xl:h-[44rem]" role="img" aria-label={`${view === "price" ? "Price" : "FDV"} candlestick chart with volume in ${currency}`} /></div>
-    <p className="border-t border-white/8 px-4 py-3 text-xs leading-5 text-zinc-600">{reference ? `USD reference updated ${new Date(reference.asOf).toLocaleString()}.` : "USD conversion unavailable; the chart shows 18-decimal native USDC-indexed values."} No external pool feed is used before graduation.</p>
+    <p className="border-t border-white/8 px-4 py-3 text-xs leading-5 text-zinc-600">The chart shows 18-decimal native USDC-indexed values. No external pool feed is used before graduation.</p>
   </section>;
 }
 
@@ -182,17 +178,9 @@ function ChartState({ copy, controls, timeframe = "1h", error = false, loading =
   return <section className={`terminal-panel ${className}`} aria-label="Price history"><div className="flex min-w-0 flex-col gap-3 border-b border-white/8 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-sm font-semibold text-white">Market chart</h2><p className="mt-1 text-[0.65rem] text-zinc-600">Canonical V3 {timeframe} OHLC</p></div>{controls}</div><p className={`m-4 text-sm ${error ? "text-red-300" : "text-zinc-400"}`}>{copy}</p>{loading && <div className="skeleton m-4 h-52 rounded-xl sm:h-80" />}</section>;
 }
 
-export function formatChartValue(value: number, currency: "USD" | "USDC") {
+export function formatChartValue(value: number, currency: "USDC") {
   if (!Number.isFinite(value)) return "—";
   const absolute = Math.abs(value);
-  if (currency === "USD") {
-    if (absolute >= 1_000_000) return `$${trimFixed(value / 1_000_000, 1)}M`;
-    if (absolute >= 1_000) return `$${trimFixed(value / 1_000, 1)}K`;
-    if (absolute >= 1) return `$${value.toFixed(2)}`;
-    if (absolute === 0) return "$0.00";
-    if (absolute < 0.000001) return `$${compactExponential(value)}`;
-    return `$${trimFixed(value, 8)}`;
-  }
   if (absolute === 0) return "0 USDC";
   if (absolute < 0.00000001) return `${compactExponential(value)} USDC`;
   return `${trimFixed(value, absolute >= 1 ? 4 : 8)} USDC`;

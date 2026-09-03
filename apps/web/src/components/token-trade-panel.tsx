@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { parseEther, parseUnits, type Address, type Hash } from "viem";
 import type { BudgetBuyQuote, CurveTradeState, ProtectedSellQuote, TradeConfirmation } from "@/lib/contracts";
-import { formatNative, formatTokenAmount, formatWeiUsd, type EthUsdReference } from "@/lib/format";
-import { useOraclePrice } from "@/providers/oracle-price-provider";
+import { formatNative, formatTokenAmount } from "@/lib/format";
 import { TradeAmountPresets } from "@/components/trade-amount-presets";
 import { selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
 import { TransactionModal } from "@/components/transaction-modal";
@@ -59,7 +58,6 @@ const QUOTE_DEBOUNCE_MS = 500;
 const blockingStatuses: TradeTransactionStatus[] = ["preparing", "awaiting_approval", "approval_confirming", "approval_confirmed", "preparing_sell", "awaiting_sell_signature", "awaiting_wallet", "submitted", "confirming", "confirmation_unknown"];
 
 export function TokenTradePanel(props: Props) {
-  const { reference } = useOraclePrice();
   const [initialRecovery] = useState(() => props.walletAddress ? readPendingTrade(props.tokenAddress, props.walletAddress) : null);
   const [side, setSide] = useState<TradeSide>(initialRecovery?.side ?? "buy");
   const [amount, setAmount] = useState("");
@@ -426,8 +424,8 @@ export function TokenTradePanel(props: Props) {
   const refreshQuote = () => { quoteDebounceRef.current += 1; void getQuote(); };
   const tokenBalanceValue = props.state && props.tokenPriceWei ? tokenValueWei(props.state.tokenBalance, props.state.decimals, props.tokenPriceWei) : null;
   const quotedTokenValue = quote && props.tokenPriceWei ? tokenValueWei(quote.tokenAmount, props.state?.decimals ?? 18, props.tokenPriceWei) : null;
-  const quotedTokenEstimate = tokenUsdEstimate(quotedTokenValue, reference);
-  const inputUsd = side === "buy" ? inputEthUsd(amount, reference) : "—";
+  const quotedTokenEstimate = tokenUSDCValue(quotedTokenValue);
+  const inputUSDC = side === "buy" ? inputNativeUSDC(amount) : "—";
 
   return <section className="terminal-panel p-4" aria-label="Buy and sell">
     <div className="trade-panel-grid grid min-w-0 gap-5">
@@ -444,11 +442,11 @@ export function TokenTradePanel(props: Props) {
         {props.state?.lifecycle === 1 && <p className="status-box status-warning mt-4">Graduation is pending. New buys are paused, but holders may still sell.</p>}
         {unavailable && <p className="status-box status-warning mt-4">{side === "buy" && props.state?.lifecycle === 1 ? "Buying is unavailable while graduation is pending. Select Sell to exit." : "This trade is unavailable for the current Cooket curve lifecycle."}</p>}
         {props.state && <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div className="panel-subtle p-3"><dt className="text-xs text-zinc-500">Native USDC balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{formatWeiUsd(props.state.nativeBalance, reference)}</dd><dd className="mt-0.5 truncate text-[0.68rem] text-zinc-600" title={formatNative(props.state.nativeBalance)}>{formatNative(props.state.nativeBalance)}</dd></div>
-          <div className="panel-subtle p-3"><dt className="truncate text-xs text-zinc-500">{props.symbol} balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{formatWeiUsd(tokenBalanceValue, reference)}</dd><dd className="mt-0.5 truncate text-[0.68rem] text-zinc-600" title={formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}>{formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}</dd></div>
+          <div className="panel-subtle p-3"><dt className="text-xs text-zinc-500">Native USDC balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{formatNative(props.state.nativeBalance)}</dd></div>
+          <div className="panel-subtle p-3"><dt className="truncate text-xs text-zinc-500">{props.symbol} balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{tokenUSDCValue(tokenBalanceValue)}</dd><dd className="mt-0.5 truncate text-[0.68rem] text-zinc-600" title={formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}>{formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}</dd></div>
         </dl>}
         <div className="mt-5 grid gap-4">
-          <div className="grid gap-2 text-sm text-zinc-300"><label className="grid gap-2"><span className="flex items-center justify-between gap-3"><span className="font-medium text-zinc-200">{side === "buy" ? "Pay amount" : "Sell amount"}</span><span className="text-xs text-zinc-600">{side === "buy" ? inputUsd : quotedTokenEstimate}</span></span><div className="relative"><input className="pr-16" aria-label={side === "buy" ? "Native USDC amount" : `${props.symbol} amount`} inputMode="decimal" value={amount} placeholder="0.0" disabled={controlsUnavailable} onChange={(event) => changeAmount(event.target.value)} /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-500">{side === "buy" ? "USDC" : props.symbol}</span></div></label><TradeAmountPresets side={side} nativeBalance={props.state?.nativeBalance} tokenBalance={props.state?.tokenBalance} tokenDecimals={props.state?.decimals ?? 18} disabled={controlsUnavailable} onSelect={changeAmount} /></div>
+          <div className="grid gap-2 text-sm text-zinc-300"><label className="grid gap-2"><span className="flex items-center justify-between gap-3"><span className="font-medium text-zinc-200">{side === "buy" ? "Pay amount" : "Sell amount"}</span><span className="text-xs text-zinc-600">{side === "buy" ? inputUSDC : quotedTokenEstimate}</span></span><div className="relative"><input className="pr-16" aria-label={side === "buy" ? "Native USDC amount" : `${props.symbol} amount`} inputMode="decimal" value={amount} placeholder="0.0" disabled={controlsUnavailable} onChange={(event) => changeAmount(event.target.value)} /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-500">{side === "buy" ? "USDC" : props.symbol}</span></div></label><TradeAmountPresets side={side} nativeBalance={props.state?.nativeBalance} tokenBalance={props.state?.tokenBalance} tokenDecimals={props.state?.decimals ?? 18} disabled={controlsUnavailable} onSelect={changeAmount} /></div>
           <label className="grid gap-2 text-sm text-zinc-300"><span className="flex items-center justify-between gap-3"><span className="font-medium text-zinc-200">Slippage tolerance</span><span className="text-xs text-zinc-500">0–50%</span></span><div className="relative"><input className="pr-12" aria-label="Slippage tolerance" inputMode="decimal" value={slippage} disabled={controlsUnavailable} onChange={(event) => changeSlippage(event.target.value)} /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">%</span></div></label>
           <button className={`${quote ? "button-ghost text-xs" : "button-secondary"} w-full`} type="button" aria-label="Get quote" disabled={quoteLoading || controlsUnavailable || Boolean(guard)} onClick={refreshQuote}>{quoteLoading ? "Refreshing protected quote…" : quoteRecord ? "Refresh protected quote" : "Get protected quote"}</button>
           {quoteLoading && <p className="text-center text-xs text-zinc-500" aria-live="polite">Reading a protected quote from the curve…</p>}
@@ -459,11 +457,11 @@ export function TokenTradePanel(props: Props) {
           <div className="mb-2 flex items-center justify-between gap-3"><p className="eyebrow">Protected quote</p><span className="badge-success">Ready</span></div>
           {quote.side === "buy" ? <>
             <QuoteRow label="You receive" value={formatTokenAmount(quote.tokenAmount, props.state?.decimals ?? 18, props.symbol)} strong />
-            <QuoteRow label="Maximum input" value={formatWeiUsd(quote.maxReserveIn, reference)} secondary={formatNative(quote.maxReserveIn)} />
+            <QuoteRow label="Maximum input" value={formatNative(quote.maxReserveIn)} />
           </> : <>
             <QuoteRow label="Token input" value={formatTokenAmount(quote.tokenAmount, props.state?.decimals ?? 18, props.symbol)} secondary={quotedTokenEstimate} strong />
-            <QuoteRow label="You receive" value={formatWeiUsd(quote.reserveOut, reference)} secondary={formatNative(quote.reserveOut)} strong />
-            <QuoteRow label="Minimum native USDC output" value={formatWeiUsd(quote.minReserveOut, reference)} secondary={formatNative(quote.minReserveOut)} />
+            <QuoteRow label="You receive" value={formatNative(quote.reserveOut)} strong />
+            <QuoteRow label="Minimum native USDC output" value={formatNative(quote.minReserveOut)} />
           </>}
           <QuoteRow label="Fees" value="Protocol + creator" />
           <QuoteRow label="Slippage protection" value={`${(quote.slippageBps / 100).toFixed(2)}%`} />
@@ -473,11 +471,11 @@ export function TokenTradePanel(props: Props) {
           <details className="mt-3 border-t border-white/8 pt-3 text-xs text-zinc-500">
             <summary className="cursor-pointer font-medium text-zinc-300 hover:text-white">Quote details</summary>
             <div className="mt-3">
-              <p className="leading-5">{reference ? `USD reference · updated ${new Date(reference.asOf).toLocaleString()}` : "USD conversion unavailable · values use 18-decimal native USDC units"}</p>
-              {quote.side === "buy" && <QuoteRow label="Pay" value={formatWeiUsd(quote.reserveIn, reference)} secondary={formatNative(quote.reserveIn)} />}
+              <p className="leading-5">Values use 18-decimal native USDC units.</p>
+              {quote.side === "buy" && <QuoteRow label="Pay" value={formatNative(quote.reserveIn)} />}
               <QuoteRow label="Reference token value" value={quotedTokenEstimate} />
-              <QuoteRow label="Protocol fee" value={formatWeiUsd(quote.protocolFee, reference)} secondary={formatNative(quote.protocolFee)} />
-              <QuoteRow label="Creator fee" value={formatWeiUsd(quote.creatorFee, reference)} secondary={formatNative(quote.creatorFee)} />
+              <QuoteRow label="Protocol fee" value={formatNative(quote.protocolFee)} />
+              <QuoteRow label="Creator fee" value={formatNative(quote.creatorFee)} />
               <QuoteRow label="Price impact" value="Unavailable" />
               {quote.side === "buy" && <p className="mt-3 leading-5">Arc financial execution remains disabled pending protocol-economic migration.</p>}
               <p className="mt-3 leading-5">Quote expires after 60 seconds. Execution uses the exact displayed maximum input or minimum output and deadline.</p>
@@ -524,14 +522,12 @@ function tokenValueWei(amount: bigint, decimals: number, priceWei: string) {
   try { return amount * BigInt(priceWei) / (BigInt(10) ** BigInt(decimals)); } catch { return null; }
 }
 
-function inputEthUsd(value: string, reference: EthUsdReference | null) {
-  try { return /^\d+(\.\d+)?$/.test(value.trim()) ? formatWeiUsd(parseEther(value.trim()), reference) : "—"; } catch { return "—"; }
+function inputNativeUSDC(value: string) {
+  try { return /^\d+(\.\d+)?$/.test(value.trim()) ? formatNative(parseEther(value.trim())) : "—"; } catch { return "—"; }
 }
 
-function tokenUsdEstimate(value: bigint | null, reference: EthUsdReference | null) {
-  if (value === null) return "USD estimate unavailable";
-  const formatted = formatWeiUsd(value, reference);
-  return formatted === "USD unavailable" ? formatted : `Estimated ${formatted}`;
+function tokenUSDCValue(value: bigint | null) {
+  return value === null ? "USDC value unavailable" : `Estimated ${formatNative(value)}`;
 }
 
 function quoteExpiresAt(record: QuoteRecord) {

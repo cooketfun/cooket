@@ -16,7 +16,6 @@ curl "$API_ORIGIN/api/v1/tokens?limit=20"
 | GET | `/health` | Process liveness |
 | GET | `/readyz` | PostgreSQL readiness |
 | GET | `/objects/*` | Stored public metadata/image object |
-| GET | `/api/v1/prices/eth-usd` | Validated Chainlink ETH/USD reference |
 | POST | `/api/v1/token-metadata` | Create metadata draft |
 | POST | `/api/v1/token-metadata/{draft}/finalize` | Bind draft to canonical indexed launch |
 | GET | `/api/v1/tokens` | List or search tokens |

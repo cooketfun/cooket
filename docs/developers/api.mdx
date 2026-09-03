@@ -3,7 +3,7 @@ title: "API architecture"
 description: "The public Go HTTP service and its trust boundary."
 ---
 
-The Go API uses chi and PostgreSQL. It serves health/readiness, immutable stored objects, metadata draft/finalization writes, indexed token resources, and read-only CTO projections scoped to Arc Testnet. It rejects Base chain IDs. The inherited ETH/USD endpoint remains schema-compatible but returns unavailable because no Arc oracle is configured in Phase 0.
+The Go API uses chi and PostgreSQL. It serves health/readiness, immutable stored objects, metadata draft/finalization writes, indexed token resources, and read-only CTO projections scoped to Arc Testnet. It rejects Base chain IDs.
 
 All `/api/v1` token list endpoints scope queries to the configured chain ID and canonical, non-excluded application projections. Addresses are normalized as 20-byte hex strings. Cursor pagination is opaque, kind-scoped, and limited to 100 items; chart queries allow up to 1,000 candles. CTO list cursors cannot be reused on token, trade, or activity routes.
 
@@ -16,7 +16,7 @@ Live environment application of migration 012, Arc RPC/DEX verification, deploym
 The service returns JSON and attaches `X-Request-ID`. Repository failures are logged server-side but returned as a generic `internal_error`, preventing internal database details from leaking.
 
 <Note>
-  The repository does not define API authentication or a published service-level commitment for these public reads. Integrators should handle timeouts, unavailable oracle data, and indexing lag.
+  The repository does not define API authentication or a published service-level commitment for these public reads. Integrators should handle timeouts and indexing lag.
 </Note>
 
 See [API overview](/docs/api-reference/overview) for every routed endpoint.

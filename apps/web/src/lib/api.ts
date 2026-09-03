@@ -1,4 +1,4 @@
-import type { ActivityPage, ApiError, ChartPage, CreatorProfile, CTOCheckpointPage, CTOFeePullPage, CTOProposal, CTOProposalPage, CTOStatus, CTOTreasury, CTOTreasuryTransferPage, ETHUSDPrice, Pricing, Token, TokenPage, TradePage } from "@cooket/types";
+import type { ActivityPage, ApiError, ChartPage, CreatorProfile, CTOCheckpointPage, CTOFeePullPage, CTOProposal, CTOProposalPage, CTOStatus, CTOTreasury, CTOTreasuryTransferPage, Pricing, Token, TokenPage, TradePage } from "@cooket/types";
 import { z } from "zod";
 
 const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -131,7 +131,6 @@ export const apiAssetURL=(path:string|undefined)=>path?.startsWith("/")?`${publi
 export const api = {
   health: () => request<{ status: string; service: string; request_id?: string }>("/health", serviceSchema),
   ready: () => request<{ status: string; service: string; request_id?: string }>("/readyz", serviceSchema),
-  ethUsdPrice: () => request<ETHUSDPrice>("/api/v1/prices/eth-usd", z.object({ price: z.string().regex(/^\d+\.\d{8}$/), price_decimals: z.literal(8), updated_at: z.iso.datetime(), feed: z.string().regex(/^0x[0-9a-fA-F]{40}$/), source: z.literal("chainlink_eth_usd"), max_age_seconds: z.number().int().positive() })),
   listTokens: (query = "") => request<TokenPage>(`/api/v1/tokens${query}`, tokenPageSchema),
   trending: (query = "") => request<TokenPage>(`/api/v1/trending${query}`, tokenPageSchema),
   token: (address: string) => request<Token>(`/api/v1/tokens/${encodeURIComponent(address)}`, tokenSchema),
@@ -151,4 +150,4 @@ export const api = {
   ctoTreasuryFeePulls: (treasury: string, query = "") => request<CTOFeePullPage>(`/api/v1/cto/treasuries/${encodeURIComponent(treasury)}/fee-pulls${query}`, ctoFeePullPageSchema),
 };
 
-export type { ActivityPage, ApiError, ChartPage, CreatorProfile, CTOCheckpointPage, CTOFeePullPage, CTOProposal, CTOProposalPage, CTOStatus, CTOTreasury, CTOTreasuryTransferPage, ETHUSDPrice, Pricing, Token, TokenPage, TradePage };
+export type { ActivityPage, ApiError, ChartPage, CreatorProfile, CTOCheckpointPage, CTOFeePullPage, CTOProposal, CTOProposalPage, CTOStatus, CTOTreasury, CTOTreasuryTransferPage, Pricing, Token, TokenPage, TradePage };

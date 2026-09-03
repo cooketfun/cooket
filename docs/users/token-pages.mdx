@@ -11,7 +11,7 @@ A token page brings together two distinct sources:
 | Token identity, social links, trades, chart, metrics, graduation event fields | Indexed API |
 | Community takeover status, proposals, treasury, checkpoints | Read-only indexed CTO API |
 | Submitted transaction status | ArcScan receipt |
-| Optional USD display | Unavailable until an Arc oracle is approved |
+| Price, FDV, volume, and reserve | Indexed 18-decimal native USDC values |
 
 The activity and trade history are confirmed indexed records and can lag the wallet receipt. Graduation amounts are 18-decimal native USDC integer strings (`native_usdc_amount`), not ETH. Existing graduated-swap execution remains disabled.
 

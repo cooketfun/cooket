@@ -6,11 +6,10 @@ import type { Address } from "viem";
 import { TokenTradePanel, type TradeExecution, type TradeResume } from "@/components/token-trade-panel";
 import { GraduatedTokenSwap } from "@/components/graduated-token-swap";
 import { api } from "@/lib/api";
-import { formatNative, formatTokenAmount, formatWeiUsd } from "@/lib/format";
+import { formatNative, formatTokenAmount } from "@/lib/format";
 import { captureTradeRecovery, checkTrade, confirmTrade, quoteBuyByBudget, quoteSellAmount, readCurveAvailability, readTradeState, submitBuy, submitSell } from "@/lib/contracts";
 import type { TradeRecovery } from "@/lib/transactions";
 import { activeWalletStatusMessage, useActiveWallet } from "@/providers/active-wallet-provider";
-import { useOraclePrice } from "@/providers/oracle-price-provider";
 import { explorerTransactionURL, selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
 
 export function TokenTrading({ tokenAddress, symbol, tokenPriceWei, graduated = false, canonicalPoolAddress }: { tokenAddress: Address; symbol: string; creator: Address; tokenPriceWei?: string | null; graduated?: boolean; canonicalPoolAddress?: Address }) {
@@ -126,7 +125,6 @@ export function TokenTradeHistory({ tokenAddress, symbol }: { tokenAddress: Addr
 }
 
 function TradeHistory({ tokenAddress, symbol, walletAddress }: { tokenAddress: Address; symbol: string; walletAddress?: Address }) {
-  const { reference } = useOraclePrice();
   const [tab, setTab] = useState<"recent" | "yours">("recent");
   const trades = useQuery({
     queryKey: ["trades", tokenAddress],
@@ -143,10 +141,10 @@ function TradeHistory({ tokenAddress, symbol, walletAddress }: { tokenAddress: A
     {visible && visible.length > 0 && <ul className="grid divide-y divide-white/6">
       {visible.map((trade) => <li className="grid gap-3 p-4 text-sm transition-colors hover:bg-white/[0.02] lg:grid-cols-[minmax(7rem,0.6fr)_minmax(12rem,1.3fr)_minmax(10rem,1fr)_auto] lg:items-center" key={`${trade.transaction_hash}:${trade.log_index}`}>
         <div className="flex items-center justify-between gap-3"><span className={trade.side === "buy" ? "text-emerald-300" : "text-rose-300"}>{trade.side.toUpperCase()}</span><span className="font-mono text-xs text-zinc-600">{trade.source === "uniswap_v3" ? "Legacy Uniswap V3" : "Curve"} · #{trade.block_number}</span></div>
-        <div><p className="font-medium text-zinc-100">{formatWeiUsd(trade.reserve_amount, reference)}</p><p className="mt-0.5 text-xs text-zinc-500">{formatTokenAmount(trade.token_amount, 18, symbol)} · {formatNative(trade.reserve_amount)}</p></div>
+        <div><p className="font-medium text-zinc-100">{formatNative(trade.reserve_amount)}</p><p className="mt-0.5 text-xs text-zinc-500">{formatTokenAmount(trade.token_amount, 18, symbol)}</p></div>
         <p className="address truncate" title={trade.trader}>{trade.trader}</p>
         <a className="inline-flex min-h-11 items-center text-cyan-300 hover:text-cyan-200 lg:justify-end lg:text-right" href={explorerTransactionURL(trade.transaction_hash)} target="_blank" rel="noreferrer">View on ArcScan ↗</a>
       </li>)}
-    </ul>}{!reference && <p className="border-t border-white/8 px-4 py-3 text-xs text-zinc-600">USD conversion unavailable · exact indexed native USDC values remain visible.</p>}
+    </ul>}
   </section>;
 }

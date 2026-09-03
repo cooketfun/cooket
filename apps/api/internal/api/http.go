@@ -31,7 +31,6 @@ type Handler struct {
 	timeout    time.Duration
 	logger     *slog.Logger
 	objects    ObjectStore
-	ethUSD     ETHUSDReader
 	fetchImage imageFetcher
 }
 
@@ -41,19 +40,16 @@ func NewHandler(repo Repository, chainID int64, timeout time.Duration, logger *s
 	return NewHandlerWithObjectStore(repo, chainID, timeout, logger, nil)
 }
 func NewHandlerWithObjectStore(repo Repository, chainID int64, timeout time.Duration, logger *slog.Logger, objects ObjectStore) http.Handler {
-	return NewHandlerWithDependencies(repo, chainID, timeout, logger, objects, nil)
+	return newHandler(repo, chainID, timeout, logger, objects, fetchRemoteImage)
 }
-func NewHandlerWithDependencies(repo Repository, chainID int64, timeout time.Duration, logger *slog.Logger, objects ObjectStore, ethUSD ETHUSDReader) http.Handler {
-	return newHandler(repo, chainID, timeout, logger, objects, ethUSD, fetchRemoteImage)
-}
-func newHandler(repo Repository, chainID int64, timeout time.Duration, logger *slog.Logger, objects ObjectStore, ethUSD ETHUSDReader, fetchImage imageFetcher) http.Handler {
+func newHandler(repo Repository, chainID int64, timeout time.Duration, logger *slog.Logger, objects ObjectStore, fetchImage imageFetcher) http.Handler {
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &Handler{repo: repo, chainID: chainID, timeout: timeout, logger: logger, objects: objects, ethUSD: ethUSD, fetchImage: fetchImage}
+	h := &Handler{repo: repo, chainID: chainID, timeout: timeout, logger: logger, objects: objects, fetchImage: fetchImage}
 	r := chi.NewRouter()
 	r.Use(requestID)
 	r.Use(localCORS)
@@ -63,7 +59,6 @@ func newHandler(repo Repository, chainID int64, timeout time.Duration, logger *s
 	r.Get("/readyz", h.ready)
 	r.Get("/objects/*", h.object)
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/prices/eth-usd", h.ethUSDPrice)
 		r.Post("/token-metadata", h.uploadMetadata)
 		r.Post("/token-metadata/{draft}/finalize", h.finalizeMetadata)
 		r.Get("/tokens", h.tokens)
@@ -88,20 +83,6 @@ func newHandler(repo Repository, chainID int64, timeout time.Duration, logger *s
 	return r
 }
 
-func (h *Handler) ethUSDPrice(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	if h.ethUSD == nil {
-		writeError(w, http.StatusServiceUnavailable, "oracle_unavailable", "ETH/USD oracle is unavailable")
-		return
-	}
-	price, err := h.ethUSD.Read(r.Context())
-	if err != nil {
-		h.logger.Warn("ETH/USD oracle read failed", "request_id", requestIDFrom(r.Context()), "error", err)
-		writeError(w, http.StatusServiceUnavailable, "oracle_unavailable", "ETH/USD oracle is unavailable")
-		return
-	}
-	writeJSON(w, http.StatusOK, price)
-}
 func localCORS(next http.Handler) http.Handler {
 	return CORS(next, []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3200", "http://127.0.0.1:3200"})
 }

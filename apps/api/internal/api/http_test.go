@@ -33,11 +33,6 @@ type fakeRepo struct {
 	ctoErr         error
 }
 
-type fakeETHUSDReader struct {
-	price ETHUSDPrice
-	err   error
-}
-
 type memoryObjectStore struct{ objects map[string][]byte }
 
 func (s *memoryObjectStore) Put(_ context.Context, key string, reader io.Reader) error {
@@ -53,8 +48,6 @@ func (s *memoryObjectStore) Put(_ context.Context, key string, reader io.Reader)
 func (s *memoryObjectStore) Open(_ context.Context, key string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(s.objects[key])), nil
 }
-
-func (f fakeETHUSDReader) Read(context.Context) (ETHUSDPrice, error) { return f.price, f.err }
 
 func (f *fakeRepo) Ping(context.Context) error { return f.pingErr }
 func (f *fakeRepo) ListTokens(context.Context, int64, int, string) (Page, error) {
@@ -150,21 +143,11 @@ func testHandler(repo Repository) http.Handler {
 	return NewHandler(repo, 5042002, time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 }
 
-func TestETHUSDPriceEndpoint(t *testing.T) {
-	repo := &fakeRepo{}
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	price := ETHUSDPrice{Price: "2500.12345678", PriceDecimals: 8, UpdatedAt: time.Unix(2_000_000_000, 0).UTC(), Feed: BaseSepoliaETHUSDFeed, Source: "chainlink_eth_usd", MaxAgeSeconds: 3600}
-	handler := NewHandlerWithDependencies(repo, 5042002, time.Second, logger, nil, fakeETHUSDReader{price: price})
+func TestLegacyETHUSDPriceEndpointIsNotExposed(t *testing.T) {
+	handler := testHandler(&fakeRepo{})
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/prices/eth-usd", nil))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"price":"2500.12345678"`) || !strings.Contains(w.Body.String(), `"source":"chainlink_eth_usd"`) || w.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
-	}
-
-	handler = NewHandlerWithDependencies(repo, 5042002, time.Second, logger, nil, fakeETHUSDReader{err: errors.New("RPC secret")})
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/prices/eth-usd", nil))
-	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"code":"oracle_unavailable"`) || strings.Contains(w.Body.String(), "secret") {
+	if w.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
@@ -366,7 +349,7 @@ func TestMetadataUploadAcceptsOnlyOneImageSourceAndPersistsFetchedBytes(t *testi
 		fetches = append(fetches, imageURL)
 		return []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}, "image/png", nil
 	}
-	handler := newHandler(&fakeRepo{}, 5042002, time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)), objects, nil, fetcher)
+	handler := newHandler(&fakeRepo{}, 5042002, time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)), objects, fetcher)
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	for key, value := range map[string]string{"name": "Cooket", "symbol": "ZK", "initial_supply": "1000", "image_url": "https://images.example/token"} {

@@ -48,11 +48,11 @@ func main() {
 	if e != nil {
 		panic(e)
 	}
-	// Arc native USDC pricing is intentionally disabled in Phase 0. The Base
-	// ETH/USD feed is not valid for Arc, and no replacement oracle is assumed.
 	allowedOrigins, e := api.ParseAllowedOrigins(os.Getenv("COOKET_CORS_ORIGINS"))
-	if e != nil { panic("COOKET_CORS_ORIGINS: " + e.Error()) }
-	handler := api.CORS(api.NewHandlerWithDependencies(repo, chain.ChainID, requestTimeout, logger, objects, nil), allowedOrigins)
+	if e != nil {
+		panic("COOKET_CORS_ORIGINS: " + e.Error())
+	}
+	handler := api.CORS(api.NewHandlerWithObjectStore(repo, chain.ChainID, requestTimeout, logger, objects), allowedOrigins)
 	addr := fmt.Sprintf("%s:%s", host, port)
 	fmt.Printf("cooket-api (%s) listening on %s\n", chain.Name, addr)
 

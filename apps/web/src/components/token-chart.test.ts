@@ -42,12 +42,12 @@ describe("canonical chart presentation", () => {
   it("colors volume from OHLC direction rather than buy/sell counts", () => {
     const bearish = point({ buy_count: 99, sell_count: 1, open_price: "100", close_price: "80" });
     const bullish = point({ bucket_start: 120, buy_count: 1, sell_count: 99, open_price: "80", close_price: "100" });
-    const data = chartDisplayData([bearish, bullish], "price", undefined, null);
+    const data = chartDisplayData([bearish, bullish], "price", undefined);
     expect(data.volumes.map(({ color }) => color)).toEqual([CANDLE_COLORS.bearish.volume, CANDLE_COLORS.bullish.volume]);
   });
 
   it("defaults header OHLC to the latest candle and temporarily prefers a hovered candle", () => {
-    const data = chartDisplayData([point({ bucket_start: 60 }), point({ bucket_start: 120, open_price: "80", high_price: "130", low_price: "75", close_price: "120" })], "price", undefined, null);
+    const data = chartDisplayData([point({ bucket_start: 60 }), point({ bucket_start: 120, open_price: "80", high_price: "130", low_price: "75", close_price: "120" })], "price", undefined);
     expect(headerCandle(data.candles)).toBe(data.candles[1]);
     expect(headerCandle(data.candles, data.candles[0].time)).toBe(data.candles[0]);
     expect(headerCandle(data.candles, null)).toBe(data.candles[1]);
@@ -55,8 +55,8 @@ describe("canonical chart presentation", () => {
 
   it("preserves Price/FDV conversion and supported backend intervals", () => {
     const candle = point({ open_price: "1000000000000000000", high_price: "1000000000000000000", low_price: "1000000000000000000", close_price: "1000000000000000000" });
-    const price = chartDisplayData([candle], "price", "1000000000000000000000", null);
-    const fdv = chartDisplayData([candle], "fdv", "1000000000000000000000", null);
+    const price = chartDisplayData([candle], "price", "1000000000000000000000");
+    const fdv = chartDisplayData([candle], "fdv", "1000000000000000000000");
     expect(price.candles[0].close).toBe(1);
     expect(fdv.candles[0].close).toBe(1000);
     expect(TIMEFRAMES).toEqual(["1m", "5m", "15m", "1h", "4h", "1d", "1w"]);
@@ -69,7 +69,6 @@ describe("canonical chart presentation", () => {
 
   it("keeps tiny non-zero prices readable", () => {
     expect(formatChartValue(0.0000000009375, "USDC")).toBe("9.375e-10 USDC");
-    expect(formatChartValue(0.0000009375, "USD")).toBe("$9.375e-7");
   });
 
   it("does not describe or implement trade-count candle coloring", () => {

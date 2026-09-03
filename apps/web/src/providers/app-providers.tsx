@@ -6,7 +6,6 @@ import { cookieToInitialState, WagmiProvider, type Config } from "wagmi";
 import "@/providers/appkit-initializer";
 import { reownProject, wagmiConfig } from "@/lib/wallet";
 import { ActiveWalletProvider } from "@/providers/active-wallet-provider";
-import { OraclePriceProvider } from "@/providers/oracle-price-provider";
 
 export function AppProviders({ children, cookies }: { children: ReactNode; cookies: string | null }) {
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, retry: 1 } } }));
@@ -15,9 +14,7 @@ export function AppProviders({ children, cookies }: { children: ReactNode; cooki
   return (
     <WagmiProvider config={wagmiConfig as Config} initialState={initialState}>
       <QueryClientProvider client={queryClient}>
-        <ActiveWalletProvider>
-          <OraclePriceProvider>{children}</OraclePriceProvider>
-        </ActiveWalletProvider>
+        <ActiveWalletProvider>{children}</ActiveWalletProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
