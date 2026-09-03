@@ -34,8 +34,10 @@ export type GraduatedQuote = { side: "buy" | "sell"; amountIn: bigint; amountOut
 export type GraduatedSwapTransaction = { to: Address; data: Hex; value: bigint };
 export type GraduatedSwapSender = (transaction: GraduatedSwapTransaction) => Promise<Hash>;
 export type GraduatedExecutionState = { usdc: bigint; token: bigint; allowance: bigint };
+export type GraduatedSwapState = GraduatedExecutionState & { decimals: number };
 export const GRADUATED_ALLOWANCE_POLL_DELAYS_MS = [0, 250, 500, 1_000, 1_500] as const;
 export const GRADUATED_SWAP_SIMULATION_TIMEOUT_MS = 15_000;
+export const GRADUATED_SWAP_RPC_TIMEOUT_MS = 15_000;
 
 export class GraduatedSwapSimulationError extends Error {
   constructor(message: string) {
@@ -51,9 +53,56 @@ export class GraduatedSwapSimulationTimeoutError extends GraduatedSwapSimulation
   }
 }
 
+export class GraduatedSwapRpcError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GraduatedSwapRpcError";
+  }
+}
+
+export class GraduatedSwapRpcTimeoutError extends GraduatedSwapRpcError {
+  constructor(timeoutMs: number, operation = "RPC request") {
+    super(`${operation} timed out after ${Math.ceil(timeoutMs / 1_000)} seconds.`);
+    this.name = "GraduatedSwapRpcTimeoutError";
+  }
+}
+
 function simulationFailure(reason: unknown): GraduatedSwapSimulationError {
   if (reason instanceof GraduatedSwapSimulationError) return reason;
   return new GraduatedSwapSimulationError(reason instanceof Error ? reason.message : String(reason));
+}
+
+async function withAbortableTimeout<T>(run: (signal: AbortSignal) => Promise<T>, timeoutMs: number, timeoutError: () => Error, invalidMessage: string): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error(invalidMessage);
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const pending = run(controller.signal);
+  void pending.catch(() => undefined);
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => {
+        timeout = globalThis.setTimeout(() => {
+          controller.abort();
+          reject(timeoutError());
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (reason) {
+    if (controller.signal.aborted) throw timeoutError();
+    throw reason;
+  } finally {
+    if (timeout !== undefined) globalThis.clearTimeout(timeout);
+  }
+}
+
+export async function withGraduatedRpcTimeout<T>(run: (signal: AbortSignal) => Promise<T>, timeoutMs = GRADUATED_SWAP_RPC_TIMEOUT_MS, operation = "RPC request"): Promise<T> {
+  try {
+    return await withAbortableTimeout(run, timeoutMs, () => new GraduatedSwapRpcTimeoutError(timeoutMs, operation), "Swap RPC timeout must be positive.");
+  } catch (reason) {
+    if (reason instanceof GraduatedSwapRpcTimeoutError) throw reason;
+    throw new GraduatedSwapRpcError(reason instanceof Error ? reason.message : String(reason));
+  }
 }
 
 /**
@@ -61,13 +110,27 @@ function simulationFailure(reason: unknown): GraduatedSwapSimulationError {
  * their allowance read reflects the new state. Poll the authoritative chain
  * read before allowing the dependent swap to continue.
  */
-export async function waitForGraduatedAllowance(readAllowance: () => Promise<bigint>, required: bigint, delays: readonly number[] = GRADUATED_ALLOWANCE_POLL_DELAYS_MS): Promise<bigint> {
+export async function waitForGraduatedAllowance(readAllowance: () => Promise<bigint>, required: bigint, delays: readonly number[] = GRADUATED_ALLOWANCE_POLL_DELAYS_MS, timeoutMs = GRADUATED_SWAP_RPC_TIMEOUT_MS): Promise<bigint> {
   for (const delay of delays) {
     if (delay > 0) await new Promise<void>((resolve) => globalThis.setTimeout(resolve, delay));
-    const allowance = await readAllowance();
+    const allowance = await withGraduatedRpcTimeout(() => readAllowance(), timeoutMs, "Refreshing swap balances and allowance");
     if (allowance >= required) return allowance;
   }
   throw new Error("Confirmed approval is still insufficient; swap was not submitted.");
+}
+
+export async function readGraduatedSwapState(token: Address, wallet: Address, router: Address, side: "buy" | "sell", timeoutMs = GRADUATED_SWAP_RPC_TIMEOUT_MS): Promise<GraduatedSwapState> {
+  const inputToken = side === "buy" ? ARC_CANONICAL_USDC : token;
+  return withGraduatedRpcTimeout(async (signal) => {
+    const requestOptions = { signal, retryCount: 0 };
+    const [usdc, tokenBalance, allowance, decimals] = await Promise.all([
+      publicClient.readContract({ address: ARC_CANONICAL_USDC, abi: erc20TradeAbi, functionName: "balanceOf", args: [wallet], requestOptions } as never),
+      publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "balanceOf", args: [wallet], requestOptions } as never),
+      publicClient.readContract({ address: inputToken, abi: erc20TradeAbi, functionName: "allowance", args: [wallet, router], requestOptions } as never),
+      publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "decimals", requestOptions } as never),
+    ]) as [bigint, bigint, bigint, number];
+    return { usdc, token: tokenBalance, allowance, decimals };
+  }, timeoutMs, "Refreshing swap balances and allowance");
 }
 
 /** Runs the single-click graduated flow after the component has selected its wallet transport. */
@@ -82,17 +145,19 @@ export async function orchestrateGraduatedSwap(input: {
   simulate: (transaction: GraduatedSwapTransaction) => Promise<unknown>;
   send: (transaction: GraduatedSwapTransaction) => Promise<Hash>;
   allowanceDelays?: readonly number[];
+  rpcTimeoutMs?: number;
 }): Promise<Hash> {
   assertArcProtocolEconomicsReady();
+  const rpcTimeoutMs = input.rpcTimeoutMs ?? GRADUATED_SWAP_RPC_TIMEOUT_MS;
   input.assertContext();
   if (input.side === "buy" && input.initialState.usdc < input.amountIn) throw new Error("Insufficient canonical ERC20 USDC balance.");
   if (input.side === "sell" && input.initialState.token < input.amountIn) throw new Error("Insufficient token balance.");
   if (input.initialState.allowance < input.amountIn) {
     await input.approve();
-    await waitForGraduatedAllowance(async () => (await input.readState()).allowance, input.amountIn, input.allowanceDelays);
+    await waitForGraduatedAllowance(async () => (await input.readState()).allowance, input.amountIn, input.allowanceDelays, rpcTimeoutMs);
   }
   input.assertContext();
-  const state = await input.readState();
+  const state = await withGraduatedRpcTimeout(() => input.readState(), rpcTimeoutMs, "Refreshing swap balances and allowance");
   if (input.side === "buy" && state.usdc < input.amountIn) throw new Error("The active wallet no longer has enough canonical ERC20 USDC for this buy.");
   if (state.allowance < input.amountIn) throw new Error("Confirmed approval is still insufficient; swap was not submitted.");
   if (input.side === "sell" && state.token < input.amountIn) throw new Error("The active wallet no longer has enough token balance for this sell.");
@@ -157,7 +222,7 @@ export async function quoteGraduatedSwap(pool: ValidatedPool, side: "buy" | "sel
   if (amountIn <= BigInt(0)) throw new Error("Enter an amount greater than zero.");
   const tokenIn = side === "buy" ? ARC_CANONICAL_USDC : pool.token;
   const tokenOut = side === "buy" ? pool.token : ARC_CANONICAL_USDC;
-  const result = await publicClient.readContract({ address: pool.quoter, abi: quoterV2Abi as never, functionName: "quoteExactInputSingle", args: [{ tokenIn, tokenOut, amountIn, fee: CANONICAL_POOL_FEE, sqrtPriceLimitX96: BigInt(0) }] } as never) as unknown as readonly [bigint];
+  const result = await withGraduatedRpcTimeout((signal) => publicClient.readContract({ address: pool.quoter, abi: quoterV2Abi as never, functionName: "quoteExactInputSingle", args: [{ tokenIn, tokenOut, amountIn, fee: CANONICAL_POOL_FEE, sqrtPriceLimitX96: BigInt(0) }], requestOptions: { signal, retryCount: 0 } } as never), GRADUATED_SWAP_RPC_TIMEOUT_MS, "Swap quote") as unknown as readonly [bigint];
   const amountOut: bigint = result[0];
   const now = Date.now();
   return { side, amountIn, amountOut, minimumOut: minimumOutput(amountOut, slippageBps), slippageBps, createdAt: now, deadline: BigInt(Math.floor(now / 1000) + 300), pool: pool.pool, wallet, chainId: selectedCooketChainId };
@@ -171,26 +236,11 @@ export function buildGraduatedSwapTransaction(pool: ValidatedPool, quote: Gradua
 
 /** Simulates the exact canonical {to, data, value} payload sent by either wallet transport. */
 export async function simulateGraduatedSwapTransaction(transaction: GraduatedSwapTransaction, account: Address, timeoutMs = GRADUATED_SWAP_SIMULATION_TIMEOUT_MS) {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("Swap simulation timeout must be positive.");
-  const controller = new AbortController();
-  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
-  const simulation = publicClient.call({ account, ...transaction, requestOptions: { signal: controller.signal, retryCount: 0 } });
-  void simulation.catch(() => undefined);
   try {
-    return await Promise.race([
-      simulation,
-      new Promise<never>((_, reject) => {
-        timeout = globalThis.setTimeout(() => {
-          controller.abort();
-          reject(new GraduatedSwapSimulationTimeoutError(timeoutMs));
-        }, timeoutMs);
-      }),
-    ]);
+    return await withAbortableTimeout((signal) => publicClient.call({ account, ...transaction, requestOptions: { signal, retryCount: 0 } }), timeoutMs, () => new GraduatedSwapSimulationTimeoutError(timeoutMs), "Swap simulation timeout must be positive.");
   } catch (reason) {
-    if (controller.signal.aborted && !(reason instanceof GraduatedSwapSimulationTimeoutError)) throw new GraduatedSwapSimulationTimeoutError(timeoutMs);
+    if (reason instanceof GraduatedSwapSimulationTimeoutError) throw reason;
     throw simulationFailure(reason);
-  } finally {
-    if (timeout !== undefined) globalThis.clearTimeout(timeout);
   }
 }
 

@@ -1,6 +1,7 @@
 export type TransactionModalPhase =
   | "review" | "preparing" | "awaiting_wallet" | "submitted" | "confirming" | "confirmed"
   | "awaiting_approval" | "approval_submitted" | "approval_confirmed" | "preparing_sell"
+  | "refreshing_state" | "simulating_swap"
   | "awaiting_sell_signature" | "sell_submitted" | "sell_confirming"
   | "failed" | "rejected" | "expired" | "confirmation_unknown";
 
@@ -20,7 +21,8 @@ export function transactionModalReducer(state: TransactionModalState, action: Tr
 
 export const transactionPhaseIsBusy = (phase: TransactionModalPhase) => [
   "preparing", "awaiting_wallet", "submitted", "confirming", "awaiting_approval", "approval_submitted",
-  "approval_confirmed", "preparing_sell", "awaiting_sell_signature", "sell_submitted", "sell_confirming",
+  "approval_confirmed", "preparing_sell", "refreshing_state", "simulating_swap", "awaiting_sell_signature",
+  "sell_submitted", "sell_confirming",
 ].includes(phase);
 
 export function transactionPhaseLabel(phase: TransactionModalPhase) {
@@ -28,7 +30,9 @@ export function transactionPhaseLabel(phase: TransactionModalPhase) {
     review: "Review transaction", preparing: "Simulating transaction", awaiting_wallet: "Awaiting wallet confirmation",
     submitted: "Transaction submitted", confirming: "Confirming on Arc Testnet", confirmed: "Transaction confirmed",
     awaiting_approval: "Awaiting approval signature", approval_submitted: "Approval submitted",
-    approval_confirmed: "Approval confirmed", preparing_sell: "Preparing sell", awaiting_sell_signature: "Awaiting sell signature",
+    approval_confirmed: "Approval confirmed", preparing_sell: "Preparing sell",
+    refreshing_state: "Refreshing approval and balances", simulating_swap: "Simulating swap on Arc Testnet",
+    awaiting_sell_signature: "Awaiting sell signature",
     sell_submitted: "Sell submitted", sell_confirming: "Confirming sell on Arc Testnet", failed: "Transaction failed",
     rejected: "Wallet request rejected", expired: "Quote expired", confirmation_unknown: "Confirmation needs attention",
   } as const)[phase];

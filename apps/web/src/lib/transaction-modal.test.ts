@@ -22,4 +22,13 @@ describe("shared transaction modal state", () => {
     expect(transactionPhaseLabel("failed")).toMatch(/failed/i);
     expect(transactionPhaseLabel("expired")).toMatch(/expired/i);
   });
+
+  it("keeps approval refresh and swap simulation distinct from preparing a sell", () => {
+    expect(transactionPhaseLabel("preparing_sell")).toBe("Preparing sell");
+    expect(transactionPhaseLabel("refreshing_state")).toBe("Refreshing approval and balances");
+    expect(transactionPhaseLabel("simulating_swap")).toBe("Simulating swap on Arc Testnet");
+    expect(transactionPhaseLabel("preparing")).toBe("Simulating transaction");
+    expect(transactionPhaseIsBusy("refreshing_state")).toBe(true);
+    expect(transactionPhaseIsBusy("simulating_swap")).toBe(true);
+  });
 });

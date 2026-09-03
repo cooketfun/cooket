@@ -1,9 +1,15 @@
 import { decodeFunctionData, getAddress, type Hash } from "viem";
 import { ARC_CANONICAL_USDC } from "@cooket/contracts-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CANONICAL_POOL_FEE, GRADUATED_SWAP_SIMULATION_TIMEOUT_MS, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, minimumOutput, orchestrateGraduatedSwap, quoteIsFresh, simulateGraduatedSwapTransaction, simulateThenSendGraduatedSwap, swapRouterAbi, type GraduatedQuote, type ValidatedPool } from "./uniswap-v3";
+
+vi.mock("@/lib/arc-safety", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/arc-safety")>();
+  return { ...original, assertArcProtocolEconomicsReady: vi.fn(original.assertArcProtocolEconomicsReady) };
+});
+
+import { CANONICAL_POOL_FEE, GRADUATED_SWAP_RPC_TIMEOUT_MS, GRADUATED_SWAP_SIMULATION_TIMEOUT_MS, GraduatedSwapRpcTimeoutError, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, minimumOutput, orchestrateGraduatedSwap, quoteIsFresh, readGraduatedSwapState, simulateGraduatedSwapTransaction, simulateThenSendGraduatedSwap, swapRouterAbi, waitForGraduatedAllowance, type GraduatedQuote, type ValidatedPool } from "./uniswap-v3";
 import { erc20TradeAbi, publicClient } from "@/lib/contracts";
-import { ARC_PROTOCOL_ECONOMICS_BLOCKER } from "./arc-safety";
+import { ARC_PROTOCOL_ECONOMICS_BLOCKER, assertArcProtocolEconomicsReady } from "@/lib/arc-safety";
 
 const token = "0x0000000000000000000000000000000000000011" as const;
 const wallet = "0x0000000000000000000000000000000000000022" as const;
@@ -122,6 +128,109 @@ describe("graduated swap simulation preflight", () => {
     vi.spyOn(publicClient, "call").mockResolvedValue({ data: "0x" });
     const send = vi.fn();
     await expect(simulateThenSendGraduatedSwap(transaction, (value) => simulateGraduatedSwapTransaction(value, wallet), () => { throw new Error("This quote is stale or the wallet/network changed. Request a fresh quote."); }, send)).rejects.toThrow(/stale/i);
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("graduated swap pre-wallet RPC deadlines", () => {
+  const funded = { usdc: BigInt(1000), token: BigInt(1000), allowance: BigInt(0) };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(assertArcProtocolEconomicsReady).mockImplementation(() => {
+      throw new Error(ARC_PROTOCOL_ECONOMICS_BLOCKER);
+    });
+  });
+
+  function allowArcWrites() {
+    vi.mocked(assertArcProtocolEconomicsReady).mockImplementation(() => undefined);
+  }
+
+  it("bounds state-read RPC the same as simulation", () => {
+    expect(GRADUATED_SWAP_RPC_TIMEOUT_MS).toBe(15_000);
+    expect(GRADUATED_SWAP_RPC_TIMEOUT_MS).toBe(GRADUATED_SWAP_SIMULATION_TIMEOUT_MS);
+  });
+
+  it("times out a hanging allowance reread", async () => {
+    await expect(waitForGraduatedAllowance(() => new Promise(() => undefined), BigInt(1), [0], 25)).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
+  });
+
+  it("times out hanging balance and allowance eth_calls and aborts them", async () => {
+    let signal: AbortSignal | undefined;
+    vi.spyOn(publicClient, "readContract").mockImplementation((request) => {
+      signal = (request as { requestOptions?: { signal?: AbortSignal } }).requestOptions?.signal;
+      return new Promise(() => undefined);
+    });
+    await expect(readGraduatedSwapState(token, wallet, pool.router, "buy", 25)).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it.each(["buy", "sell"] as const)("times out a hanging %s state reread after approval and does not send", async (side) => {
+    allowArcWrites();
+    const approve = vi.fn().mockResolvedValue(undefined);
+    const readState = vi.fn().mockReturnValue(new Promise(() => undefined));
+    const simulate = vi.fn();
+    const send = vi.fn();
+    await expect(orchestrateGraduatedSwap({
+      side,
+      amountIn: BigInt(1000),
+      initialState: funded,
+      readState,
+      approve,
+      assertContext: vi.fn(),
+      buildTransaction: () => buildGraduatedSwapTransaction(pool, quote(side), wallet),
+      simulate,
+      send,
+      allowanceDelays: [0],
+      rpcTimeoutMs: 25,
+    })).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
+    expect(approve).toHaveBeenCalledOnce();
+    expect(simulate).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each(["buy", "sell"] as const)("simulates and sends a %s after a successful state reread", async (side) => {
+    allowArcWrites();
+    const hash = `0x${"ab".repeat(32)}` as Hash;
+    const payload = buildGraduatedSwapTransaction(pool, quote(side), wallet);
+    const approve = vi.fn();
+    const simulate = vi.fn().mockResolvedValue({ data: "0x" });
+    const send = vi.fn().mockResolvedValue(hash);
+    await expect(orchestrateGraduatedSwap({
+      side,
+      amountIn: BigInt(1000),
+      initialState: { ...funded, allowance: BigInt(1000) },
+      readState: vi.fn().mockResolvedValue({ ...funded, allowance: BigInt(1000) }),
+      approve,
+      assertContext: vi.fn(),
+      buildTransaction: () => payload,
+      simulate,
+      send,
+    })).resolves.toBe(hash);
+    expect(approve).not.toHaveBeenCalled();
+    expect(simulate).toHaveBeenCalledWith(payload);
+    expect(send).toHaveBeenCalledWith(payload);
+  });
+
+  it.each(["buy", "sell"] as const)("times out a hanging %s pre-swap state reread when approval is already sufficient", async (side) => {
+    allowArcWrites();
+    const approve = vi.fn();
+    const simulate = vi.fn();
+    const send = vi.fn();
+    await expect(orchestrateGraduatedSwap({
+      side,
+      amountIn: BigInt(1000),
+      initialState: { ...funded, allowance: BigInt(1000) },
+      readState: vi.fn().mockReturnValue(new Promise(() => undefined)),
+      approve,
+      assertContext: vi.fn(),
+      buildTransaction: () => buildGraduatedSwapTransaction(pool, quote(side), wallet),
+      simulate,
+      send,
+      rpcTimeoutMs: 25,
+    })).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
+    expect(approve).not.toHaveBeenCalled();
+    expect(simulate).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
 });

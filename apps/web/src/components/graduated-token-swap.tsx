@@ -4,18 +4,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { formatUnits, parseUnits, type Address, type Hash, type WalletClient } from "viem";
 import { ARC_CANONICAL_USDC, ARC_USDC_TOKEN_DECIMALS } from "@cooket/contracts-sdk";
-import { assertActiveWalletClient, erc20TradeAbi, publicClient } from "@/lib/contracts";
+import { assertActiveWalletClient, publicClient } from "@/lib/contracts";
 import { selectedCooketChain, selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
 import { TransactionModal } from "@/components/transaction-modal";
 import { closedTransactionModal, transactionModalReducer, type TransactionModalPhase } from "@/lib/transaction-modal";
 import { tradeInvalidationKeys } from "@/components/token-trading";
 import { TradeAmountPresets } from "@/components/trade-amount-presets";
 import { activeWalletStatusMessage, useActiveWallet } from "@/providers/active-wallet-provider";
-import { approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, orchestrateGraduatedSwap, quoteGraduatedSwap, quoteIsFresh, simulateGraduatedSwapTransaction, validateCanonicalPool, type GraduatedQuote, type GraduatedSwapTransaction } from "@/lib/uniswap-v3";
+import { approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, GraduatedSwapRpcError, GraduatedSwapRpcTimeoutError, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, orchestrateGraduatedSwap, quoteGraduatedSwap, quoteIsFresh, readGraduatedSwapState, simulateGraduatedSwapTransaction, validateCanonicalPool, type GraduatedQuote, type GraduatedSwapState, type GraduatedSwapTransaction } from "@/lib/uniswap-v3";
 import { assertArcProtocolEconomicsReady } from "@/lib/arc-safety";
 
-type State = { usdc: bigint; token: bigint; allowance: bigint; decimals: number };
-type SwapStatus = "idle" | "quoting" | "awaiting_approval" | "approval_confirming" | "approval_confirmed" | "preparing_sell" | "simulating" | "awaiting_wallet" | "submitted" | "confirming" | "confirmed" | "rejected" | "error";
+type State = GraduatedSwapState;
+type SwapStatus = "idle" | "quoting" | "awaiting_approval" | "approval_confirming" | "approval_confirmed" | "refreshing_state" | "simulating" | "awaiting_wallet" | "submitted" | "confirming" | "confirmed" | "rejected" | "error";
 
 export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol }: { tokenAddress: Address; canonicalPoolAddress?: Address; symbol: string }) {
   const activeWallet = useActiveWallet();
@@ -38,7 +38,7 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
     if (phase) dispatchModal({ type: "progress", phase });
   }, [side, status]);
   const poolQuery = useQuery({ queryKey: ["graduated-pool", tokenAddress, canonicalPoolAddress], queryFn: () => validateCanonicalPool(canonicalPoolAddress!, tokenAddress), enabled: Boolean(canonicalPoolAddress && configuredUniswapV3()), staleTime: 30_000 });
-  const stateQuery = useQuery({ queryKey: ["graduated-swap-state", tokenAddress, wallet, poolQuery.data?.router, side], queryFn: () => readState(tokenAddress, wallet!, poolQuery.data!.router, side), enabled: Boolean(wallet && poolQuery.data), refetchInterval: 15_000 });
+  const stateQuery = useQuery({ queryKey: ["graduated-swap-state", tokenAddress, wallet, poolQuery.data?.router, side], queryFn: () => readGraduatedSwapState(tokenAddress, wallet!, poolQuery.data!.router, side), enabled: Boolean(wallet && poolQuery.data), refetchInterval: 15_000 });
   const config = configuredUniswapV3();
   const guard = !config ? `Swap configuration unavailable: verified ${selectedCooketChainName} QuoterV2, SwapRouter, and factory addresses are required.` : !canonicalPoolAddress ? "No indexed canonical graduation pool is available for this token." : chainId !== undefined && chainId !== selectedCooketChainId ? `Switch the active wallet to ${selectedCooketChainName} (${selectedCooketChainId}).` : !connected || !wallet || !walletClient || !canTransact ? activeWalletStatusMessage(walletStatus) : poolQuery.isError ? poolQuery.error.message : null;
 
@@ -87,8 +87,8 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
         side,
         amountIn: quote.amountIn,
         initialState: stateQuery.data,
-        readState: () => readState(tokenAddress, wallet, poolQuery.data!.router, side),
-        approve: async () => { await approveExactly(send, side === "buy" ? ARC_CANONICAL_USDC : tokenAddress, poolQuery.data!.router, quote.amountIn, wallet, setHash, setStatus); setStatus("preparing_sell"); },
+        readState: () => { setStatus("refreshing_state"); return readGraduatedSwapState(tokenAddress, wallet, poolQuery.data!.router, side); },
+        approve: async () => { await approveExactly(send, side === "buy" ? ARC_CANONICAL_USDC : tokenAddress, poolQuery.data!.router, quote.amountIn, wallet, setHash, setStatus); setStatus("refreshing_state"); },
         assertContext,
         buildTransaction: () => buildGraduatedSwapTransaction(poolQuery.data!, quote, wallet),
         simulate: (transaction) => {
@@ -135,7 +135,7 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
       { label: "Minimum output", value: formatUnits(quote.minimumOut, side === "buy" ? stateQuery.data?.decimals ?? 18 : ARC_USDC_TOKEN_DECIMALS) },
       { label: "Slippage", value: `${slippage}%` }, { label: "Pool fee", value: "1%" },
       { label: "Quote expires", value: new Date(Number(quote.deadline) * 1000).toLocaleTimeString() },
-    ] : []} statusLabel={status === "simulating" ? `Simulating swap on ${selectedCooketChainName}` : undefined} />
+    ] : []} statusLabel={status === "simulating" ? `Simulating swap on ${selectedCooketChainName}` : status === "refreshing_state" ? `Refreshing approval and balances on ${selectedCooketChainName}` : undefined} />
   </section>;
 }
 
@@ -172,9 +172,13 @@ function errorMessage(reason: unknown): string { return reason instanceof Error 
 function swapErrorMessage(reason: unknown): string {
   const message = errorMessage(reason);
   if (reason instanceof GraduatedSwapSimulationTimeoutError) return `${message} No wallet request was made. Check the Arc Testnet RPC connection and request a fresh quote.`;
-  if (!(reason instanceof GraduatedSwapSimulationError)) return message;
-  if (/revert|execution reverted|contract function execution/i.test(message)) return `Swap simulation reverted. Pool state or swap parameters changed; request a fresh quote. No wallet request was made.`;
-  return `Arc Testnet RPC could not simulate the swap. Check the network connection and request a fresh quote. No wallet request was made.`;
+  if (reason instanceof GraduatedSwapRpcTimeoutError) return `${message} No wallet request was made. Check the Arc Testnet RPC connection and try again.`;
+  if (reason instanceof GraduatedSwapSimulationError) {
+    if (/revert|execution reverted|contract function execution/i.test(message)) return `Swap simulation reverted. Pool state or swap parameters changed; request a fresh quote. No wallet request was made.`;
+    return `Arc Testnet RPC could not simulate the swap. Check the network connection and request a fresh quote. No wallet request was made.`;
+  }
+  if (reason instanceof GraduatedSwapRpcError) return `Arc Testnet RPC could not refresh swap balances or allowance. Check the network connection and try again. No wallet request was made.`;
+  return message;
 }
 
 function validateSwapInput(amount: string, decimals: number, side: "buy" | "sell", state: State | undefined, symbol: string): bigint {
@@ -185,14 +189,6 @@ function validateSwapInput(amount: string, decimals: number, side: "buy" | "sell
   return parsed;
 }
 
-async function readState(token: Address, wallet: Address, router: Address, side: "buy" | "sell"): Promise<State> {
-  const inputToken = side === "buy" ? ARC_CANONICAL_USDC : token;
-  const [usdc, tokenBalance, allowance, decimals] = await Promise.all([
-    publicClient.readContract({ address: ARC_CANONICAL_USDC, abi: erc20TradeAbi, functionName: "balanceOf", args: [wallet] }), publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "balanceOf", args: [wallet] }), publicClient.readContract({ address: inputToken, abi: erc20TradeAbi, functionName: "allowance", args: [wallet, router] }), publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "decimals" }),
-  ]);
-  return { usdc, token: tokenBalance, allowance, decimals };
-}
-
 function swapModalPhase(status: SwapStatus, side: "buy" | "sell"): TransactionModalPhase | undefined {
-  return ({ idle: undefined, quoting: "preparing", awaiting_approval: "awaiting_approval", approval_confirming: "approval_submitted", approval_confirmed: "approval_confirmed", preparing_sell: "preparing_sell", simulating: "preparing", awaiting_wallet: side === "sell" ? "awaiting_sell_signature" : "awaiting_wallet", submitted: side === "sell" ? "sell_submitted" : "submitted", confirming: side === "sell" ? "sell_confirming" : "confirming", confirmed: "confirmed", rejected: "rejected", error: "failed" } as const)[status];
+  return ({ idle: undefined, quoting: "preparing", awaiting_approval: "awaiting_approval", approval_confirming: "approval_submitted", approval_confirmed: "approval_confirmed", refreshing_state: "refreshing_state", simulating: "simulating_swap", awaiting_wallet: side === "sell" ? "awaiting_sell_signature" : "awaiting_wallet", submitted: side === "sell" ? "sell_submitted" : "submitted", confirming: side === "sell" ? "sell_confirming" : "confirming", confirmed: "confirmed", rejected: "rejected", error: "failed" } as const)[status];
 }

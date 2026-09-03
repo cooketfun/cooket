@@ -60,7 +60,7 @@ vi.mock("@/lib/contracts", async (importOriginal) => {
 
 import { GraduatedTokenSwap } from "./graduated-token-swap";
 import { walletTransport } from "./graduated-token-swap";
-import { GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, orchestrateGraduatedSwap, simulateGraduatedSwapTransaction } from "@/lib/uniswap-v3";
+import { GraduatedSwapRpcTimeoutError, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, orchestrateGraduatedSwap, simulateGraduatedSwapTransaction } from "@/lib/uniswap-v3";
 import { approvalCall, buildGraduatedSwapTransaction } from "@/lib/uniswap-v3";
 import { ARC_PROTOCOL_ECONOMICS_BLOCKER } from "@/lib/arc-safety";
 import type { Hash } from "viem";
@@ -108,6 +108,8 @@ describe("graduated swap presets", () => {
     expect(source).toContain("changeAmount");
     expect(source).toContain("setQuote(undefined)");
     expect(source).not.toContain("quoteBuyByBudget");
+    expect(source).not.toContain("preparing_sell");
+    expect(source).toContain("refreshing_state");
   });
 
   it("applies buy 10%, 50%, and exact MAX from the canonical ERC20 USDC balance", async () => {
@@ -231,5 +233,32 @@ describe("graduated swap simulation failures", () => {
     expect(screen.getByRole("dialog").textContent).toMatch(/swap reverted on Arc Testnet/i);
     expect(screen.getByRole("dialog").textContent).not.toMatch(/No wallet request was made/i);
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+});
+
+describe("graduated swap state-read failures", () => {
+  it.each(["buy", "sell"] as const)("fails a %s swap after a post-approval state RPC timeout and allows close", async (side) => {
+    const user = userEvent.setup();
+    let rejectRefresh: (reason: unknown) => void = () => undefined;
+    let sent = false;
+    vi.mocked(orchestrateGraduatedSwap).mockImplementation(async (input) => {
+      void input.readState();
+      await new Promise((_, reject) => { rejectRefresh = reject; });
+      sent = true;
+      return input.send(swapTx);
+    });
+    await reviewAndConfirm(user, side);
+    expect(await screen.findByText("Refreshing approval and balances on Arc Testnet")).toBeTruthy();
+    expect(screen.queryByText("Preparing sell")).toBeNull();
+    expect(screen.queryByText("Simulating swap on Arc Testnet")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    rejectRefresh(new GraduatedSwapRpcTimeoutError(15_000, "Refreshing swap balances and allowance"));
+    expect(await screen.findByText("Transaction failed")).toBeTruthy();
+    expect(sent).toBe(false);
+    expect(screen.getByRole("dialog").textContent).toMatch(/Refreshing swap balances and allowance timed out.*No wallet request was made/i);
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Review swap" }) as HTMLButtonElement).disabled).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
