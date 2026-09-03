@@ -35,6 +35,26 @@ export type GraduatedSwapTransaction = { to: Address; data: Hex; value: bigint }
 export type GraduatedSwapSender = (transaction: GraduatedSwapTransaction) => Promise<Hash>;
 export type GraduatedExecutionState = { usdc: bigint; token: bigint; allowance: bigint };
 export const GRADUATED_ALLOWANCE_POLL_DELAYS_MS = [0, 250, 500, 1_000, 1_500] as const;
+export const GRADUATED_SWAP_SIMULATION_TIMEOUT_MS = 15_000;
+
+export class GraduatedSwapSimulationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GraduatedSwapSimulationError";
+  }
+}
+
+export class GraduatedSwapSimulationTimeoutError extends GraduatedSwapSimulationError {
+  constructor(timeoutMs: number) {
+    super(`Swap simulation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds.`);
+    this.name = "GraduatedSwapSimulationTimeoutError";
+  }
+}
+
+function simulationFailure(reason: unknown): GraduatedSwapSimulationError {
+  if (reason instanceof GraduatedSwapSimulationError) return reason;
+  return new GraduatedSwapSimulationError(reason instanceof Error ? reason.message : String(reason));
+}
 
 /**
  * Some browser wallet providers expose a successful approval receipt before
@@ -78,9 +98,13 @@ export async function orchestrateGraduatedSwap(input: {
   if (input.side === "sell" && state.token < input.amountIn) throw new Error("The active wallet no longer has enough token balance for this sell.");
   input.assertContext();
   const transaction = input.buildTransaction();
-  await input.simulate(transaction);
-  input.assertContext();
-  return input.send(transaction);
+  return simulateThenSendGraduatedSwap(transaction, input.simulate, input.assertContext, input.send);
+}
+
+export async function simulateThenSendGraduatedSwap(transaction: GraduatedSwapTransaction, simulate: (transaction: GraduatedSwapTransaction) => Promise<unknown>, assertContext: () => void, send: (transaction: GraduatedSwapTransaction) => Promise<Hash>): Promise<Hash> {
+  await simulate(transaction);
+  assertContext();
+  return send(transaction);
 }
 
 export function configuredUniswapV3(): UniswapV3Config | undefined {
@@ -146,8 +170,28 @@ export function buildGraduatedSwapTransaction(pool: ValidatedPool, quote: Gradua
 }
 
 /** Simulates the exact canonical {to, data, value} payload sent by either wallet transport. */
-export function simulateGraduatedSwapTransaction(transaction: GraduatedSwapTransaction, account: Address) {
-  return publicClient.call({ account, ...transaction });
+export async function simulateGraduatedSwapTransaction(transaction: GraduatedSwapTransaction, account: Address, timeoutMs = GRADUATED_SWAP_SIMULATION_TIMEOUT_MS) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("Swap simulation timeout must be positive.");
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const simulation = publicClient.call({ account, ...transaction, requestOptions: { signal: controller.signal, retryCount: 0 } });
+  void simulation.catch(() => undefined);
+  try {
+    return await Promise.race([
+      simulation,
+      new Promise<never>((_, reject) => {
+        timeout = globalThis.setTimeout(() => {
+          controller.abort();
+          reject(new GraduatedSwapSimulationTimeoutError(timeoutMs));
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (reason) {
+    if (controller.signal.aborted && !(reason instanceof GraduatedSwapSimulationTimeoutError)) throw new GraduatedSwapSimulationTimeoutError(timeoutMs);
+    throw simulationFailure(reason);
+  } finally {
+    if (timeout !== undefined) globalThis.clearTimeout(timeout);
+  }
 }
 
 export function approvalCall(token: Address, spender: Address, amount: bigint): GraduatedSwapTransaction {

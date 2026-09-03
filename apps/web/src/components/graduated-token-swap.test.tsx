@@ -17,21 +17,29 @@ vi.mock("@/providers/active-wallet-provider", () => ({
   }),
 }));
 
-vi.mock("@/lib/uniswap-v3", () => ({
-  configuredUniswapV3: () => ({ quoter: "0x1", router: "0x2", factory: "0x3" }),
-  validateCanonicalPool: vi.fn().mockResolvedValue({ router: "0x0000000000000000000000000000000000000099", pool: "0x0000000000000000000000000000000000000088" }),
-  quoteGraduatedSwap: vi.fn().mockResolvedValue({
-    amountIn: BigInt("100000"),
-    amountOut: BigInt("1"),
-    minimumOut: BigInt("1"),
-    deadline: BigInt(2_000_000_000),
-  }),
-  quoteIsFresh: () => true,
-  buildGraduatedSwapTransaction: vi.fn(),
-  simulateGraduatedSwapTransaction: vi.fn(),
-  orchestrateGraduatedSwap: vi.fn(),
-  approvalCall: vi.fn(),
+const { waitForTransactionReceipt } = vi.hoisted(() => ({
+  waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
 }));
+
+vi.mock("@/lib/uniswap-v3", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/uniswap-v3")>();
+  return {
+    ...original,
+    configuredUniswapV3: () => ({ quoter: "0x1", router: "0x2", factory: "0x3" }),
+    validateCanonicalPool: vi.fn().mockResolvedValue({ router: "0x0000000000000000000000000000000000000099", pool: "0x0000000000000000000000000000000000000088" }),
+    quoteGraduatedSwap: vi.fn().mockResolvedValue({
+      amountIn: BigInt("100000"),
+      amountOut: BigInt("1"),
+      minimumOut: BigInt("1"),
+      deadline: BigInt(2_000_000_000),
+    }),
+    quoteIsFresh: () => true,
+    buildGraduatedSwapTransaction: vi.fn(),
+    simulateGraduatedSwapTransaction: vi.fn(),
+    orchestrateGraduatedSwap: vi.fn(),
+    approvalCall: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/contracts", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/contracts")>();
@@ -45,15 +53,17 @@ vi.mock("@/lib/contracts", async (importOriginal) => {
         if (functionName === "balanceOf") return BigInt("5000000000000000000");
         return BigInt(0);
       }),
+      waitForTransactionReceipt,
     },
   };
 });
 
 import { GraduatedTokenSwap } from "./graduated-token-swap";
 import { walletTransport } from "./graduated-token-swap";
-import { orchestrateGraduatedSwap } from "@/lib/uniswap-v3";
+import { GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, orchestrateGraduatedSwap, simulateGraduatedSwapTransaction } from "@/lib/uniswap-v3";
 import { approvalCall, buildGraduatedSwapTransaction } from "@/lib/uniswap-v3";
 import { ARC_PROTOCOL_ECONOMICS_BLOCKER } from "@/lib/arc-safety";
+import type { Hash } from "viem";
 
 const source = readFileSync(resolve(process.cwd(), "src/components/graduated-token-swap.tsx"), "utf8");
 
@@ -134,5 +144,92 @@ describe("graduated swap presets", () => {
     expect(orchestrateGraduatedSwap).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Start approval + swap" }));
     expect(orchestrateGraduatedSwap).toHaveBeenCalledOnce();
+  });
+});
+
+const swapHash = `0x${"ab".repeat(32)}` as Hash;
+const swapTx = { to: "0x0000000000000000000000000000000000000099" as const, data: "0x1234" as const, value: BigInt(0) };
+
+function mockOrchestrateThroughSimulation() {
+  vi.mocked(buildGraduatedSwapTransaction).mockReturnValue(swapTx);
+  vi.mocked(orchestrateGraduatedSwap).mockImplementation(async (input) => {
+    const transaction = input.buildTransaction();
+    await input.simulate(transaction);
+    input.assertContext();
+    return input.send(transaction);
+  });
+}
+
+async function reviewAndConfirm(user: ReturnType<typeof userEvent.setup>, side: "buy" | "sell" = "buy") {
+  renderSwap();
+  if (side === "sell") await user.click(await screen.findByRole("button", { name: "Sell COOKET" }));
+  const amount = await screen.findByLabelText(side === "buy" ? "ERC20 USDC amount" : "COOKET amount");
+  await user.type(amount, side === "buy" ? "0.1" : "1");
+  const review = await screen.findByRole("button", { name: "Review swap" });
+  await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+  await user.click(review);
+  await user.click(screen.getByRole("button", { name: "Start approval + swap" }));
+}
+
+describe("graduated swap simulation failures", () => {
+  it("confirms a successful simulated swap without remaining busy", async () => {
+    const user = userEvent.setup();
+    vi.mocked(simulateGraduatedSwapTransaction).mockResolvedValue({ data: "0x" });
+    vi.mocked(orchestrateGraduatedSwap).mockImplementation(async (input) => {
+      await input.simulate(swapTx);
+      return swapHash;
+    });
+    await reviewAndConfirm(user);
+    expect(await screen.findByText("Transaction confirmed")).toBeTruthy();
+    expect(simulateGraduatedSwapTransaction).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Review swap" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it.each([
+    ["buy", new GraduatedSwapSimulationTimeoutError(15_000), /timed out after 15 seconds.*No wallet request was made/i],
+    ["sell", new GraduatedSwapSimulationError("execution reverted: STF"), /Swap simulation reverted.*No wallet request was made/i],
+    ["buy", new GraduatedSwapSimulationError("HTTP request failed."), /Arc Testnet RPC could not simulate the swap.*No wallet request was made/i],
+  ] as const)("fails a %s swap after simulation error and allows close", async (side, reason, copy) => {
+    const user = userEvent.setup();
+    mockOrchestrateThroughSimulation();
+    vi.mocked(simulateGraduatedSwapTransaction).mockRejectedValue(reason);
+    await reviewAndConfirm(user, side);
+    expect(await screen.findByText("Transaction failed")).toBeTruthy();
+    expect(screen.getByRole("dialog").textContent).toMatch(copy);
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close transaction modal" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Review swap" }) as HTMLButtonElement).disabled).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("never reaches wallet send when simulation fails", async () => {
+    const user = userEvent.setup();
+    let sent = false;
+    vi.mocked(buildGraduatedSwapTransaction).mockReturnValue(swapTx);
+    vi.mocked(simulateGraduatedSwapTransaction).mockRejectedValue(new GraduatedSwapSimulationTimeoutError(15_000));
+    vi.mocked(orchestrateGraduatedSwap).mockImplementation(async (input) => {
+      await input.simulate(input.buildTransaction());
+      sent = true;
+      return input.send(swapTx);
+    });
+    await reviewAndConfirm(user);
+    expect(await screen.findByText("Transaction failed")).toBeTruthy();
+    expect(sent).toBe(false);
+    expect(simulateGraduatedSwapTransaction).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Awaiting wallet confirmation")).toBeNull();
+    expect(screen.queryByText("Awaiting sell signature")).toBeNull();
+  });
+
+  it("keeps an on-chain revert after send distinct from a simulation failure", async () => {
+    const user = userEvent.setup();
+    vi.mocked(orchestrateGraduatedSwap).mockResolvedValue(swapHash);
+    waitForTransactionReceipt.mockResolvedValueOnce({ status: "reverted" });
+    await reviewAndConfirm(user);
+    expect(await screen.findByText("Transaction failed")).toBeTruthy();
+    expect(screen.getByRole("dialog").textContent).toMatch(/swap reverted on Arc Testnet/i);
+    expect(screen.getByRole("dialog").textContent).not.toMatch(/No wallet request was made/i);
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 });
