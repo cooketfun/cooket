@@ -201,13 +201,24 @@ export type ContractAddresses = {
   graduationSettlementExecutor?: `0x${string}`;
 };
 
-/**
- * Phase 0 deliberately ignores inherited or operator-supplied protocol
- * addresses. No Base-derived contract graph is valid on Arc Testnet yet.
- * Tests may assign entries explicitly to exercise pure migration-reference
- * readers; production builds always begin with an empty address set.
- */
-export const contractAddresses: ContractAddresses = {};
+function optionalRuntimeAddress(value: string | undefined, label: string): `0x${string}` | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(normalized) || /^0x0{40}$/i.test(normalized)) {
+    throw new Error(`${label} must be a nonzero EVM address.`);
+  }
+  return getAddress(normalized);
+}
+
+/** Arc Testnet addresses are injected from a template generated from the verified manifest. */
+export const contractAddresses: ContractAddresses = {
+  cooketFactory: optionalRuntimeAddress(process.env.NEXT_PUBLIC_COOKET_FACTORY_V3_ADDRESS, "NEXT_PUBLIC_COOKET_FACTORY_V3_ADDRESS"),
+  feeManager: optionalRuntimeAddress(process.env.NEXT_PUBLIC_FEE_MANAGER_V3_ADDRESS, "NEXT_PUBLIC_FEE_MANAGER_V3_ADDRESS"),
+  graduationManager: optionalRuntimeAddress(process.env.NEXT_PUBLIC_GRADUATION_MANAGER_V3_ADDRESS, "NEXT_PUBLIC_GRADUATION_MANAGER_V3_ADDRESS"),
+  permanentLPFeeVault: optionalRuntimeAddress(process.env.NEXT_PUBLIC_PERMANENT_LP_FEE_VAULT_V3_ADDRESS, "NEXT_PUBLIC_PERMANENT_LP_FEE_VAULT_V3_ADDRESS"),
+  permanentLPCustodianDeployer: optionalRuntimeAddress(process.env.NEXT_PUBLIC_PERMANENT_LP_CUSTODIAN_DEPLOYER_V3_ADDRESS, "NEXT_PUBLIC_PERMANENT_LP_CUSTODIAN_DEPLOYER_V3_ADDRESS"),
+  graduationSettlementExecutor: optionalRuntimeAddress(process.env.NEXT_PUBLIC_GRADUATION_SETTLEMENT_EXECUTOR_V3_ADDRESS, "NEXT_PUBLIC_GRADUATION_SETTLEMENT_EXECUTOR_V3_ADDRESS"),
+};
 
 export type TokenLaunched = { token: Address; curve: Address; creator: Address; protocolVersion: string; totalSupply: bigint; curveAllocation: bigint; lpAllocation: bigint; canonicalPool: Address };
 export function encodeCreateToken(name: string, symbol: string, userSalt: Hex): Hex {

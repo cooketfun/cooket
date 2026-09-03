@@ -5,6 +5,9 @@ import { buyPresetWei, formatPresetInput, isPresetEnabled, sellPresetAmount, typ
 type Props = {
   side: "buy" | "sell";
   nativeBalance?: bigint;
+  buyBalance?: bigint;
+  buyDecimals?: number;
+  buyIsNative?: boolean;
   tokenBalance?: bigint;
   tokenDecimals?: number;
   disabled?: boolean;
@@ -17,12 +20,13 @@ const presets: { id: AmountPreset; label: string }[] = [
   { id: "max", label: "MAX" },
 ];
 
-export function TradeAmountPresets({ side, nativeBalance, tokenBalance, tokenDecimals = 18, disabled = false, onSelect }: Props) {
-  const amountFor = (preset: AmountPreset) => side === "buy" ? buyPresetWei(nativeBalance, preset) : sellPresetAmount(tokenBalance, preset);
+export function TradeAmountPresets({ side, nativeBalance, buyBalance, buyDecimals = 18, buyIsNative = true, tokenBalance, tokenDecimals = 18, disabled = false, onSelect }: Props) {
+  const availableBuyBalance = buyBalance ?? nativeBalance;
+  const amountFor = (preset: AmountPreset) => side === "buy" ? (buyIsNative ? buyPresetWei(availableBuyBalance, preset) : sellPresetAmount(availableBuyBalance, preset)) : sellPresetAmount(tokenBalance, preset);
   const apply = (preset: AmountPreset) => {
     const amount = amountFor(preset);
     if (amount === null || !isPresetEnabled(amount)) return;
-    onSelect(formatPresetInput(amount, side === "buy" ? 18 : tokenDecimals));
+    onSelect(formatPresetInput(amount, side === "buy" ? buyDecimals : tokenDecimals));
   };
 
   return <div className="mt-2 flex gap-2" role="group" aria-label="Amount presets">
@@ -31,7 +35,7 @@ export function TradeAmountPresets({ side, nativeBalance, tokenBalance, tokenDec
       return <button
         key={preset.id}
         type="button"
-        aria-label={presetLabel(side, preset.id)}
+        aria-label={presetLabel(side, preset.id, buyIsNative)}
         disabled={!enabled}
         onClick={() => apply(preset.id)}
         className="button-secondary min-h-11 flex-1 px-2 text-xs font-semibold tracking-wide"
@@ -40,8 +44,9 @@ export function TradeAmountPresets({ side, nativeBalance, tokenBalance, tokenDec
   </div>;
 }
 
-function presetLabel(side: "buy" | "sell", preset: AmountPreset) {
+function presetLabel(side: "buy" | "sell", preset: AmountPreset, buyIsNative: boolean) {
   if (side === "buy") {
+    if (!buyIsNative) return preset === "max" ? "Use exact USDC balance" : `Use ${preset}% of USDC balance`;
     if (preset === "max") return "Use maximum native USDC after gas reserve";
     return `Use ${preset}% of native USDC balance`;
   }

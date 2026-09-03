@@ -1,0 +1,6 @@
+{
+  "bootstrapStatus": "pending-stage2",
+  "graduationSettlementExecutor": "0xef022842796AeE043C5fA4670675216A9F780118",
+  "permanentLPCustodianDeployer": "0x2498765b0d10411120bDf96692F51A43DF133261",
+  "permanentLPFeeVault": "0x04D6106cEee65A8207DA8a77B42a216277530382"
+}

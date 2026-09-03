@@ -43,15 +43,18 @@ abstract contract GraduationManagerV3Boundary is IGraduationManagerV3 {
     mapping(address token => Launch launch) internal _launches;
     mapping(address token => address pool) public override canonicalPoolOf;
 
-    constructor(address uniswapV3Factory_) {
-        if (uniswapV3Factory_ == address(0) || uniswapV3Factory_.code.length == 0 || canonicalUsdc.code.length == 0) {
+    constructor(address uniswapV3Factory_, address governance_) {
+        if (
+            uniswapV3Factory_ == address(0) || uniswapV3Factory_.code.length == 0 || canonicalUsdc.code.length == 0
+                || governance_ == address(0)
+        ) {
             revert InvalidPoolConfiguration();
         }
         if (IUniswapV3FactoryMinimal(uniswapV3Factory_).feeAmountTickSpacing(POOL_FEE) != POOL_TICK_SPACING) {
             revert InvalidPoolConfiguration();
         }
         uniswapV3Factory = uniswapV3Factory_;
-        factoryBootstrapAuthority = msg.sender;
+        factoryBootstrapAuthority = governance_;
     }
 
     function protocolVersionHash() external pure override returns (bytes32) {

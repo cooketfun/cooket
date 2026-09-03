@@ -1,0 +1,26 @@
+{
+  "chainId": 5042002,
+  "safe": "0x2741b0E8bC8c90A48CA16cd983a9Ade0dF716d9a",
+  "status": "confirmed",
+  "note": "GraduationManager.bindDependenciesOnce internally calls PermanentLPFeeVault.setPermanentLPCustodianDeployerOnce",
+  "transactions": [
+    {
+      "target": "0x4616B1FEB4b50598276Aa4f2b9a3e403eE1c9dD9",
+      "functionSignature": "setPermanentLPFeeVaultOnce(address)",
+      "calldata": "0x6b72491d00000000000000000000000004d6106ceee65a8207da8a77b42a216277530382",
+      "value": "0"
+    },
+    {
+      "target": "0x6972b0B546e965bcD445e1aeDCbc7D7D383F6293",
+      "functionSignature": "setPermanentLPFeeVaultOnce(address)",
+      "calldata": "0x6b72491d00000000000000000000000004d6106ceee65a8207da8a77b42a216277530382",
+      "value": "0"
+    },
+    {
+      "target": "0x9c89CE203AD7fd9E74e2FD882A3EC55B3B70317E",
+      "functionSignature": "bindDependenciesOnce(address,address,address)",
+      "calldata": "0x9c65460200000000000000000000000004d6106ceee65a8207da8a77b42a2162775303820000000000000000000000002498765b0d10411120bdf96692f51a43df1332610000000000000000000000006f8795b30ab107d6306434d979f50181c0bb68a9",
+      "value": "0"
+    }
+  ]
+}

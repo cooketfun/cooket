@@ -33,8 +33,10 @@ contract GraduationManagerV3 is GraduationManagerV3Boundary, ReentrancyGuard {
     error InvalidDependency();
     error SettlementMismatch();
 
-    constructor(address uniswapFactory_) GraduationManagerV3Boundary(uniswapFactory_) {
-        dependencyBootstrapAuthority = msg.sender;
+    constructor(address uniswapFactory_, address governance_)
+        GraduationManagerV3Boundary(uniswapFactory_, governance_)
+    {
+        dependencyBootstrapAuthority = governance_;
     }
 
     function bindDependenciesOnce(address vault, address deployer, address positionManager) external {

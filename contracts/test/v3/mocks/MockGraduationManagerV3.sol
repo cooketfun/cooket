@@ -24,7 +24,7 @@ contract MockGraduationManagerV3 is GraduationManagerV3Boundary {
     uint160 public mutationSqrtPriceX96;
     uint128 public mutationLiquidity;
 
-    constructor(address uniswapV3Factory_) GraduationManagerV3Boundary(uniswapV3Factory_) {}
+    constructor(address uniswapV3Factory_) GraduationManagerV3Boundary(uniswapV3Factory_, msg.sender) {}
 
     function configure(bool shouldRevert_, address reentryTarget_, bytes calldata reentryData_) external {
         shouldRevert = shouldRevert_;

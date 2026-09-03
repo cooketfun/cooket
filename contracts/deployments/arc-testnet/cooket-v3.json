@@ -1,0 +1,22 @@
+{
+  "bootstrapStatus": "confirmed",
+  "canonicalUsdc": "0x3600000000000000000000000000000000000000",
+  "chainId": 5042002,
+  "communityVault": "0x4616B1FEB4b50598276Aa4f2b9a3e403eE1c9dD9",
+  "cooketFactory": "0x96a1F09F0E85B3f1800eFBFb0CD6BE7EDD7a9BE5",
+  "ctoRegistry": "0xE1D08893A71592b45ac219244bD488825cA634B5",
+  "curveDeployer": "0x4C4573BC393d0A6A488e9351750ddc5dc6C7D5bF",
+  "deployer": "0x6BE7035f62Ce8ddB4574fE6399eD85E81827c182",
+  "feeManager": "0x252BDd768Cc44070a84A4b8E86634eae25372571",
+  "graduationManager": "0x9c89CE203AD7fd9E74e2FD882A3EC55B3B70317E",
+  "nonfungiblePositionManager": "0x6f8795B30aB107d6306434d979F50181C0bb68a9",
+  "rewardsDistributor": "0x46f00Ee9aEbF84B46Ed7dca539d8aDF74d652950",
+  "rewardsVault": "0x6972b0B546e965bcD445e1aeDCbc7D7D383F6293",
+  "safe": "0x2741b0E8bC8c90A48CA16cd983a9Ade0dF716d9a",
+  "tokenDeployer": "0x6054d94B9CAA2BD2fe7Fd4bf384193F5d142fBb6",
+  "uniswapV3Factory": "0xc70593E016A5d50451b1A2Cf3173E7d77F120B37",
+  "graduationSettlementExecutor": "0xef022842796AeE043C5fA4670675216A9F780118",
+  "permanentLPCustodianDeployer": "0x2498765b0d10411120bDf96692F51A43DF133261",
+  "permanentLPFeeVault": "0x04D6106cEee65A8207DA8a77B42a216277530382",
+  "verified": true
+}

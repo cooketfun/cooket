@@ -58,7 +58,7 @@ contract GraduationManagerV3Test is Test {
         vm.etch(ArcNativeUsdcV3.CANONICAL_USDC, address(usdcImplementation).code);
         canonicalUsdc = MockArcDualViewUsdcV3(ArcNativeUsdcV3.CANONICAL_USDC);
         uniswapFactory = new MockUniswapV3FactoryV3();
-        manager = new GraduationManagerV3(address(uniswapFactory));
+        manager = new GraduationManagerV3(address(uniswapFactory), address(this));
         fees = new FeeManagerV3(address(this), treasury);
         factory = new CooketFactoryV3(address(fees), address(manager));
         fees.setFactoryOnce(address(factory));
@@ -241,7 +241,7 @@ contract GraduationManagerV3Test is Test {
     }
 
     function testUnboundDependenciesRollBackEndpointGraduation() public {
-        GraduationManagerV3 bare = new GraduationManagerV3(address(uniswapFactory));
+        GraduationManagerV3 bare = new GraduationManagerV3(address(uniswapFactory), address(this));
         FeeManagerV3 bareFees = new FeeManagerV3(address(this), treasury);
         CooketFactoryV3 bareFactory = new CooketFactoryV3(address(bareFees), address(bare));
         bareFees.setFactoryOnce(address(bareFactory));
@@ -259,7 +259,7 @@ contract GraduationManagerV3Test is Test {
     }
 
     function testDependencyBindingRejectsEoasMismatchesAndRepeat() public {
-        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory));
+        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory), address(this));
         FeeManagerV3 freshFees = new FeeManagerV3(address(this), treasury);
         CooketFactoryV3 freshFactory = new CooketFactoryV3(address(freshFees), address(fresh));
         freshFees.setFactoryOnce(address(freshFactory));
@@ -283,7 +283,7 @@ contract GraduationManagerV3Test is Test {
     }
 
     function testVaultBindingFailureRollsBackManagerBinding() public {
-        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory));
+        GraduationManagerV3 fresh = new GraduationManagerV3(address(uniswapFactory), address(this));
         FeeManagerV3 freshFees = new FeeManagerV3(address(this), treasury);
         CooketFactoryV3 freshFactory = new CooketFactoryV3(address(freshFees), address(fresh));
         freshFees.setFactoryOnce(address(freshFactory));

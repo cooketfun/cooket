@@ -1,0 +1,16 @@
+{
+  "chainId": 5042002,
+  "status": "verified",
+  "actor": "0x5745af4dbd068bbd9f7f0a5e539532e078f9a9f0",
+  "token": "0x821ab8590e26ef7af412fa92d75375ab4fa58cb7",
+  "curve": "0x9e877a32d1b628787933beefc14ae731fb2424e6",
+  "pool": "0x8F064B62AD5D09346E5eb4b664a38319A944Eb6f",
+  "lpCustodian": "0x964e669e8571c35abd499ef8e1de1c3685265d1b",
+  "positionTokenId": "1",
+  "transactions": {
+    "launch": "0xdbad043213fff83311f542b73d5fd17e4a88eceb71b0eb3bed016a33dd17f492",
+    "graduation": "0x8d4c40fe4a5c06f7c91af4fac22bc4afdc8c11b3c0e9b9bb1524357359e2d4b7",
+    "postGraduationBuy": "0x30e784ba51bb240bf1e7e86ad9a01ad061022496bfca8a7c29641ceff649a383",
+    "postGraduationSell": "0x39007916d00af8cf19ccbd41e69129e98e75b7638e462074b6b16e5890351ca8"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "chainId": 5042002,
+  "safe": "0x2741b0E8bC8c90A48CA16cd983a9Ade0dF716d9a",
+  "status": "confirmed",
+  "transactions": [
+    {
+      "target": "0x252BDd768Cc44070a84A4b8E86634eae25372571",
+      "functionSignature": "setFactoryOnce(address)",
+      "calldata": "0xd45f23f300000000000000000000000096a1f09f0e85b3f1800efbfb0cd6be7edd7a9be5",
+      "value": "0"
+    },
+    {
+      "target": "0x9c89CE203AD7fd9E74e2FD882A3EC55B3B70317E",
+      "functionSignature": "setFactoryOnce(address)",
+      "calldata": "0xd45f23f300000000000000000000000096a1f09f0e85b3f1800efbfb0cd6be7edd7a9be5",
+      "value": "0"
+    },
+    {
+      "target": "0x252BDd768Cc44070a84A4b8E86634eae25372571",
+      "functionSignature": "bindEcosystemVaultsOnce(address,address)",
+      "calldata": "0x27ac06c70000000000000000000000004616b1feb4b50598276aa4f2b9a3e403ee1c9dd90000000000000000000000006972b0b546e965bcd445e1aedcbc7d7d383f6293",
+      "value": "0"
+    },
+    {
+      "target": "0x6972b0B546e965bcD445e1aeDCbc7D7D383F6293",
+      "functionSignature": "setDistributorOnce(address)",
+      "calldata": "0xd8cf896800000000000000000000000046f00ee9aebf84b46ed7dca539d8adf74d652950",
+      "value": "0"
+    }
+  ]
+}

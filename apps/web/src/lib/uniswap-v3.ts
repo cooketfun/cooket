@@ -1,23 +1,11 @@
 import { encodeFunctionData, getAddress, type Address, type Hash, type Hex } from "viem";
+import { ARC_CANONICAL_USDC } from "@cooket/contracts-sdk";
 import { erc20TradeAbi, publicClient } from "@/lib/contracts";
 import { selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
 import { assertArcProtocolEconomicsReady } from "@/lib/arc-safety";
-export const BASE_MAINNET_WETH = "0x4200000000000000000000000000000000000006" as const;
-export const BASE_MAINNET_V3_FACTORY = "0x33128a8fC17869897dcE68Ed026d694621f6FDfD" as const;
-export const BASE_MAINNET_QUOTER_V2 = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a" as const;
-export const BASE_MAINNET_SWAP_ROUTER_02 = "0x2626664c2603336E57B271c5C0b26F421741e481" as const;
 export const CANONICAL_POOL_FEE = 10_000;
 export const QUOTE_TTL_MS = 60_000;
-
-const selectedWeth = BASE_MAINNET_WETH;
-
-/**
- * Uniswap swap-router-contracts Constants.CONTRACT_BALANCE.
- * Official source: https://github.com/Uniswap/swap-router-contracts/blob/main/contracts/libraries/Constants.sol
- * The deployed SwapRouter02 V3 code uses this exact zero value to consume the
- * router-held input-token balance and set the swap payer to address(this).
- */
-export const CONTRACT_BALANCE = BigInt(0);
+export const ARC_TESTNET_V3_FACTORY = "0xc70593E016A5d50451b1A2Cf3173E7d77F120B37" as const;
 
 const poolAbi = [
   { type: "function", name: "token0", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -33,14 +21,11 @@ export const quoterV2Abi = [
   { type: "function", name: "quoteExactInputSingle", stateMutability: "nonpayable", inputs: [{ type: "tuple", components: [{ name: "tokenIn", type: "address" }, { name: "tokenOut", type: "address" }, { name: "amountIn", type: "uint256" }, { name: "fee", type: "uint24" }, { name: "sqrtPriceLimitX96", type: "uint160" }] }], outputs: [{ name: "amountOut", type: "uint256" }, { name: "sqrtPriceX96After", type: "uint160" }, { name: "initializedTicksCrossed", type: "uint32" }, { name: "gasEstimate", type: "uint256" }] },
 ] as const;
 
-// Official ISwapRouter02 / IV3SwapRouter ABI. Its ExactInputSingleParams deliberately has no deadline.
-export const swapRouter02Abi = [
+// Official Uniswap/v3-periphery ISwapRouter ABI (commit 06823871).
+export const swapRouterAbi = [
   { type: "function", name: "factory", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "WETH9", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { type: "function", name: "exactInputSingle", stateMutability: "payable", inputs: [{ type: "tuple", components: [{ name: "tokenIn", type: "address" }, { name: "tokenOut", type: "address" }, { name: "fee", type: "uint24" }, { name: "recipient", type: "address" }, { name: "amountIn", type: "uint256" }, { name: "amountOutMinimum", type: "uint256" }, { name: "sqrtPriceLimitX96", type: "uint160" }] }], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "multicall", stateMutability: "payable", inputs: [{ name: "deadline", type: "uint256" }, { name: "data", type: "bytes[]" }], outputs: [{ type: "bytes[]" }] },
-  { type: "function", name: "wrapETH", stateMutability: "payable", inputs: [{ name: "value", type: "uint256" }], outputs: [] },
-  { type: "function", name: "unwrapWETH9", stateMutability: "payable", inputs: [{ name: "amountMinimum", type: "uint256" }, { name: "recipient", type: "address" }], outputs: [] },
+  { type: "function", name: "exactInputSingle", stateMutability: "payable", inputs: [{ type: "tuple", components: [{ name: "tokenIn", type: "address" }, { name: "tokenOut", type: "address" }, { name: "fee", type: "uint24" }, { name: "recipient", type: "address" }, { name: "deadline", type: "uint256" }, { name: "amountIn", type: "uint256" }, { name: "amountOutMinimum", type: "uint256" }, { name: "sqrtPriceLimitX96", type: "uint160" }] }], outputs: [{ type: "uint256" }] },
 ] as const;
 
 export type UniswapV3Config = { quoter: Address; router: Address; factory: Address };
@@ -48,7 +33,7 @@ export type ValidatedPool = UniswapV3Config & { pool: Address; token: Address; t
 export type GraduatedQuote = { side: "buy" | "sell"; amountIn: bigint; amountOut: bigint; minimumOut: bigint; slippageBps: number; createdAt: number; deadline: bigint; pool: Address; wallet: Address; chainId: number };
 export type GraduatedSwapTransaction = { to: Address; data: Hex; value: bigint };
 export type GraduatedSwapSender = (transaction: GraduatedSwapTransaction) => Promise<Hash>;
-export type GraduatedExecutionState = { eth: bigint; token: bigint; allowance: bigint };
+export type GraduatedExecutionState = { usdc: bigint; token: bigint; allowance: bigint };
 export const GRADUATED_ALLOWANCE_POLL_DELAYS_MS = [0, 250, 500, 1_000, 1_500] as const;
 
 /**
@@ -80,16 +65,16 @@ export async function orchestrateGraduatedSwap(input: {
 }): Promise<Hash> {
   assertArcProtocolEconomicsReady();
   input.assertContext();
-  if (input.side === "buy" && input.initialState.eth < input.amountIn) throw new Error("Insufficient native USDC balance.");
+  if (input.side === "buy" && input.initialState.usdc < input.amountIn) throw new Error("Insufficient canonical ERC20 USDC balance.");
   if (input.side === "sell" && input.initialState.token < input.amountIn) throw new Error("Insufficient token balance.");
-  if (input.side === "sell" && input.initialState.allowance < input.amountIn) {
+  if (input.initialState.allowance < input.amountIn) {
     await input.approve();
     await waitForGraduatedAllowance(async () => (await input.readState()).allowance, input.amountIn, input.allowanceDelays);
   }
   input.assertContext();
   const state = await input.readState();
-  if (input.side === "buy" && state.eth < input.amountIn) throw new Error("The active wallet no longer has enough native USDC for this buy.");
-  if (input.side === "sell" && state.allowance < input.amountIn) throw new Error("Confirmed approval is still insufficient; swap was not submitted.");
+  if (input.side === "buy" && state.usdc < input.amountIn) throw new Error("The active wallet no longer has enough canonical ERC20 USDC for this buy.");
+  if (state.allowance < input.amountIn) throw new Error("Confirmed approval is still insufficient; swap was not submitted.");
   if (input.side === "sell" && state.token < input.amountIn) throw new Error("The active wallet no longer has enough token balance for this sell.");
   input.assertContext();
   const transaction = input.buildTransaction();
@@ -99,9 +84,19 @@ export async function orchestrateGraduatedSwap(input: {
 }
 
 export function configuredUniswapV3(): UniswapV3Config | undefined {
-  // Phase 0 has no approved Arc Testnet DEX, wrapped-native asset, quoter,
-  // router, or factory. Base variables are deliberately ignored.
-  return undefined;
+  const values = [
+    process.env.NEXT_PUBLIC_ARC_TESTNET_UNISWAP_V3_QUOTER_V2,
+    process.env.NEXT_PUBLIC_ARC_TESTNET_UNISWAP_V3_SWAP_ROUTER,
+    process.env.NEXT_PUBLIC_ARC_TESTNET_UNISWAP_V3_FACTORY,
+    process.env.NEXT_PUBLIC_ARC_TESTNET_CANONICAL_USDC,
+  ].map((value) => value?.trim());
+  if (values.every((value) => !value)) return undefined;
+  if (values.some((value) => !value || !/^0x[0-9a-fA-F]{40}$/.test(value))) throw new Error("Arc Testnet Uniswap configuration is incomplete or invalid.");
+  const [quoter, router, factory, usdc] = values.map((value) => getAddress(value!));
+  if (usdc !== getAddress(ARC_CANONICAL_USDC)) throw new Error("Arc Testnet canonical USDC configuration mismatch.");
+  if (factory !== getAddress(ARC_TESTNET_V3_FACTORY)) throw new Error("Arc Testnet Uniswap factory configuration mismatch.");
+  if (new Set([quoter, router, factory, usdc].map((address) => address.toLowerCase())).size !== 4) throw new Error("Arc Testnet Uniswap addresses must be distinct.");
+  return { quoter, router, factory };
 }
 
 export function minimumOutput(amountOut: bigint, slippageBps: number): bigint {
@@ -117,27 +112,27 @@ export function quoteIsFresh(quote: GraduatedQuote, wallet: Address, pool: Addre
 export async function validateCanonicalPool(pool: Address, token: Address): Promise<ValidatedPool> {
   const config = configuredUniswapV3();
   if (!config) throw new Error(`Uniswap V3 configuration is unavailable for ${selectedCooketChainName}.`);
-  const [poolCode, quoterCode, routerCode, factoryCode, wethCode] = await Promise.all([pool, config.quoter, config.router, config.factory, selectedWeth].map((address) => publicClient.getBytecode({ address })));
+  const [poolCode, quoterCode, routerCode, factoryCode, usdcCode] = await Promise.all([pool, config.quoter, config.router, config.factory, ARC_CANONICAL_USDC].map((address) => publicClient.getBytecode({ address })));
   if (!poolCode || poolCode === "0x") throw new Error(`The indexed canonical pool has no deployed bytecode on ${selectedCooketChainName}.`);
   if (!quoterCode || quoterCode === "0x") throw new Error(`Configured QuoterV2 has no deployed bytecode on ${selectedCooketChainName}.`);
-  if (!routerCode || routerCode === "0x") throw new Error(`Configured SwapRouter02 has no deployed bytecode on ${selectedCooketChainName}.`);
-  if (!factoryCode || factoryCode === "0x" || !wethCode || wethCode === "0x") throw new Error(`Configured canonical Uniswap dependency has no deployed bytecode on ${selectedCooketChainName}.`);
+  if (!routerCode || routerCode === "0x") throw new Error(`Configured SwapRouter has no deployed bytecode on ${selectedCooketChainName}.`);
+  if (!factoryCode || factoryCode === "0x" || !usdcCode || usdcCode === "0x") throw new Error(`Configured canonical Uniswap dependency has no deployed bytecode on ${selectedCooketChainName}.`);
   const [token0, token1, fee, factory, quoterFactory, quoterWeth, routerFactory, routerWeth] = await Promise.all([
     publicClient.readContract({ address: pool, abi: poolAbi, functionName: "token0" }), publicClient.readContract({ address: pool, abi: poolAbi, functionName: "token1" }), publicClient.readContract({ address: pool, abi: poolAbi, functionName: "fee" }), publicClient.readContract({ address: pool, abi: poolAbi, functionName: "factory" }),
-    publicClient.readContract({ address: config.quoter, abi: quoterV2Abi, functionName: "factory" }), publicClient.readContract({ address: config.quoter, abi: quoterV2Abi, functionName: "WETH9" }), publicClient.readContract({ address: config.router, abi: swapRouter02Abi, functionName: "factory" }), publicClient.readContract({ address: config.router, abi: swapRouter02Abi, functionName: "WETH9" }),
+    publicClient.readContract({ address: config.quoter, abi: quoterV2Abi, functionName: "factory" }), publicClient.readContract({ address: config.quoter, abi: quoterV2Abi, functionName: "WETH9" }), publicClient.readContract({ address: config.router, abi: swapRouterAbi, functionName: "factory" }), publicClient.readContract({ address: config.router, abi: swapRouterAbi, functionName: "WETH9" }),
   ]);
   const pair = new Set([getAddress(token0).toLowerCase(), getAddress(token1).toLowerCase()]);
-  if (pair.size !== 2 || !pair.has(selectedWeth.toLowerCase()) || !pair.has(getAddress(token).toLowerCase())) throw new Error("The canonical pool token pair is not exactly WETH and this graduated token.");
+  if (pair.size !== 2 || !pair.has(ARC_CANONICAL_USDC.toLowerCase()) || !pair.has(getAddress(token).toLowerCase())) throw new Error("The canonical pool pair is not exactly ERC20 USDC and this graduated token.");
   if (fee !== CANONICAL_POOL_FEE) throw new Error("The canonical pool must use the 1% Uniswap V3 fee tier.");
   for (const address of [factory, quoterFactory, routerFactory]) if (getAddress(address).toLowerCase() !== config.factory.toLowerCase()) throw new Error("The pool or configured periphery is not linked to the selected chain's canonical Uniswap V3 factory.");
-  for (const address of [quoterWeth, routerWeth]) if (getAddress(address).toLowerCase() !== selectedWeth.toLowerCase()) throw new Error(`Configured periphery is not linked to ${selectedCooketChainName} WETH.`);
+  if (getAddress(quoterWeth) !== getAddress(routerWeth) || getAddress(quoterWeth) === getAddress(ARC_CANONICAL_USDC)) throw new Error("Configured periphery does not share the UnsupportedProtocol no-WETH marker.");
   return { ...config, pool: getAddress(pool), token: getAddress(token), token0: getAddress(token0), token1: getAddress(token1) };
 }
 
 export async function quoteGraduatedSwap(pool: ValidatedPool, side: "buy" | "sell", amountIn: bigint, slippageBps: number, wallet: Address): Promise<GraduatedQuote> {
   if (amountIn <= BigInt(0)) throw new Error("Enter an amount greater than zero.");
-  const tokenIn = side === "buy" ? selectedWeth : pool.token;
-  const tokenOut = side === "buy" ? pool.token : selectedWeth;
+  const tokenIn = side === "buy" ? ARC_CANONICAL_USDC : pool.token;
+  const tokenOut = side === "buy" ? pool.token : ARC_CANONICAL_USDC;
   const result = await publicClient.readContract({ address: pool.quoter, abi: quoterV2Abi as never, functionName: "quoteExactInputSingle", args: [{ tokenIn, tokenOut, amountIn, fee: CANONICAL_POOL_FEE, sqrtPriceLimitX96: BigInt(0) }] } as never) as unknown as readonly [bigint];
   const amountOut: bigint = result[0];
   const now = Date.now();
@@ -146,17 +141,8 @@ export async function quoteGraduatedSwap(pool: ValidatedPool, side: "buy" | "sel
 
 /** Builds the sole payload used for raw simulation and both wallet transports. */
 export function buildGraduatedSwapTransaction(pool: ValidatedPool, quote: GraduatedQuote, recipient: Address): GraduatedSwapTransaction {
-  const params = { tokenIn: quote.side === "buy" ? selectedWeth : pool.token, tokenOut: quote.side === "buy" ? pool.token : selectedWeth, fee: CANONICAL_POOL_FEE, recipient: quote.side === "buy" ? recipient : pool.router, amountIn: quote.side === "buy" ? CONTRACT_BALANCE : quote.amountIn, amountOutMinimum: quote.minimumOut, sqrtPriceLimitX96: BigInt(0) };
-  if (quote.side === "buy") {
-    // SwapRouter02 does not implicitly wrap msg.value for exactInputSingle.
-    // Wrap into router-held WETH, then swap it to the active wallet.
-    const wrap = encodeFunctionData({ abi: swapRouter02Abi, functionName: "wrapETH", args: [quote.amountIn] });
-    const swap = encodeFunctionData({ abi: swapRouter02Abi, functionName: "exactInputSingle", args: [params] });
-    return { to: pool.router, data: encodeFunctionData({ abi: swapRouter02Abi, functionName: "multicall", args: [quote.deadline, [wrap, swap]] }), value: quote.amountIn };
-  }
-  const exactInput = encodeFunctionData({ abi: swapRouter02Abi, functionName: "exactInputSingle", args: [params] });
-  const unwrap = encodeFunctionData({ abi: swapRouter02Abi, functionName: "unwrapWETH9", args: [quote.minimumOut, recipient] });
-  return { to: pool.router, data: encodeFunctionData({ abi: swapRouter02Abi, functionName: "multicall", args: [quote.deadline, [exactInput, unwrap]] }), value: BigInt(0) };
+  const params = { tokenIn: quote.side === "buy" ? ARC_CANONICAL_USDC : pool.token, tokenOut: quote.side === "buy" ? pool.token : ARC_CANONICAL_USDC, fee: CANONICAL_POOL_FEE, recipient, deadline: quote.deadline, amountIn: quote.amountIn, amountOutMinimum: quote.minimumOut, sqrtPriceLimitX96: BigInt(0) };
+  return { to: pool.router, data: encodeFunctionData({ abi: swapRouterAbi, functionName: "exactInputSingle", args: [params] }), value: BigInt(0) };
 }
 
 /** Simulates the exact canonical {to, data, value} payload sent by either wallet transport. */

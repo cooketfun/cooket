@@ -315,7 +315,7 @@ contract CTORegistryGraduatedV3Test is Test {
         vm.etch(ArcNativeUsdcV3.CANONICAL_USDC, address(usdcImplementation).code);
         canonicalUsdc = MockArcDualViewUsdcV3(ArcNativeUsdcV3.CANONICAL_USDC);
         MockUniswapV3FactoryV3 uniswapFactory = new MockUniswapV3FactoryV3();
-        manager = new GraduationManagerV3(address(uniswapFactory));
+        manager = new GraduationManagerV3(address(uniswapFactory), address(this));
         fees = new FeeManagerV3(address(this), protocolTreasury);
         factory = new CooketFactoryV3(address(fees), address(manager));
         fees.setFactoryOnce(address(factory));

@@ -1,0 +1,13 @@
+{
+  "chainId": 5042002,
+  "provenance": {
+    "v3Periphery": "06823871",
+    "unsupportedProtocol": "Uniswap/contracts@56928a9"
+  },
+  "uniswapV3Factory": "0xc70593E016A5d50451b1A2Cf3173E7d77F120B37",
+  "nonfungiblePositionManager": "0x6f8795B30aB107d6306434d979F50181C0bb68a9",
+  "unsupportedProtocol": "0x1BB1348ab8900D0F04c483fBaeCfd6472D808EF9",
+  "swapRouter": "0x63c8ed3ca14c996d4d58f558f5988f3a1e863231",
+  "quoterV2": "0xaccdaf1d4c0722c99a9b2d24413258ebdacc6db6",
+  "verified": true
+}

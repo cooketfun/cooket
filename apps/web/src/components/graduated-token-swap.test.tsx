@@ -21,7 +21,7 @@ vi.mock("@/lib/uniswap-v3", () => ({
   configuredUniswapV3: () => ({ quoter: "0x1", router: "0x2", factory: "0x3" }),
   validateCanonicalPool: vi.fn().mockResolvedValue({ router: "0x0000000000000000000000000000000000000099", pool: "0x0000000000000000000000000000000000000088" }),
   quoteGraduatedSwap: vi.fn().mockResolvedValue({
-    amountIn: BigInt("100000000000000000"),
+    amountIn: BigInt("100000"),
     amountOut: BigInt("1"),
     minimumOut: BigInt("1"),
     deadline: BigInt(2_000_000_000),
@@ -39,8 +39,9 @@ vi.mock("@/lib/contracts", async (importOriginal) => {
     ...original,
     publicClient: {
       getBalance: vi.fn().mockResolvedValue(BigInt("1000000000000000000")),
-      readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => {
+      readContract: vi.fn().mockImplementation(async ({ address, functionName }: { address: string; functionName: string }) => {
         if (functionName === "decimals") return 18;
+        if (functionName === "balanceOf" && address.toLowerCase() === "0x3600000000000000000000000000000000000000") return BigInt("1000000");
         if (functionName === "balanceOf") return BigInt("5000000000000000000");
         return BigInt(0);
       }),
@@ -99,17 +100,17 @@ describe("graduated swap presets", () => {
     expect(source).not.toContain("quoteBuyByBudget");
   });
 
-  it("applies buy 10%, 50%, and gas-reserving MAX from the wallet ETH balance", async () => {
+  it("applies buy 10%, 50%, and exact MAX from the canonical ERC20 USDC balance", async () => {
     const user = userEvent.setup();
     renderSwap();
-    const ten = await screen.findByRole("button", { name: "Use 10% of native USDC balance" });
+    const ten = await screen.findByRole("button", { name: "Use 10% of USDC balance" });
     await waitFor(() => expect((ten as HTMLButtonElement).disabled).toBe(false));
     await user.click(ten);
-    expect((screen.getByLabelText("Native USDC amount") as HTMLInputElement).value).toBe("0.1");
-    await user.click(screen.getByRole("button", { name: "Use 50% of native USDC balance" }));
-    expect((screen.getByLabelText("Native USDC amount") as HTMLInputElement).value).toBe("0.5");
-    await user.click(screen.getByRole("button", { name: "Use maximum native USDC after gas reserve" }));
-    expect((screen.getByLabelText("Native USDC amount") as HTMLInputElement).value).toBe("0.999");
+    expect((screen.getByLabelText("ERC20 USDC amount") as HTMLInputElement).value).toBe("0.1");
+    await user.click(screen.getByRole("button", { name: "Use 50% of USDC balance" }));
+    expect((screen.getByLabelText("ERC20 USDC amount") as HTMLInputElement).value).toBe("0.5");
+    await user.click(screen.getByRole("button", { name: "Use exact USDC balance" }));
+    expect((screen.getByLabelText("ERC20 USDC amount") as HTMLInputElement).value).toBe("1");
   });
 
   it("uses the exact token balance for graduated sell MAX", async () => {
@@ -123,15 +124,15 @@ describe("graduated swap presets", () => {
   it("reviews graduated swap values in the shared modal before execution", async () => {
     const user = userEvent.setup();
     renderSwap();
-    const amount = await screen.findByLabelText("Native USDC amount");
+    const amount = await screen.findByLabelText("ERC20 USDC amount");
     await user.type(amount, "0.1");
     const review = await screen.findByRole("button", { name: "Review swap" });
     await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
     await user.click(review);
     expect(screen.getByRole("dialog").textContent).toContain("Arc Testnet · 5042002");
-    expect(screen.getByRole("dialog").textContent).toContain("0.1 native USDC");
+    expect(screen.getByRole("dialog").textContent).toContain("0.1 ERC20 USDC");
     expect(orchestrateGraduatedSwap).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Confirm swap" }));
+    await user.click(screen.getByRole("button", { name: "Start approval + swap" }));
     expect(orchestrateGraduatedSwap).toHaveBeenCalledOnce();
   });
 });
