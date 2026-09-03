@@ -7,7 +7,7 @@ vi.mock("@/lib/arc-safety", async (importOriginal) => {
   return { ...original, assertArcProtocolEconomicsReady: vi.fn(original.assertArcProtocolEconomicsReady) };
 });
 
-import { CANONICAL_POOL_FEE, GRADUATED_SWAP_RPC_TIMEOUT_MS, GRADUATED_SWAP_SIMULATION_TIMEOUT_MS, GraduatedSwapRpcTimeoutError, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, minimumOutput, orchestrateGraduatedSwap, quoteIsFresh, readGraduatedSwapState, simulateGraduatedSwapTransaction, simulateThenSendGraduatedSwap, swapRouterAbi, waitForGraduatedAllowance, type GraduatedQuote, type ValidatedPool } from "./uniswap-v3";
+import { CANONICAL_POOL_FEE, GRADUATED_SWAP_RPC_TIMEOUT_MS, GRADUATED_SWAP_SIMULATION_TIMEOUT_MS, GraduatedSwapRpcTimeoutError, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, minimumOutput, orchestrateGraduatedSwap, quoteIsFresh, readGraduatedAllowance, readGraduatedSwapState, readGraduatedTokenDecimals, simulateGraduatedSwapTransaction, swapRouterAbi, waitForGraduatedAllowance, type GraduatedQuote, type GraduatedSwapTransaction, type ValidatedPool } from "./uniswap-v3";
 import { erc20TradeAbi, publicClient } from "@/lib/contracts";
 import { ARC_PROTOCOL_ECONOMICS_BLOCKER, assertArcProtocolEconomicsReady } from "@/lib/arc-safety";
 
@@ -32,7 +32,7 @@ describe("graduated Arc Uniswap V3 guardrails", () => {
   it.each(["buy", "sell"] as const)("encodes an ERC20-only SwapRouter %s", (side) => {
     const transaction = buildGraduatedSwapTransaction(pool, quote(side), wallet);
     const decoded = decodeFunctionData({ abi: swapRouterAbi, data: transaction.data });
-    const params = decoded.args?.[0] as { tokenIn: string; tokenOut: string; recipient: string; deadline: bigint; amountIn: bigint };
+    const params = decoded.args?.[0] as { tokenIn: string; tokenOut: string; recipient: string; deadline: bigint; amountIn: bigint; amountOutMinimum: bigint };
     expect(transaction).toMatchObject({ to: pool.router, value: BigInt(0) });
     expect(decoded.functionName).toBe("exactInputSingle");
     expect(getAddress(params.tokenIn)).toBe(side === "buy" ? ARC_CANONICAL_USDC : token);
@@ -40,6 +40,7 @@ describe("graduated Arc Uniswap V3 guardrails", () => {
     expect(getAddress(params.recipient)).toBe(wallet);
     expect(params.deadline).toBe(BigInt(2_000));
     expect(params.amountIn).toBe(BigInt(1_000));
+    expect(params.amountOutMinimum).toBe(BigInt(895));
   });
 
   it("requires a complete Arc-only periphery configuration", () => {
@@ -62,7 +63,7 @@ describe("graduated Arc Uniswap V3 guardrails", () => {
     const state = { usdc: BigInt(1000), token: BigInt(1000), allowance: BigInt(0) };
     const approve = vi.fn();
     const send = vi.fn();
-    await expect(orchestrateGraduatedSwap({ side: "buy", amountIn: BigInt(1000), initialState: state, readState: vi.fn().mockResolvedValue({ ...state, allowance: BigInt(1000) }), approve, assertContext: vi.fn(), buildTransaction: () => buildGraduatedSwapTransaction(pool, quote("buy"), wallet), simulate: vi.fn(), send, allowanceDelays: [0] })).rejects.toThrow(ARC_PROTOCOL_ECONOMICS_BLOCKER);
+    await expect(orchestrateGraduatedSwap({ side: "buy", amountIn: BigInt(1000), initialState: state, readAllowance: vi.fn().mockResolvedValue(BigInt(1000)), approve, assertContext: vi.fn(), buildTransaction: () => buildGraduatedSwapTransaction(pool, quote("buy"), wallet), send, allowanceDelays: [0] })).rejects.toThrow(ARC_PROTOCOL_ECONOMICS_BLOCKER);
     expect(approve).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -70,8 +71,7 @@ describe("graduated Arc Uniswap V3 guardrails", () => {
   it("pins the 1% canonical pool tier", () => expect(CANONICAL_POOL_FEE).toBe(10_000));
 });
 
-describe("graduated swap simulation preflight", () => {
-  const hash = `0x${"ab".repeat(32)}` as Hash;
+describe("graduated swap simulation diagnostic", () => {
   const transaction = buildGraduatedSwapTransaction(pool, quote("buy"), wallet);
 
   afterEach(() => {
@@ -83,56 +83,24 @@ describe("graduated swap simulation preflight", () => {
     expect(GRADUATED_SWAP_SIMULATION_TIMEOUT_MS).toBe(15_000);
   });
 
-  it.each(["buy", "sell"] as const)("simulates the exact %s router payload then sends it", async (side) => {
-    const payload = buildGraduatedSwapTransaction(pool, quote(side), wallet);
-    const call = vi.spyOn(publicClient, "call").mockResolvedValue({ data: "0x" });
-    const send = vi.fn().mockResolvedValue(hash);
-    const assertContext = vi.fn();
-    await expect(simulateThenSendGraduatedSwap(payload, (value) => simulateGraduatedSwapTransaction(value, wallet), assertContext, send)).resolves.toBe(hash);
-    expect(call).toHaveBeenCalledOnce();
-    expect(call.mock.calls[0]?.[0]).toMatchObject({ account: wallet, to: payload.to, data: payload.data, value: payload.value });
-    expect(assertContext).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledWith(payload);
-    expect(call.mock.invocationCallOrder[0]).toBeLessThan(send.mock.invocationCallOrder[0]!);
-  });
-
-  it("wraps an eth_call revert as a simulation failure and does not send", async () => {
+  it("wraps an eth_call revert as a simulation failure", async () => {
     vi.spyOn(publicClient, "call").mockRejectedValue(new Error("execution reverted: STF"));
-    const send = vi.fn();
-    await expect(simulateThenSendGraduatedSwap(transaction, (value) => simulateGraduatedSwapTransaction(value, wallet), vi.fn(), send)).rejects.toSatisfy((reason: unknown) => reason instanceof GraduatedSwapSimulationError && /execution reverted/i.test((reason as Error).message) && !(reason instanceof GraduatedSwapSimulationTimeoutError));
-    expect(send).not.toHaveBeenCalled();
+    await expect(simulateGraduatedSwapTransaction(transaction, wallet)).rejects.toSatisfy((reason: unknown) => reason instanceof GraduatedSwapSimulationError && /execution reverted/i.test((reason as Error).message) && !(reason instanceof GraduatedSwapSimulationTimeoutError));
   });
 
-  it("times out a hanging eth_call, aborts it, and does not send", async () => {
+  it("times out a hanging eth_call and aborts it", async () => {
     let signal: AbortSignal | undefined;
     vi.spyOn(publicClient, "call").mockImplementation((request) => {
       signal = request.requestOptions?.signal;
       return new Promise(() => undefined);
     });
-    const send = vi.fn();
-    const pending = simulateThenSendGraduatedSwap(transaction, (value) => simulateGraduatedSwapTransaction(value, wallet, 25), vi.fn(), send);
-    await expect(pending).rejects.toBeInstanceOf(GraduatedSwapSimulationTimeoutError);
+    await expect(simulateGraduatedSwapTransaction(transaction, wallet, 25)).rejects.toBeInstanceOf(GraduatedSwapSimulationTimeoutError);
     expect(signal?.aborted).toBe(true);
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it("does not send after an RPC simulation failure", async () => {
-    vi.spyOn(publicClient, "call").mockRejectedValue(new Error("HTTP request failed."));
-    const send = vi.fn();
-    await expect(simulateThenSendGraduatedSwap(transaction, (value) => simulateGraduatedSwapTransaction(value, wallet), vi.fn(), send)).rejects.toBeInstanceOf(GraduatedSwapSimulationError);
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it("does not send when post-simulation context assertion fails", async () => {
-    vi.spyOn(publicClient, "call").mockResolvedValue({ data: "0x" });
-    const send = vi.fn();
-    await expect(simulateThenSendGraduatedSwap(transaction, (value) => simulateGraduatedSwapTransaction(value, wallet), () => { throw new Error("This quote is stale or the wallet/network changed. Request a fresh quote."); }, send)).rejects.toThrow(/stale/i);
-    expect(send).not.toHaveBeenCalled();
   });
 });
 
-describe("graduated swap pre-wallet RPC deadlines", () => {
+describe("graduated swap submission path", () => {
+  const hash = `0x${"ab".repeat(32)}` as Hash;
   const funded = { usdc: BigInt(1000), token: BigInt(1000), allowance: BigInt(0) };
 
   afterEach(() => {
@@ -146,9 +114,36 @@ describe("graduated swap pre-wallet RPC deadlines", () => {
     vi.mocked(assertArcProtocolEconomicsReady).mockImplementation(() => undefined);
   }
 
-  it("bounds state-read RPC the same as simulation", () => {
-    expect(GRADUATED_SWAP_RPC_TIMEOUT_MS).toBe(15_000);
-    expect(GRADUATED_SWAP_RPC_TIMEOUT_MS).toBe(GRADUATED_SWAP_SIMULATION_TIMEOUT_MS);
+  function swapArgs(side: "buy" | "sell", overrides: Partial<Parameters<typeof orchestrateGraduatedSwap>[0]> = {}) {
+    const payload = buildGraduatedSwapTransaction(pool, quote(side), wallet);
+    return {
+      side,
+      amountIn: BigInt(1000),
+      initialState: funded,
+      readAllowance: vi.fn().mockResolvedValue(BigInt(1000)),
+      approve: vi.fn().mockResolvedValue(undefined),
+      assertContext: vi.fn(),
+      buildTransaction: vi.fn(() => payload),
+      send: vi.fn().mockResolvedValue(hash),
+      allowanceDelays: [0] as const,
+      ...overrides,
+    };
+  }
+
+  it("does not reread token decimals with balances and allowance", async () => {
+    const readContract = vi.spyOn(publicClient, "readContract").mockImplementation(async (request) => {
+      if (request.functionName === "decimals") return 18;
+      return BigInt(1);
+    });
+    await expect(readGraduatedSwapState(token, wallet, pool.router, "buy")).resolves.toEqual({ usdc: BigInt(1), token: BigInt(1), allowance: BigInt(1) });
+    expect(readContract.mock.calls.some((call) => call[0]?.functionName === "decimals")).toBe(false);
+  });
+
+  it("reads token decimals through a dedicated cached helper", async () => {
+    const readContract = vi.spyOn(publicClient, "readContract").mockResolvedValue(18);
+    await expect(readGraduatedTokenDecimals(token)).resolves.toBe(18);
+    expect(readContract).toHaveBeenCalledOnce();
+    expect(readContract.mock.calls[0]?.[0]).toMatchObject({ address: token, functionName: "decimals" });
   });
 
   it("times out a hanging allowance reread", async () => {
@@ -165,72 +160,113 @@ describe("graduated swap pre-wallet RPC deadlines", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  it.each(["buy", "sell"] as const)("times out a hanging %s state reread after approval and does not send", async (side) => {
-    allowArcWrites();
-    const approve = vi.fn().mockResolvedValue(undefined);
-    const readState = vi.fn().mockReturnValue(new Promise(() => undefined));
-    const simulate = vi.fn();
-    const send = vi.fn();
-    await expect(orchestrateGraduatedSwap({
-      side,
-      amountIn: BigInt(1000),
-      initialState: funded,
-      readState,
-      approve,
-      assertContext: vi.fn(),
-      buildTransaction: () => buildGraduatedSwapTransaction(pool, quote(side), wallet),
-      simulate,
-      send,
-      allowanceDelays: [0],
-      rpcTimeoutMs: 25,
-    })).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
-    expect(approve).toHaveBeenCalledOnce();
-    expect(simulate).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
+  it("times out a hanging dedicated allowance read", async () => {
+    let signal: AbortSignal | undefined;
+    vi.spyOn(publicClient, "readContract").mockImplementation((request) => {
+      signal = (request as { requestOptions?: { signal?: AbortSignal } }).requestOptions?.signal;
+      return new Promise(() => undefined);
+    });
+    await expect(readGraduatedAllowance(token, wallet, pool.router, "buy", 25)).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
+    expect(signal?.aborted).toBe(true);
   });
 
-  it.each(["buy", "sell"] as const)("simulates and sends a %s after a successful state reread", async (side) => {
+  it.each(["buy", "sell"] as const)("sends a %s immediately when allowance is already sufficient", async (side) => {
     allowArcWrites();
-    const hash = `0x${"ab".repeat(32)}` as Hash;
+    const input = swapArgs(side, { initialState: { ...funded, allowance: BigInt(1000) } });
+    const simulate = vi.fn();
+    await expect(orchestrateGraduatedSwap(input)).resolves.toBe(hash);
+    expect(input.approve).not.toHaveBeenCalled();
+    expect(input.readAllowance).not.toHaveBeenCalled();
+    expect(simulate).not.toHaveBeenCalled();
+    expect(input.buildTransaction).toHaveBeenCalledOnce();
+    expect(input.send).toHaveBeenCalledOnce();
+    expect(input.send).toHaveBeenCalledWith(input.buildTransaction());
+    expect(input.assertContext).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["buy", "sell"] as const)("does not wait on a hanging %s state reread when allowance is already sufficient", async (side) => {
+    allowArcWrites();
+    const input = swapArgs(side, {
+      initialState: { ...funded, allowance: BigInt(1000) },
+      readAllowance: vi.fn().mockReturnValue(new Promise(() => undefined)),
+    });
+    await expect(orchestrateGraduatedSwap(input)).resolves.toBe(hash);
+    expect(input.readAllowance).not.toHaveBeenCalled();
+    expect(input.send).toHaveBeenCalledOnce();
+  });
+
+  it.each(["buy", "sell"] as const)("approves a %s, verifies allowance, then sends without simulation", async (side) => {
+    allowArcWrites();
     const payload = buildGraduatedSwapTransaction(pool, quote(side), wallet);
-    const approve = vi.fn();
-    const simulate = vi.fn().mockResolvedValue({ data: "0x" });
-    const send = vi.fn().mockResolvedValue(hash);
-    await expect(orchestrateGraduatedSwap({
-      side,
-      amountIn: BigInt(1000),
-      initialState: { ...funded, allowance: BigInt(1000) },
-      readState: vi.fn().mockResolvedValue({ ...funded, allowance: BigInt(1000) }),
-      approve,
-      assertContext: vi.fn(),
-      buildTransaction: () => payload,
-      simulate,
-      send,
-    })).resolves.toBe(hash);
-    expect(approve).not.toHaveBeenCalled();
-    expect(simulate).toHaveBeenCalledWith(payload);
-    expect(send).toHaveBeenCalledWith(payload);
+    const order: string[] = [];
+    const input = swapArgs(side, {
+      approve: vi.fn(async () => { order.push("approve"); }),
+      readAllowance: vi.fn(async () => { order.push("allowance"); return BigInt(1000); }),
+      buildTransaction: vi.fn(() => { order.push("build"); return payload; }),
+      send: vi.fn(async (transaction: GraduatedSwapTransaction) => { order.push("send"); expect(transaction).toBe(payload); return hash; }),
+    });
+    await expect(orchestrateGraduatedSwap(input)).resolves.toBe(hash);
+    expect(input.approve).toHaveBeenCalledOnce();
+    expect(input.readAllowance).toHaveBeenCalledOnce();
+    expect(order).toEqual(["approve", "allowance", "build", "send"]);
   });
 
-  it.each(["buy", "sell"] as const)("times out a hanging %s pre-swap state reread when approval is already sufficient", async (side) => {
+  it.each(["buy", "sell"] as const)("times out a hanging %s allowance reread after approval and does not send", async (side) => {
     allowArcWrites();
-    const approve = vi.fn();
-    const simulate = vi.fn();
-    const send = vi.fn();
-    await expect(orchestrateGraduatedSwap({
-      side,
-      amountIn: BigInt(1000),
-      initialState: { ...funded, allowance: BigInt(1000) },
-      readState: vi.fn().mockReturnValue(new Promise(() => undefined)),
-      approve,
-      assertContext: vi.fn(),
-      buildTransaction: () => buildGraduatedSwapTransaction(pool, quote(side), wallet),
-      simulate,
-      send,
+    const input = swapArgs(side, {
+      readAllowance: vi.fn().mockReturnValue(new Promise(() => undefined)),
       rpcTimeoutMs: 25,
-    })).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
-    expect(approve).not.toHaveBeenCalled();
-    expect(simulate).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
+    });
+    await expect(orchestrateGraduatedSwap(input)).rejects.toBeInstanceOf(GraduatedSwapRpcTimeoutError);
+    expect(input.approve).toHaveBeenCalledOnce();
+    expect(input.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["buy", "sell"] as const)("does not send a %s when confirmed approval is still insufficient", async (side) => {
+    allowArcWrites();
+    const input = swapArgs(side, { readAllowance: vi.fn().mockResolvedValue(BigInt(1)) });
+    await expect(orchestrateGraduatedSwap(input)).rejects.toThrow(/Confirmed approval is still insufficient/);
+    expect(input.approve).toHaveBeenCalledOnce();
+    expect(input.send).not.toHaveBeenCalled();
+  });
+
+  it("does not send a buy with an insufficient USDC balance", async () => {
+    allowArcWrites();
+    const input = swapArgs("buy", { initialState: { ...funded, usdc: BigInt(1), allowance: BigInt(1000) } });
+    await expect(orchestrateGraduatedSwap(input)).rejects.toThrow(/Insufficient canonical ERC20 USDC balance/);
+    expect(input.approve).not.toHaveBeenCalled();
+    expect(input.send).not.toHaveBeenCalled();
+  });
+
+  it("does not send a sell with an insufficient token balance", async () => {
+    allowArcWrites();
+    const input = swapArgs("sell", { initialState: { ...funded, token: BigInt(1), allowance: BigInt(1000) } });
+    await expect(orchestrateGraduatedSwap(input)).rejects.toThrow(/Insufficient token balance/);
+    expect(input.approve).not.toHaveBeenCalled();
+    expect(input.send).not.toHaveBeenCalled();
+  });
+
+  it("does not send when the quote is stale or the wallet/network changed", async () => {
+    allowArcWrites();
+    const input = swapArgs("buy", {
+      initialState: { ...funded, allowance: BigInt(1000) },
+      assertContext: vi.fn(() => { throw new Error("This quote is stale or the wallet/network changed. Request a fresh quote."); }),
+    });
+    await expect(orchestrateGraduatedSwap(input)).rejects.toThrow(/stale or the wallet\/network changed/);
+    expect(input.send).not.toHaveBeenCalled();
+  });
+
+  it("does not send after approval if the quote becomes stale", async () => {
+    allowArcWrites();
+    let checks = 0;
+    const input = swapArgs("buy", {
+      assertContext: vi.fn(() => {
+        checks += 1;
+        if (checks > 1) throw new Error("This quote is stale or the wallet/network changed. Request a fresh quote.");
+      }),
+    });
+    await expect(orchestrateGraduatedSwap(input)).rejects.toThrow(/stale or the wallet\/network changed/);
+    expect(input.approve).toHaveBeenCalledOnce();
+    expect(input.send).not.toHaveBeenCalled();
   });
 });

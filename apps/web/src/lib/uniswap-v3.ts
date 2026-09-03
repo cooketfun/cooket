@@ -34,7 +34,7 @@ export type GraduatedQuote = { side: "buy" | "sell"; amountIn: bigint; amountOut
 export type GraduatedSwapTransaction = { to: Address; data: Hex; value: bigint };
 export type GraduatedSwapSender = (transaction: GraduatedSwapTransaction) => Promise<Hash>;
 export type GraduatedExecutionState = { usdc: bigint; token: bigint; allowance: bigint };
-export type GraduatedSwapState = GraduatedExecutionState & { decimals: number };
+export type GraduatedSwapState = GraduatedExecutionState;
 export const GRADUATED_ALLOWANCE_POLL_DELAYS_MS = [0, 250, 500, 1_000, 1_500] as const;
 export const GRADUATED_SWAP_SIMULATION_TIMEOUT_MS = 15_000;
 export const GRADUATED_SWAP_RPC_TIMEOUT_MS = 15_000;
@@ -113,23 +113,35 @@ export async function withGraduatedRpcTimeout<T>(run: (signal: AbortSignal) => P
 export async function waitForGraduatedAllowance(readAllowance: () => Promise<bigint>, required: bigint, delays: readonly number[] = GRADUATED_ALLOWANCE_POLL_DELAYS_MS, timeoutMs = GRADUATED_SWAP_RPC_TIMEOUT_MS): Promise<bigint> {
   for (const delay of delays) {
     if (delay > 0) await new Promise<void>((resolve) => globalThis.setTimeout(resolve, delay));
-    const allowance = await withGraduatedRpcTimeout(() => readAllowance(), timeoutMs, "Refreshing swap balances and allowance");
+    const allowance = await withGraduatedRpcTimeout(() => readAllowance(), timeoutMs, "Refreshing token allowance");
     if (allowance >= required) return allowance;
   }
   throw new Error("Confirmed approval is still insufficient; swap was not submitted.");
+}
+
+export async function readGraduatedTokenDecimals(token: Address, timeoutMs = GRADUATED_SWAP_RPC_TIMEOUT_MS): Promise<number> {
+  return withGraduatedRpcTimeout(async (signal) => {
+    return publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "decimals", requestOptions: { signal, retryCount: 0 } } as never) as Promise<number>;
+  }, timeoutMs, "Reading token decimals");
+}
+
+export async function readGraduatedAllowance(token: Address, wallet: Address, router: Address, side: "buy" | "sell", timeoutMs = GRADUATED_SWAP_RPC_TIMEOUT_MS): Promise<bigint> {
+  const inputToken = side === "buy" ? ARC_CANONICAL_USDC : token;
+  return withGraduatedRpcTimeout(async (signal) => {
+    return publicClient.readContract({ address: inputToken, abi: erc20TradeAbi, functionName: "allowance", args: [wallet, router], requestOptions: { signal, retryCount: 0 } } as never) as Promise<bigint>;
+  }, timeoutMs, "Refreshing token allowance");
 }
 
 export async function readGraduatedSwapState(token: Address, wallet: Address, router: Address, side: "buy" | "sell", timeoutMs = GRADUATED_SWAP_RPC_TIMEOUT_MS): Promise<GraduatedSwapState> {
   const inputToken = side === "buy" ? ARC_CANONICAL_USDC : token;
   return withGraduatedRpcTimeout(async (signal) => {
     const requestOptions = { signal, retryCount: 0 };
-    const [usdc, tokenBalance, allowance, decimals] = await Promise.all([
+    const [usdc, tokenBalance, allowance] = await Promise.all([
       publicClient.readContract({ address: ARC_CANONICAL_USDC, abi: erc20TradeAbi, functionName: "balanceOf", args: [wallet], requestOptions } as never),
       publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "balanceOf", args: [wallet], requestOptions } as never),
       publicClient.readContract({ address: inputToken, abi: erc20TradeAbi, functionName: "allowance", args: [wallet, router], requestOptions } as never),
-      publicClient.readContract({ address: token, abi: erc20TradeAbi, functionName: "decimals", requestOptions } as never),
-    ]) as [bigint, bigint, bigint, number];
-    return { usdc, token: tokenBalance, allowance, decimals };
+    ]) as [bigint, bigint, bigint];
+    return { usdc, token: tokenBalance, allowance };
   }, timeoutMs, "Refreshing swap balances and allowance");
 }
 
@@ -138,11 +150,10 @@ export async function orchestrateGraduatedSwap(input: {
   side: "buy" | "sell";
   amountIn: bigint;
   initialState: GraduatedExecutionState;
-  readState: () => Promise<GraduatedExecutionState>;
+  readAllowance: () => Promise<bigint>;
   approve: () => Promise<void>;
   assertContext: () => void;
   buildTransaction: () => GraduatedSwapTransaction;
-  simulate: (transaction: GraduatedSwapTransaction) => Promise<unknown>;
   send: (transaction: GraduatedSwapTransaction) => Promise<Hash>;
   allowanceDelays?: readonly number[];
   rpcTimeoutMs?: number;
@@ -154,22 +165,10 @@ export async function orchestrateGraduatedSwap(input: {
   if (input.side === "sell" && input.initialState.token < input.amountIn) throw new Error("Insufficient token balance.");
   if (input.initialState.allowance < input.amountIn) {
     await input.approve();
-    await waitForGraduatedAllowance(async () => (await input.readState()).allowance, input.amountIn, input.allowanceDelays, rpcTimeoutMs);
+    await waitForGraduatedAllowance(input.readAllowance, input.amountIn, input.allowanceDelays, rpcTimeoutMs);
   }
   input.assertContext();
-  const state = await withGraduatedRpcTimeout(() => input.readState(), rpcTimeoutMs, "Refreshing swap balances and allowance");
-  if (input.side === "buy" && state.usdc < input.amountIn) throw new Error("The active wallet no longer has enough canonical ERC20 USDC for this buy.");
-  if (state.allowance < input.amountIn) throw new Error("Confirmed approval is still insufficient; swap was not submitted.");
-  if (input.side === "sell" && state.token < input.amountIn) throw new Error("The active wallet no longer has enough token balance for this sell.");
-  input.assertContext();
-  const transaction = input.buildTransaction();
-  return simulateThenSendGraduatedSwap(transaction, input.simulate, input.assertContext, input.send);
-}
-
-export async function simulateThenSendGraduatedSwap(transaction: GraduatedSwapTransaction, simulate: (transaction: GraduatedSwapTransaction) => Promise<unknown>, assertContext: () => void, send: (transaction: GraduatedSwapTransaction) => Promise<Hash>): Promise<Hash> {
-  await simulate(transaction);
-  assertContext();
-  return send(transaction);
+  return input.send(input.buildTransaction());
 }
 
 export function configuredUniswapV3(): UniswapV3Config | undefined {
@@ -234,7 +233,7 @@ export function buildGraduatedSwapTransaction(pool: ValidatedPool, quote: Gradua
   return { to: pool.router, data: encodeFunctionData({ abi: swapRouterAbi, functionName: "exactInputSingle", args: [params] }), value: BigInt(0) };
 }
 
-/** Simulates the exact canonical {to, data, value} payload sent by either wallet transport. */
+/** Optional diagnostic eth_call. Must never gate wallet submission. */
 export async function simulateGraduatedSwapTransaction(transaction: GraduatedSwapTransaction, account: Address, timeoutMs = GRADUATED_SWAP_SIMULATION_TIMEOUT_MS) {
   try {
     return await withAbortableTimeout((signal) => publicClient.call({ account, ...transaction, requestOptions: { signal, retryCount: 0 } }), timeoutMs, () => new GraduatedSwapSimulationTimeoutError(timeoutMs), "Swap simulation timeout must be positive.");

@@ -11,11 +11,11 @@ import { closedTransactionModal, transactionModalReducer, type TransactionModalP
 import { tradeInvalidationKeys } from "@/components/token-trading";
 import { TradeAmountPresets } from "@/components/trade-amount-presets";
 import { activeWalletStatusMessage, useActiveWallet } from "@/providers/active-wallet-provider";
-import { approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, GraduatedSwapRpcError, GraduatedSwapRpcTimeoutError, GraduatedSwapSimulationError, GraduatedSwapSimulationTimeoutError, orchestrateGraduatedSwap, quoteGraduatedSwap, quoteIsFresh, readGraduatedSwapState, simulateGraduatedSwapTransaction, validateCanonicalPool, type GraduatedQuote, type GraduatedSwapState, type GraduatedSwapTransaction } from "@/lib/uniswap-v3";
+import { approvalCall, buildGraduatedSwapTransaction, configuredUniswapV3, GraduatedSwapRpcError, GraduatedSwapRpcTimeoutError, orchestrateGraduatedSwap, quoteGraduatedSwap, quoteIsFresh, readGraduatedAllowance, readGraduatedSwapState, readGraduatedTokenDecimals, validateCanonicalPool, type GraduatedQuote, type GraduatedSwapState, type GraduatedSwapTransaction } from "@/lib/uniswap-v3";
 import { assertArcProtocolEconomicsReady } from "@/lib/arc-safety";
 
 type State = GraduatedSwapState;
-type SwapStatus = "idle" | "quoting" | "awaiting_approval" | "approval_confirming" | "approval_confirmed" | "refreshing_state" | "simulating" | "awaiting_wallet" | "submitted" | "confirming" | "confirmed" | "rejected" | "error";
+type SwapStatus = "idle" | "quoting" | "awaiting_approval" | "approval_confirming" | "approval_confirmed" | "refreshing_state" | "awaiting_wallet" | "submitted" | "confirming" | "confirmed" | "rejected" | "error";
 
 export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol }: { tokenAddress: Address; canonicalPoolAddress?: Address; symbol: string }) {
   const activeWallet = useActiveWallet();
@@ -34,11 +34,14 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
   const executionContext = useRef({ wallet, chainId });
   useEffect(() => { executionContext.current = { wallet, chainId }; }, [chainId, wallet]);
   useEffect(() => {
+    if (!modal.open) return;
     const phase = swapModalPhase(status, side);
     if (phase) dispatchModal({ type: "progress", phase });
-  }, [side, status]);
+  }, [modal.open, side, status]);
   const poolQuery = useQuery({ queryKey: ["graduated-pool", tokenAddress, canonicalPoolAddress], queryFn: () => validateCanonicalPool(canonicalPoolAddress!, tokenAddress), enabled: Boolean(canonicalPoolAddress && configuredUniswapV3()), staleTime: 30_000 });
+  const decimalsQuery = useQuery({ queryKey: ["graduated-token-decimals", tokenAddress], queryFn: () => readGraduatedTokenDecimals(tokenAddress), staleTime: Infinity, gcTime: Infinity });
   const stateQuery = useQuery({ queryKey: ["graduated-swap-state", tokenAddress, wallet, poolQuery.data?.router, side], queryFn: () => readGraduatedSwapState(tokenAddress, wallet!, poolQuery.data!.router, side), enabled: Boolean(wallet && poolQuery.data), refetchInterval: 15_000 });
+  const tokenDecimals = decimalsQuery.data;
   const config = configuredUniswapV3();
   const guard = !config ? `Swap configuration unavailable: verified ${selectedCooketChainName} QuoterV2, SwapRouter, and factory addresses are required.` : !canonicalPoolAddress ? "No indexed canonical graduation pool is available for this token." : chainId !== undefined && chainId !== selectedCooketChainId ? `Switch the active wallet to ${selectedCooketChainName} (${selectedCooketChainId}).` : !connected || !wallet || !walletClient || !canTransact ? activeWalletStatusMessage(walletStatus) : poolQuery.isError ? poolQuery.error.message : null;
 
@@ -47,7 +50,7 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
     try {
       setStatus("quoting");
       setError("");
-      const decimals = side === "buy" ? ARC_USDC_TOKEN_DECIMALS : stateQuery.data?.decimals;
+      const decimals = side === "buy" ? ARC_USDC_TOKEN_DECIMALS : tokenDecimals;
       if (decimals === undefined) throw new Error("Token decimals are unavailable.");
       const bps = Math.round(Number(slippage) * 100);
       const parsed = validateSwapInput(amount, decimals, side, stateQuery.data, symbol);
@@ -57,7 +60,7 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
       setStatus("error");
       setError(errorMessage(reason));
     }
-  }, [amount, guard, poolQuery.data, side, slippage, stateQuery.data, symbol, wallet]);
+  }, [amount, guard, poolQuery.data, side, slippage, stateQuery.data, symbol, tokenDecimals, wallet]);
 
   useEffect(() => {
     if (guard || !amount || busy.current) return;
@@ -87,14 +90,10 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
         side,
         amountIn: quote.amountIn,
         initialState: stateQuery.data,
-        readState: () => { setStatus("refreshing_state"); return readGraduatedSwapState(tokenAddress, wallet, poolQuery.data!.router, side); },
-        approve: async () => { await approveExactly(send, side === "buy" ? ARC_CANONICAL_USDC : tokenAddress, poolQuery.data!.router, quote.amountIn, wallet, setHash, setStatus); setStatus("refreshing_state"); },
+        readAllowance: () => { setStatus("refreshing_state"); return readGraduatedAllowance(tokenAddress, wallet, poolQuery.data!.router, side); },
+        approve: async () => { await approveExactly(send, side === "buy" ? ARC_CANONICAL_USDC : tokenAddress, poolQuery.data!.router, quote.amountIn, wallet, setHash, setStatus); },
         assertContext,
         buildTransaction: () => buildGraduatedSwapTransaction(poolQuery.data!, quote, wallet),
-        simulate: (transaction) => {
-          setStatus("simulating");
-          return simulateGraduatedSwapTransaction(transaction, wallet);
-        },
         send: (transaction) => { setHash(undefined); setStatus("awaiting_wallet"); return send(transaction, "Swap"); },
       });
       setHash(swapHash);
@@ -121,21 +120,21 @@ export function GraduatedTokenSwap({ tokenAddress, canonicalPoolAddress, symbol 
     </div>
     {guard ? <p className="status-box status-warning mt-4 text-sm">{guard}</p> : <>
       <label className="mt-5 block text-xs text-zinc-500">Pay <span className="float-right">{side === "buy" ? "ERC20 USDC" : symbol}</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-black/20 p-3 text-white" aria-label={side === "buy" ? "ERC20 USDC amount" : `${symbol} amount`} inputMode="decimal" value={amount} onChange={(event) => changeAmount(event.target.value)} placeholder="0.0" /></label>
-      <TradeAmountPresets side={side} buyBalance={stateQuery.data?.usdc} buyDecimals={ARC_USDC_TOKEN_DECIMALS} buyIsNative={false} tokenBalance={stateQuery.data?.token} tokenDecimals={stateQuery.data?.decimals ?? 18} disabled={pending || Boolean(guard)} onSelect={changeAmount} />
-      <p className="mt-1 text-xs text-zinc-600">Balance {stateQuery.data ? (side === "buy" ? formatUnits(stateQuery.data.usdc, ARC_USDC_TOKEN_DECIMALS) : formatUnits(stateQuery.data.token, stateQuery.data.decimals)) : "…"}</p>
+      <TradeAmountPresets side={side} buyBalance={stateQuery.data?.usdc} buyDecimals={ARC_USDC_TOKEN_DECIMALS} buyIsNative={false} tokenBalance={stateQuery.data?.token} tokenDecimals={tokenDecimals ?? 18} disabled={pending || Boolean(guard)} onSelect={changeAmount} />
+      <p className="mt-1 text-xs text-zinc-600">Balance {stateQuery.data ? (side === "buy" ? formatUnits(stateQuery.data.usdc, ARC_USDC_TOKEN_DECIMALS) : formatUnits(stateQuery.data.token, tokenDecimals ?? 18)) : "…"}</p>
       <label className="mt-4 block text-xs text-zinc-500">Slippage (%)<input className="mt-2 w-full rounded-lg border border-white/10 bg-black/20 p-3 text-white" inputMode="decimal" value={slippage} onChange={(event) => { setSlippage(event.target.value); setQuote(undefined); }} /></label>
-      {quote && <div className="mt-4 rounded-lg border border-white/8 p-3 text-sm"><p>Receive ~ {formatUnits(quote.amountOut, side === "buy" ? stateQuery.data?.decimals ?? 18 : ARC_USDC_TOKEN_DECIMALS)} {side === "buy" ? symbol : "ERC20 USDC"}</p><p className="mt-1 text-zinc-500">Minimum received {formatUnits(quote.minimumOut, side === "buy" ? stateQuery.data?.decimals ?? 18 : ARC_USDC_TOKEN_DECIMALS)} · Pool fee 1%</p></div>}
+      {quote && <div className="mt-4 rounded-lg border border-white/8 p-3 text-sm"><p>Receive ~ {formatUnits(quote.amountOut, side === "buy" ? tokenDecimals ?? 18 : ARC_USDC_TOKEN_DECIMALS)} {side === "buy" ? symbol : "ERC20 USDC"}</p><p className="mt-1 text-zinc-500">Minimum received {formatUnits(quote.minimumOut, side === "buy" ? tokenDecimals ?? 18 : ARC_USDC_TOKEN_DECIMALS)} · Pool fee 1%</p></div>}
       {error && status === "error" && <p className="status-box status-error mt-4 text-sm" role="alert">{error}</p>}
       <button className="button-primary mt-5 w-full" type="button" disabled={!quote || pending || status === "quoting"} onClick={() => dispatchModal({ type: "review" })}>{status === "quoting" ? "Quoting…" : "Review swap"}</button>
       <details className="mt-4 text-xs text-zinc-600"><summary>Execution details</summary><p className="mt-2 break-all">Pool {canonicalPoolAddress}<br />SwapRouter {poolQuery.data?.router}<br />{selectedCooketChainName} · quote deadline 5 minutes<br />No validated indexed active V3 liquidity is available, so Cooket does not infer or cap price impact.</p></details>
     </>}
     <TransactionModal open={modal.open} title={`${status === "awaiting_approval" || status === "approval_confirming" ? "Approve" : "Swap"} ${symbol}`} phase={modal.phase} wallet={wallet} hash={hash} error={error} onClose={() => dispatchModal({ type: "close" })} onConfirm={() => void submit()} confirmLabel={quote && stateQuery.data && stateQuery.data.allowance < quote.amountIn ? "Start approval + swap" : "Confirm swap"} confirmDisabled={Boolean(guard)} details={quote ? [
-      { label: "Input", value: `${formatUnits(quote.amountIn, side === "buy" ? ARC_USDC_TOKEN_DECIMALS : stateQuery.data?.decimals ?? 18)} ${side === "buy" ? "ERC20 USDC" : symbol}` },
-      { label: "Expected output", value: `${formatUnits(quote.amountOut, side === "buy" ? stateQuery.data?.decimals ?? 18 : ARC_USDC_TOKEN_DECIMALS)} ${side === "buy" ? symbol : "ERC20 USDC"}` },
-      { label: "Minimum output", value: formatUnits(quote.minimumOut, side === "buy" ? stateQuery.data?.decimals ?? 18 : ARC_USDC_TOKEN_DECIMALS) },
+      { label: "Input", value: `${formatUnits(quote.amountIn, side === "buy" ? ARC_USDC_TOKEN_DECIMALS : tokenDecimals ?? 18)} ${side === "buy" ? "ERC20 USDC" : symbol}` },
+      { label: "Expected output", value: `${formatUnits(quote.amountOut, side === "buy" ? tokenDecimals ?? 18 : ARC_USDC_TOKEN_DECIMALS)} ${side === "buy" ? symbol : "ERC20 USDC"}` },
+      { label: "Minimum output", value: formatUnits(quote.minimumOut, side === "buy" ? tokenDecimals ?? 18 : ARC_USDC_TOKEN_DECIMALS) },
       { label: "Slippage", value: `${slippage}%` }, { label: "Pool fee", value: "1%" },
       { label: "Quote expires", value: new Date(Number(quote.deadline) * 1000).toLocaleTimeString() },
-    ] : []} statusLabel={status === "simulating" ? `Simulating swap on ${selectedCooketChainName}` : status === "refreshing_state" ? `Refreshing approval and balances on ${selectedCooketChainName}` : undefined} />
+    ] : []} statusLabel={status === "refreshing_state" ? `Confirming token allowance on ${selectedCooketChainName}` : undefined} />
   </section>;
 }
 
@@ -171,13 +170,8 @@ function errorMessage(reason: unknown): string { return reason instanceof Error 
 
 function swapErrorMessage(reason: unknown): string {
   const message = errorMessage(reason);
-  if (reason instanceof GraduatedSwapSimulationTimeoutError) return `${message} No wallet request was made. Check the Arc Testnet RPC connection and request a fresh quote.`;
   if (reason instanceof GraduatedSwapRpcTimeoutError) return `${message} No wallet request was made. Check the Arc Testnet RPC connection and try again.`;
-  if (reason instanceof GraduatedSwapSimulationError) {
-    if (/revert|execution reverted|contract function execution/i.test(message)) return `Swap simulation reverted. Pool state or swap parameters changed; request a fresh quote. No wallet request was made.`;
-    return `Arc Testnet RPC could not simulate the swap. Check the network connection and request a fresh quote. No wallet request was made.`;
-  }
-  if (reason instanceof GraduatedSwapRpcError) return `Arc Testnet RPC could not refresh swap balances or allowance. Check the network connection and try again. No wallet request was made.`;
+  if (reason instanceof GraduatedSwapRpcError) return `Arc Testnet RPC could not refresh token allowance. Check the network connection and try again. No wallet request was made.`;
   return message;
 }
 
@@ -190,5 +184,5 @@ function validateSwapInput(amount: string, decimals: number, side: "buy" | "sell
 }
 
 function swapModalPhase(status: SwapStatus, side: "buy" | "sell"): TransactionModalPhase | undefined {
-  return ({ idle: undefined, quoting: "preparing", awaiting_approval: "awaiting_approval", approval_confirming: "approval_submitted", approval_confirmed: "approval_confirmed", refreshing_state: "refreshing_state", simulating: "simulating_swap", awaiting_wallet: side === "sell" ? "awaiting_sell_signature" : "awaiting_wallet", submitted: side === "sell" ? "sell_submitted" : "submitted", confirming: side === "sell" ? "sell_confirming" : "confirming", confirmed: "confirmed", rejected: "rejected", error: "failed" } as const)[status];
+  return ({ idle: undefined, quoting: undefined, awaiting_approval: "awaiting_approval", approval_confirming: "approval_submitted", approval_confirmed: "approval_confirmed", refreshing_state: "refreshing_state", awaiting_wallet: side === "sell" ? "awaiting_sell_signature" : "awaiting_wallet", submitted: side === "sell" ? "sell_submitted" : "submitted", confirming: side === "sell" ? "sell_confirming" : "confirming", confirmed: "confirmed", rejected: "rejected", error: "failed" } as const)[status];
 }
