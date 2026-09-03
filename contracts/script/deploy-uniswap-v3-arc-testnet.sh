@@ -4,8 +4,8 @@
 set -euo pipefail
 
 MODE="${1:-plan}"
-if [[ "$MODE" != "plan" && "$MODE" != "broadcast" ]]; then
-  echo "usage: $0 [plan|broadcast]" >&2
+if [[ "$MODE" != "plan" && "$MODE" != "preflight" && "$MODE" != "broadcast" ]]; then
+  echo "usage: $0 [plan|preflight|broadcast]" >&2
   exit 64
 fi
 
@@ -72,23 +72,83 @@ if [[ "$MODE" == "plan" ]]; then
   exit 0
 fi
 
-[[ -n "${DEPLOYER_ACCOUNT:-}" ]] || { echo "DEPLOYER_ACCOUNT is required for broadcast mode" >&2; exit 1; }
+encode_constructor() {
+  local signature="$1"
+  shift
+  cast abi-encode "$signature" "$@"
+}
+
+link_position_descriptor_bytecode() {
+  local nft_descriptor_address="$1"
+  local position_descriptor_bytecode
+  local link_start
+  local link_offset
+  local link_placeholder
+  local linked_position_descriptor_bytecode
+
+  position_descriptor_bytecode="$(jq -er '.bytecode | select(type == "string" and startswith("0x"))' "$POSITION_DESCRIPTOR_ARTIFACT")"
+  link_start="$(jq -er '.linkReferences["contracts/libraries/NFTDescriptor.sol"].NFTDescriptor[0].start' "$POSITION_DESCRIPTOR_ARTIFACT")"
+  link_offset=$((2 + link_start * 2))
+  link_placeholder="${position_descriptor_bytecode:link_offset:40}"
+  [[ "$link_placeholder" =~ ^__\$[[:xdigit:]]{34}\$__$ ]] || {
+    echo "position descriptor linker placeholder is invalid at offset $link_offset: $link_placeholder" >&2
+    return 1
+  }
+  linked_position_descriptor_bytecode="${position_descriptor_bytecode:0:link_offset}${nft_descriptor_address#0x}${position_descriptor_bytecode:link_offset + 40}"
+  [[ "$linked_position_descriptor_bytecode" != *"__"* ]] || {
+    echo "linked position descriptor bytecode still contains Solidity linker placeholders" >&2
+    return 1
+  }
+  printf '%s\n' "$linked_position_descriptor_bytecode"
+}
+
+if [[ "$MODE" == "preflight" ]]; then
+  [[ -n "${DEPLOYER_ADDRESS:-}" ]] || { echo "DEPLOYER_ADDRESS is required for preflight mode" >&2; exit 1; }
+fi
+
 actual_chain_id="$(cast chain-id --rpc-url "$RPC_URL")"
 [[ "$actual_chain_id" == "$CHAIN_ID" ]] || {
-  echo "refusing broadcast: RPC chain id is $actual_chain_id, expected $CHAIN_ID" >&2
+  echo "refusing $MODE: RPC chain id is $actual_chain_id, expected $CHAIN_ID" >&2
   exit 1
 }
+
+if [[ "$MODE" == "preflight" ]]; then
+  readonly PREFLIGHT_DUMMY_ADDRESS="0x000000000000000000000000000000000000dEaD"
+
+  estimate() {
+    cast estimate --rpc-url "$RPC_URL" --from "$DEPLOYER_ADDRESS" --create "$1"
+  }
+
+  nft_descriptor_bytecode="$(jq -er '.bytecode | select(type == "string" and startswith("0x"))' "$NFT_DESCRIPTOR_ARTIFACT")"
+  linked_position_descriptor_bytecode="$(link_position_descriptor_bytecode "$PREFLIGHT_DUMMY_ADDRESS")"
+  position_descriptor_args="$(encode_constructor 'f(address,bytes32)' "$PREFLIGHT_DUMMY_ADDRESS" "$NATIVE_LABEL")"
+  position_manager_bytecode="$(jq -er '.bytecode | select(type == "string" and startswith("0x"))' "$POSITION_MANAGER_ARTIFACT")"
+  position_manager_args="$(encode_constructor 'f(address,address,address)' "$PREFLIGHT_DUMMY_ADDRESS" "$PREFLIGHT_DUMMY_ADDRESS" "$PREFLIGHT_DUMMY_ADDRESS")"
+
+  gas_price="$(cast gas-price --rpc-url "$RPC_URL")"
+  unsupported_protocol_gas="$(estimate "$UNSUPPORTED_PROTOCOL_INITCODE")"
+  factory_gas="$(estimate "$factory_bytecode")"
+  nft_descriptor_gas="$(estimate "$nft_descriptor_bytecode")"
+  position_descriptor_gas="$(estimate "${linked_position_descriptor_bytecode}${position_descriptor_args#0x}")"
+  position_manager_gas="$(estimate "${position_manager_bytecode}${position_manager_args#0x}")"
+  total_gas=$((unsupported_protocol_gas + factory_gas + nft_descriptor_gas + position_descriptor_gas + position_manager_gas))
+
+  echo "gas price: $gas_price"
+  echo "UnsupportedProtocol estimated gas: $unsupported_protocol_gas"
+  echo "UniswapV3Factory estimated gas: $factory_gas"
+  echo "NFTDescriptor estimated gas: $nft_descriptor_gas"
+  echo "NonfungibleTokenPositionDescriptor estimated gas: $position_descriptor_gas"
+  echo "NonfungiblePositionManager estimated gas: $position_manager_gas"
+  echo "total estimated gas: $total_gas"
+  exit 0
+fi
+
+[[ -n "${DEPLOYER_ACCOUNT:-}" ]] || { echo "DEPLOYER_ACCOUNT is required for broadcast mode" >&2; exit 1; }
 
 deploy() {
   local initcode="$1"
   # Foundry prompts for the named local keystore password interactively; no password file or environment secret is used.
   cast send --json --rpc-url "$RPC_URL" --account "$DEPLOYER_ACCOUNT" --create "$initcode" | jq -er '.contractAddress'
-}
-
-encode_constructor() {
-  local signature="$1"
-  shift
-  cast abi-encode "$signature" "$@"
 }
 
 echo "deployer account: $DEPLOYER_ACCOUNT"
@@ -97,19 +157,7 @@ factory="$(deploy "$factory_bytecode")"
 nft_descriptor_bytecode="$(jq -er '.bytecode | select(type == "string" and startswith("0x"))' "$NFT_DESCRIPTOR_ARTIFACT")"
 nft_descriptor="$(deploy "$nft_descriptor_bytecode")"
 
-position_descriptor_bytecode="$(jq -er '.bytecode | select(type == "string" and startswith("0x"))' "$POSITION_DESCRIPTOR_ARTIFACT")"
-link_start="$(jq -er '.linkReferences["contracts/libraries/NFTDescriptor.sol"].NFTDescriptor[0].start' "$POSITION_DESCRIPTOR_ARTIFACT")"
-link_offset=$((2 + link_start * 2))
-link_placeholder="${position_descriptor_bytecode:link_offset:40}"
-[[ "$link_placeholder" =~ ^__\$[[:xdigit:]]{34}\$__$ ]] || {
-  echo "position descriptor linker placeholder is invalid at offset $link_offset: $link_placeholder" >&2
-  exit 1
-}
-linked_position_descriptor_bytecode="${position_descriptor_bytecode:0:link_offset}${nft_descriptor#0x}${position_descriptor_bytecode:link_offset + 40}"
-[[ "$linked_position_descriptor_bytecode" != *"__"* ]] || {
-  echo "linked position descriptor bytecode still contains Solidity linker placeholders" >&2
-  exit 1
-}
+linked_position_descriptor_bytecode="$(link_position_descriptor_bytecode "$nft_descriptor")"
 position_descriptor_args="$(encode_constructor 'f(address,bytes32)' "$unsupported_protocol" "$NATIVE_LABEL")"
 position_descriptor="$(deploy "${linked_position_descriptor_bytecode}${position_descriptor_args#0x}")"
 
