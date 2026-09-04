@@ -26,6 +26,7 @@ function walletClient(writeContract = vi.fn().mockResolvedValue(hash), address =
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   contractAddresses.cooketFactory = undefined;
   contractAddresses.cooketCurve = undefined;
 });
@@ -111,6 +112,7 @@ describe("Arc wallet context validation", () => {
 
 describe("Arc Phase 0 write safety", () => {
   it("blocks create, buy, and sell before simulation or wallet submission", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ARC_TESTNET_FINANCIAL_EXECUTION_ENABLED", "");
     const simulate = vi.spyOn(publicClient, "simulateContract");
     const client = walletClient();
     const callbacks = { onApprovalRequested() {}, onApprovalSubmitted() {}, onApprovalConfirmed() {}, onSellRequested() {} };

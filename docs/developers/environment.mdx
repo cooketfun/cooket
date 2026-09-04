@@ -16,6 +16,7 @@ description: "Safe Arc Testnet runtime configuration."
 | `ARC_TESTNET_RPC_URL` | Server-side Arc Testnet RPC; defaults to the official public RPC |
 | `NEXT_PUBLIC_ARC_TESTNET_RPC_URL` | Browser-safe Arc Testnet RPC; defaults to the official public RPC |
 | `NEXT_PUBLIC_COOKET_CHAIN_ID` | Defaults to `5042002`; any other value is rejected |
+| `NEXT_PUBLIC_ARC_TESTNET_FINANCIAL_EXECUTION_ENABLED` | Explicit Arc Testnet-only write gate. Must be exactly `true` together with chain ID `5042002`. Missing, `false`, or any other network stays fail-closed and does not enable Arc Mainnet |
 | `NEXT_PUBLIC_API_URL` | Browser-visible API origin; defaults to `http://localhost:4200` locally and must be `https://api.cooket.fun` in production |
 | `INTERNAL_API_URL` | Internal web-to-API origin; service port remains `4000` |
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Required browser-public Reown project ID; missing or placeholder values fail at the wallet boundary |

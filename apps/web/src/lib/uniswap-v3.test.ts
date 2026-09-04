@@ -60,6 +60,7 @@ describe("graduated Arc Uniswap V3 guardrails", () => {
   });
 
   it("retains the economic release gate before approval or submission", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ARC_TESTNET_FINANCIAL_EXECUTION_ENABLED", "");
     const state = { usdc: BigInt(1000), token: BigInt(1000), allowance: BigInt(0) };
     const approve = vi.fn();
     const send = vi.fn();

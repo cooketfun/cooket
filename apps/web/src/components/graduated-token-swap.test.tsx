@@ -98,6 +98,7 @@ function renderSwap() {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   swapState.allowance = BigInt(0);
   swapState.usdc = BigInt("1000000");
   swapState.token = BigInt("5000000000000000000");
@@ -119,6 +120,7 @@ afterEach(() => {
 
 describe("graduated swap presets", () => {
   it("blocks the retained Base swap transport before any Arc wallet send", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ARC_TESTNET_FINANCIAL_EXECUTION_ENABLED", "");
     const sendTransaction = vi.fn().mockResolvedValue(`0x${"ab".repeat(32)}`);
     const active = "0x0000000000000000000000000000000000000022";
     const send = walletTransport({ account: { address: active }, getChainId: vi.fn().mockResolvedValue(5042002), getAddresses: vi.fn().mockResolvedValue([active]), sendTransaction } as never, active);
