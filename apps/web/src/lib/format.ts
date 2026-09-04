@@ -9,6 +9,18 @@ export function formatNative(value: string | bigint | null | undefined, suffix =
   } catch { return "—"; }
 }
 
+// Trade rows retain raw on-chain amounts. Curve accounting is native
+// 18-decimal USDC, while canonical V3 swaps settle in 6-decimal ERC-20 USDC.
+export function formatTradeUsdc(value: string | bigint | null | undefined, source: "curve" | "uniswap_v3", suffix = true) {
+  if (value === null || value === undefined) return "—";
+  try {
+    const raw = BigInt(value);
+    const formatted = trimDecimal(formatUnits(raw, source === "uniswap_v3" ? 6 : 18), 6);
+    const display = formatted === "0" && raw > BigInt(0) ? "<0.000001" : formatted;
+    return suffix ? `${display} USDC` : display;
+  } catch { return "—"; }
+}
+
 export function formatTokenAmount(value: string | bigint | null | undefined, decimals = 18, symbol?: string) {
   if (value === null || value === undefined) return "—";
   try {

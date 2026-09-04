@@ -76,7 +76,7 @@ export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }:
   const [timeframe, setTimeframe] = useState<ChartInterval>("5m");
   const [view, setView] = useState<ChartView>("price");
   const [inspectedTime, setInspectedTime] = useState<Time | null>(null);
-  const query = useQuery({ queryKey: ["token-chart", tokenAddress, timeframe], queryFn: () => api.chart(tokenAddress, `?interval=${timeframe}&limit=500`), refetchInterval: 15_000 });
+  const query = useQuery({ queryKey: ["token-chart", tokenAddress, timeframe], queryFn: () => api.chart(tokenAddress, `?interval=${timeframe}&limit=500`), refetchInterval: 5_000 });
   const chartData = useMemo(() => query.data ? chartDisplayData(query.data.candles, view, initialSupply) : { candles: [], volumes: [] }, [initialSupply, query.data, view]);
   const currency = "USDC";
   const displayedCandle = headerCandle(chartData.candles, inspectedTime);

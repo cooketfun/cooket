@@ -6,7 +6,7 @@ import type { Address } from "viem";
 import { TokenTradePanel, type TradeExecution, type TradeResume } from "@/components/token-trade-panel";
 import { GraduatedTokenSwap } from "@/components/graduated-token-swap";
 import { api } from "@/lib/api";
-import { formatNative, formatTokenAmount } from "@/lib/format";
+import { formatTradeUsdc, formatNative, formatTokenAmount } from "@/lib/format";
 import { captureTradeRecovery, checkTrade, confirmTrade, quoteBuyByBudget, quoteSellAmount, readCurveAvailability, readTradeState, submitBuy, submitSell } from "@/lib/contracts";
 import type { TradeRecovery } from "@/lib/transactions";
 import { activeWalletStatusMessage, useActiveWallet } from "@/providers/active-wallet-provider";
@@ -104,7 +104,7 @@ export function tradeInvalidationKeys(tokenAddress: Address) {
     ["trade-state", tokenAddress],
     ["curve-availability", tokenAddress],
     ["trades", tokenAddress],
-    ["activity", tokenAddress],
+    ["token-activity", tokenAddress],
     ["token-chart", tokenAddress],
     ["token", tokenAddress],
     ["tokens"],
@@ -130,7 +130,7 @@ function TradeHistory({ tokenAddress, symbol, walletAddress }: { tokenAddress: A
   const trades = useQuery({
     queryKey: ["trades", tokenAddress],
     queryFn: () => api.trades(tokenAddress, "?limit=20"),
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
   });
   const visible = trades.data?.items.filter((trade) => tab === "recent" || (walletAddress && trade.trader.toLowerCase() === walletAddress.toLowerCase()));
   return <section className="terminal-panel min-w-0" aria-label="Indexed trade history">
@@ -142,7 +142,7 @@ function TradeHistory({ tokenAddress, symbol, walletAddress }: { tokenAddress: A
     {visible && visible.length > 0 && <ul className="grid divide-y divide-white/6">
       {visible.map((trade) => <li className="grid gap-3 p-4 text-sm transition-colors hover:bg-white/[0.02] lg:grid-cols-[minmax(7rem,0.6fr)_minmax(12rem,1.3fr)_minmax(10rem,1fr)_auto] lg:items-center" key={`${trade.transaction_hash}:${trade.log_index}`}>
         <div className="flex items-center justify-between gap-3"><span className={trade.side === "buy" ? "text-emerald-300" : "text-rose-300"}>{trade.side.toUpperCase()}</span><span className="font-mono text-xs text-zinc-600">{trade.source === "uniswap_v3" ? "Legacy Uniswap V3" : "Curve"} · #{trade.block_number}</span></div>
-        <div><p className="font-medium text-zinc-100">{formatNative(trade.reserve_amount)}</p><p className="mt-0.5 text-xs text-zinc-500">{formatTokenAmount(trade.token_amount, 18, symbol)}</p></div>
+        <div><p className="font-medium text-zinc-100">{formatTradeUsdc(trade.reserve_amount, trade.source)}</p><p className="mt-0.5 text-xs text-zinc-500">{formatTokenAmount(trade.token_amount, 18, symbol)}</p></div>
         <p className="address truncate" title={trade.trader}>{trade.trader}</p>
         <a className="inline-flex min-h-11 items-center text-cyan-300 hover:text-cyan-200 lg:justify-end lg:text-right" href={explorerTransactionURL(trade.transaction_hash)} target="_blank" rel="noreferrer">View on ArcScan ↗</a>
       </li>)}

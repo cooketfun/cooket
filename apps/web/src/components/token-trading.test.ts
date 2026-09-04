@@ -1,4 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as contracts from "@/lib/contracts";
 import { activeTradeStateQueryKey, loadActiveTradeState, TokenTrading, tradeInvalidationKeys } from "./token-trading";
@@ -17,12 +19,17 @@ describe("trade query refresh", () => {
       ["trade-state", token],
       ["curve-availability", token],
       ["trades", token],
-      ["activity", token],
+      ["token-activity", token],
       ["token-chart", token],
       ["token", token],
       ["tokens"],
       ["trending"],
     ]);
+  });
+
+  it("formats recent trade values from indexed source rather than assuming native decimals", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/components/token-trading.tsx"), "utf8");
+    expect(source).toContain("formatTradeUsdc(trade.reserve_amount, trade.source)");
   });
 
   it("reads balances and allowance for the active wallet address", async () => {
