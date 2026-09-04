@@ -11,13 +11,14 @@ afterEach(() => {
 });
 
 describe("trade query refresh", () => {
-  it("invalidates balances, pricing, token data, trades, and activity after confirmation", () => {
+  it("invalidates balances, pricing, token data, trades, activity, and every chart timeframe after confirmation", () => {
     const token = "0x0000000000000000000000000000000000000011" as const;
     expect(tradeInvalidationKeys(token)).toEqual([
       ["trade-state", token],
       ["curve-availability", token],
       ["trades", token],
       ["activity", token],
+      ["token-chart", token],
       ["token", token],
       ["tokens"],
       ["trending"],

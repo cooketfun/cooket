@@ -56,11 +56,12 @@ func NewPostgresRepository(ctx context.Context, url string) (*PostgresRepository
 func (r *PostgresRepository) requireSchema(ctx context.Context) error {
 	var ready bool
 	e := r.pool.QueryRow(ctx, `SELECT
-		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12]
+		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12,13]
 		AND to_regclass('public.tokens') IS NOT NULL
 		AND to_regclass('public.token_metadata_drafts') IS NOT NULL
 		AND to_regclass('public.token_holder_balances') IS NOT NULL
-			AND to_regclass('public.token_trade_buckets') IS NOT NULL
+		AND to_regclass('public.token_trade_buckets') IS NOT NULL
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tokens' AND column_name='token_decimals')
 			AND to_regclass('public.application_token_exclusions') IS NOT NULL
 		AND to_regclass('public.cto_treasuries') IS NOT NULL
 		AND to_regclass('public.cto_proposals') IS NOT NULL
@@ -552,15 +553,16 @@ func (r *PostgresRepository) Chart(ctx context.Context, chain int64, token, inte
 				THEN extract(epoch FROM date_trunc('week', to_timestamp(b.block_timestamp) AT TIME ZONE 'UTC'))::bigint
 				ELSE (b.block_timestamp / $3::bigint) * $3::bigint
 			END bucket_start,
-			t.side,t.source,t.token_amount,t.reserve_amount,t.curve_value,t.trader_address,t.block_number,t.transaction_index,t.transaction_hash,t.log_index,
+			t.side,t.source,t.token_amount,t.reserve_amount,t.curve_value,t.trader_address,t.block_number,t.transaction_index,t.transaction_hash,t.log_index,tk.token_decimals,
 			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.token_amount WHEN t.source='curve' AND t.side='sell' THEN -t.token_amount ELSE 0 END) OVER (ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) sold_supply,
 			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.curve_value WHEN t.source='curve' AND t.side='sell' THEN -t.curve_value ELSE 0 END) OVER (ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) reserve_balance
 		FROM trades t
 		JOIN chain_blocks b ON b.chain_id=t.chain_id AND b.block_hash=t.block_hash AND b.is_canonical
+		LEFT JOIN LATERAL (SELECT token_decimals FROM tokens tk WHERE tk.chain_id=t.chain_id AND lower(tk.token_address)=lower(t.token_address) AND tk.is_canonical ORDER BY tk.block_number DESC,tk.log_index DESC LIMIT 1) tk ON true
 			WHERE t.chain_id=$1 AND lower(t.token_address)=lower($2) AND t.is_canonical
 			  AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=t.chain_id AND x.token_address=lower(t.token_address))
 	), priced AS (
-		SELECT *,CASE WHEN source='uniswap_v3' THEN floor(reserve_amount * 1000000000000000000::numeric / NULLIF(token_amount,0))
+		SELECT *,CASE WHEN source='uniswap_v3' THEN floor(reserve_amount * power(10::numeric, token_decimals + 12) / NULLIF(token_amount,0))
 			WHEN sold_supply >= 0 AND sold_supply < 1066666666666666666666666667::numeric AND reserve_balance >= 0
 			THEN ceil(((1000000000000000000::numeric + reserve_balance) * 1000000000000000000::numeric) / (1066666666666666666666666667::numeric - sold_supply)) END price
 		FROM ordered

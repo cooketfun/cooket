@@ -32,7 +32,7 @@ describe("TokenChart terminal controls", () => {
     const user = userEvent.setup();
     renderChart();
 
-    await waitFor(() => expect(chart).toHaveBeenCalledWith(token, "?interval=1h&limit=500"));
+    await waitFor(() => expect(chart).toHaveBeenCalledWith(token, "?interval=5m&limit=500"));
     const selector = screen.getByRole("combobox", { name: "Chart timeframe" }) as HTMLSelectElement;
     expect(Array.from(selector.options).map(({ value }) => value)).toEqual(TIMEFRAMES);
     expect(Array.from(selector.options).some(({ value }) => value === "1s")).toBe(false);
@@ -47,7 +47,7 @@ describe("TokenChart terminal controls", () => {
     vi.spyOn(api, "chart").mockReturnValue(new Promise<ChartPage>(() => undefined));
     renderChart();
 
-    expect(screen.getByText("Loading canonical 1h candles and volume…")).toBeTruthy();
+    expect(screen.getByText("Loading canonical 5m candles and volume…")).toBeTruthy();
     expect((screen.getByRole("combobox", { name: "Chart timeframe" }) as HTMLSelectElement).disabled).toBe(false);
     const metric = screen.getByRole("combobox", { name: "Chart metric" }) as HTMLSelectElement;
     expect(metric.value).toBe("price");

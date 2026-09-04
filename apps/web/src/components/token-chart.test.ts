@@ -71,6 +71,15 @@ describe("canonical chart presentation", () => {
     expect(formatChartValue(0.0000000009375, "USDC")).toBe("9.375e-10 USDC");
   });
 
+  it("does not send malformed or negative prices to the chart", () => {
+    const data = chartDisplayData([
+      point({ open_price: "-1" as never, high_price: "2", low_price: "-1" as never, close_price: "1" }),
+      point({ bucket_start: 120, open_price: "0", high_price: "2", low_price: "0", close_price: "1" }),
+    ], "price", undefined);
+    expect(data.candles).toHaveLength(1);
+    expect(data.candles[0]).toMatchObject({ open: 0, low: 0, close: 1e-18 });
+  });
+
   it("does not describe or implement trade-count candle coloring", () => {
     const source = readFileSync(resolve(process.cwd(), "src/components/token-chart.tsx"), "utf8");
     expect(source).not.toContain("green buy-dominant, red sell-dominant");

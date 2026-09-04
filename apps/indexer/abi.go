@@ -24,6 +24,7 @@ var ctoTreasuryABI = selectedABIs["CTOTreasuryV3"]
 var contractABI = combinedEventABI(factoryABI, curveABI, tokenABI)
 var v3TradeABI = curveABI
 var v3GraduationABI = graduationManagerABI
+var uniswapV3PoolABI = mustABI(`[{"anonymous":false,"inputs":[{"indexed":true,"name":"sender","type":"address"},{"indexed":true,"name":"recipient","type":"address"},{"indexed":false,"name":"amount0","type":"int256"},{"indexed":false,"name":"amount1","type":"int256"},{"indexed":false,"name":"sqrtPriceX96","type":"uint160"},{"indexed":false,"name":"liquidity","type":"uint128"},{"indexed":false,"name":"tick","type":"int24"}],"name":"Swap","type":"event"}]`)
 
 func mustSelectedABIs() map[string]abi.ABI {
 	var envelope struct {
@@ -41,6 +42,14 @@ func mustSelectedABIs() map[string]abi.ABI {
 		out[name] = parsed
 	}
 	return out
+}
+
+func mustABI(raw string) abi.ABI {
+	parsed, err := abi.JSON(strings.NewReader(raw))
+	if err != nil {
+		panic(err)
+	}
+	return parsed
 }
 
 func combinedEventABI(parts ...abi.ABI) abi.ABI {

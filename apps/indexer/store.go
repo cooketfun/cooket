@@ -27,6 +27,8 @@ func (s *Store) ScanContracts(ctx context.Context, chain int64, configured []com
 		UNION
 		SELECT DISTINCT token_address AS address FROM tokens WHERE chain_id=$1 AND is_canonical AND token_address <> ''
 		UNION
+		SELECT DISTINCT canonical_pool_address AS address FROM curves WHERE chain_id=$1 AND is_canonical AND canonical_pool_address IS NOT NULL AND canonical_pool_address <> ''
+		UNION
 		SELECT DISTINCT treasury_address AS address FROM cto_treasuries WHERE chain_id=$1 AND is_canonical
 		UNION
 		SELECT DISTINCT e.decoded->>'token' AS address FROM chain_events e
@@ -91,7 +93,7 @@ func NewStore(ctx context.Context, url string) (*Store, error) {
 	}
 	var ready bool
 	e = p.QueryRow(ctx, `SELECT
-		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12]
+		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12,13]
 		AND to_regclass('public.chain_events') IS NOT NULL
 		AND to_regclass('public.tokens') IS NOT NULL
 		AND to_regclass('public.curves') IS NOT NULL
@@ -103,6 +105,7 @@ func NewStore(ctx context.Context, url string) (*Store, error) {
 		AND to_regclass('public.cto_supported_assets') IS NOT NULL
 		AND to_regclass('public.cto_treasury_transfers') IS NOT NULL
 		AND to_regclass('public.cto_fee_pulls') IS NOT NULL
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tokens' AND column_name='token_decimals')
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='native_usdc_amount')
 		AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='eth_amount')`).Scan(&ready)
 	if e != nil {
@@ -384,8 +387,8 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 	// remain readable. D2a does not discover or decode a market venue.
 	if _, e := tx.Exec(ctx, `WITH latest AS (
 		SELECT DISTINCT ON (lower(t.token_address)) lower(t.token_address) token_address,
-			floor(t.reserve_amount * 1000000000000000000::numeric / NULLIF(t.token_amount,0)) price
-		FROM trades t WHERE t.chain_id=$1 AND t.is_canonical AND t.source='uniswap_v3'
+			floor(t.reserve_amount * power(10::numeric,tk.token_decimals + 12) / NULLIF(t.token_amount,0)) price
+		FROM trades t JOIN LATERAL (SELECT token_decimals FROM tokens tk WHERE tk.chain_id=t.chain_id AND lower(tk.token_address)=lower(t.token_address) AND tk.is_canonical ORDER BY tk.block_number DESC,tk.log_index DESC LIMIT 1) tk ON true WHERE t.chain_id=$1 AND t.is_canonical AND t.source='uniswap_v3'
 		ORDER BY lower(t.token_address),t.block_number DESC,t.transaction_index DESC,t.log_index DESC
 	), supplies AS (
 		SELECT lower(token_address) token_address,initial_supply FROM tokens WHERE chain_id=$1 AND is_canonical
@@ -402,13 +405,13 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 	// candles preserve their already indexed quote/token ratio and chain order across the
 	// graduation boundary.
 	_, e := tx.Exec(ctx, `WITH ordered AS (
-		SELECT lower(t.token_address) token_address,(b.block_timestamp / 3600) * 3600 bucket_start,t.side,t.source,t.token_amount,t.reserve_amount,t.curve_value,t.trader_address,t.block_number,t.block_hash,t.transaction_hash,t.transaction_index,t.log_index,
+		SELECT lower(t.token_address) token_address,(b.block_timestamp / 3600) * 3600 bucket_start,t.side,t.source,t.token_amount,t.reserve_amount,t.curve_value,t.trader_address,t.block_number,t.block_hash,t.transaction_hash,t.transaction_index,t.log_index,tk.token_decimals,
 			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.token_amount WHEN t.source='curve' AND t.side='sell' THEN -t.token_amount ELSE 0 END) OVER (PARTITION BY lower(t.token_address) ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) sold_supply,
 			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.curve_value WHEN t.source='curve' AND t.side='sell' THEN -t.curve_value ELSE 0 END) OVER (PARTITION BY lower(t.token_address) ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) reserve_balance
-		FROM trades t JOIN chain_blocks b ON b.chain_id=t.chain_id AND b.block_hash=t.block_hash AND b.is_canonical
+		FROM trades t JOIN chain_blocks b ON b.chain_id=t.chain_id AND b.block_hash=t.block_hash AND b.is_canonical LEFT JOIN LATERAL (SELECT token_decimals FROM tokens tk WHERE tk.chain_id=t.chain_id AND lower(tk.token_address)=lower(t.token_address) AND tk.is_canonical ORDER BY tk.block_number DESC,tk.log_index DESC LIMIT 1) tk ON true
 		WHERE t.chain_id=$1 AND t.is_canonical
 	), priced AS (
-		SELECT *,CASE WHEN source='uniswap_v3' THEN floor(reserve_amount * 1000000000000000000::numeric / NULLIF(token_amount,0))
+		SELECT *,CASE WHEN source='uniswap_v3' THEN floor(reserve_amount * power(10::numeric, token_decimals + 12) / NULLIF(token_amount,0))
 			WHEN sold_supply >= 0 AND sold_supply < 1066666666666666666666666667::numeric AND reserve_balance >= 0
 			THEN ceil(((1000000000000000000::numeric + reserve_balance) * 1000000000000000000::numeric) / (1066666666666666666666666667::numeric - sold_supply)) END price
 		FROM ordered
@@ -455,6 +458,9 @@ func insertEvent(ctx context.Context, tx pgx.Tx, chain int64, l types.Log, metad
 	}
 	if !ok && l.Topics[0] == v3GraduationABI.Events["GraduatedV3"].ID {
 		ev, decoderABI, decoderEvent, ok = "GraduatedV3", v3GraduationABI, "GraduatedV3", true
+	}
+	if !ok && l.Topics[0] == uniswapV3PoolABI.Events["Swap"].ID {
+		ev, decoderABI, decoderEvent, ok = "UniswapV3Swap", uniswapV3PoolABI, "Swap", true
 	}
 	if !ok {
 		log.Printf("cooket-indexer: unknown event chain_id=%d contract=%s tx=%s block=%d log_index=%d topic=%s", chain, l.Address.Hex(), l.TxHash.Hex(), l.BlockNumber, l.Index, l.Topics[0].Hex())
@@ -565,7 +571,7 @@ func projection(ctx context.Context, tx pgx.Tx, c int64, l types.Log, n string, 
 		// Presentation metadata is finalized by the API after the launch is indexed.
 		// Preserve it only when a conflict still describes the same launch identity;
 		// a reorg that changes identity must not carry metadata from the orphaned row.
-		_, e := tx.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,$5,$6,'endpoint-cp-v3',$7,$8,$9,$10)
+		_, e := tx.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,token_decimals,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,$5,$6,$7,'endpoint-cp-v3',$8,$9,$10,$11)
 			ON CONFLICT (chain_id,transaction_hash,log_index) DO UPDATE SET
 				description=CASE WHEN lower(tokens.token_address)=lower(excluded.token_address) AND lower(tokens.creator_address)=lower(excluded.creator_address) AND tokens.name=excluded.name AND tokens.symbol=excluded.symbol AND tokens.initial_supply=excluded.initial_supply AND tokens.protocol_version=excluded.protocol_version THEN tokens.description ELSE NULL END,
 				image_url=CASE WHEN lower(tokens.token_address)=lower(excluded.token_address) AND lower(tokens.creator_address)=lower(excluded.creator_address) AND tokens.name=excluded.name AND tokens.symbol=excluded.symbol AND tokens.initial_supply=excluded.initial_supply AND tokens.protocol_version=excluded.protocol_version THEN tokens.image_url ELSE NULL END,
@@ -574,7 +580,7 @@ func projection(ctx context.Context, tx pgx.Tx, c int64, l types.Log, n string, 
 				x_url=CASE WHEN lower(tokens.token_address)=lower(excluded.token_address) AND lower(tokens.creator_address)=lower(excluded.creator_address) AND tokens.name=excluded.name AND tokens.symbol=excluded.symbol AND tokens.initial_supply=excluded.initial_supply AND tokens.protocol_version=excluded.protocol_version THEN tokens.x_url ELSE NULL END,
 				telegram_url=CASE WHEN lower(tokens.token_address)=lower(excluded.token_address) AND lower(tokens.creator_address)=lower(excluded.creator_address) AND tokens.name=excluded.name AND tokens.symbol=excluded.symbol AND tokens.initial_supply=excluded.initial_supply AND tokens.protocol_version=excluded.protocol_version THEN tokens.telegram_url ELSE NULL END,
 				discord_url=CASE WHEN lower(tokens.token_address)=lower(excluded.token_address) AND lower(tokens.creator_address)=lower(excluded.creator_address) AND tokens.name=excluded.name AND tokens.symbol=excluded.symbol AND tokens.initial_supply=excluded.initial_supply AND tokens.protocol_version=excluded.protocol_version THEN tokens.discord_url ELSE NULL END,
-				token_address=excluded.token_address,creator_address=excluded.creator_address,name=excluded.name,symbol=excluded.symbol,initial_supply=excluded.initial_supply,protocol_version='endpoint-cp-v3',block_number=excluded.block_number,block_hash=excluded.block_hash,is_canonical=true,orphaned_at=NULL`, c, u(v["token"]), u(v["creator"]), m.Name, m.Symbol, u(v["totalSupply"]), l.BlockNumber, b, t, i)
+				token_address=excluded.token_address,creator_address=excluded.creator_address,name=excluded.name,symbol=excluded.symbol,token_decimals=excluded.token_decimals,initial_supply=excluded.initial_supply,protocol_version='endpoint-cp-v3',block_number=excluded.block_number,block_hash=excluded.block_hash,is_canonical=true,orphaned_at=NULL`, c, u(v["token"]), u(v["creator"]), m.Name, m.Symbol, m.Decimals, u(v["totalSupply"]), l.BlockNumber, b, t, i)
 		if e != nil {
 			return e
 		}
@@ -605,6 +611,8 @@ func projection(ctx context.Context, tx pgx.Tx, c int64, l types.Log, n string, 
 			return e
 		}
 		return nil
+	case "UniswapV3Swap":
+		return projectUniswapV3Swap(ctx, tx, c, l, v, senders)
 	case "Graduated":
 		// V3 emits the graduation manager, forwarded native USDC, and terminal sold supply.
 		_, e := tx.Exec(ctx, `INSERT INTO graduations(chain_id,token_address,phase,sold_supply,token_amount,graduation_manager_address,native_usdc_amount,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,'graduated',$3,$4,$5,$6,$7,$8,$9,$10)
@@ -623,4 +631,49 @@ func projectedTokenAddress(event string, values map[string]any) string {
 		return u(token)
 	}
 	return ""
+}
+
+// projectUniswapV3Swap uses the pool's signed, executed deltas. It never uses
+// router calldata or a quoted amount as a historical trade price or volume.
+func projectUniswapV3Swap(ctx context.Context, tx pgx.Tx, chain int64, l types.Log, values map[string]any, senders map[common.Hash]common.Address) error {
+	var token string
+	var decimals int
+	err := tx.QueryRow(ctx, `SELECT lower(t.token_address),t.token_decimals FROM curves c JOIN tokens t ON t.chain_id=c.chain_id AND lower(t.token_address)=lower(c.token_address) AND t.is_canonical WHERE c.chain_id=$1 AND lower(c.canonical_pool_address)=lower($2) AND c.is_canonical ORDER BY c.block_number DESC,c.log_index DESC LIMIT 1`, chain, l.Address.Hex()).Scan(&token, &decimals)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if decimals != 18 {
+		return fmt.Errorf("unsupported Cooket token decimals %d for pool %s", decimals, l.Address.Hex())
+	}
+	side, tokenAmount, usdcAmount, err := normalizeUniswapV3Swap(token, values["amount0"], values["amount1"])
+	if err != nil {
+		return fmt.Errorf("canonical pool %s: %w", l.Address.Hex(), err)
+	}
+	trader, ok := senders[l.TxHash]
+	if !ok || trader == (common.Address{}) {
+		return fmt.Errorf("missing transaction sender for canonical Uniswap V3 swap %s", l.TxHash.Hex())
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO trades(chain_id,token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,transaction_index,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,$5,$6,$6,0,0,'uniswap_v3',$7,$8,$9,$10,$11)
+		ON CONFLICT (chain_id,transaction_hash,log_index) DO UPDATE SET token_address=excluded.token_address,trader_address=excluded.trader_address,side=excluded.side,token_amount=excluded.token_amount,reserve_amount=excluded.reserve_amount,curve_value=excluded.curve_value,protocol_fee=0,creator_fee=0,source='uniswap_v3',transaction_index=excluded.transaction_index,block_number=excluded.block_number,block_hash=excluded.block_hash,is_canonical=true,orphaned_at=NULL`, chain, token, trader.Hex(), side, tokenAmount.String(), usdcAmount.String(), l.TxIndex, l.BlockNumber, l.BlockHash.Hex(), l.TxHash.Hex(), l.Index)
+	return err
+}
+
+func normalizeUniswapV3Swap(token string, rawAmount0, rawAmount1 any) (string, *big.Int, *big.Int, error) {
+	amount0, ok0 := rawAmount0.(*big.Int)
+	amount1, ok1 := rawAmount1.(*big.Int)
+	if !ok0 || !ok1 || amount0.Sign() == 0 || amount1.Sign() == 0 || amount0.Sign() == amount1.Sign() {
+		return "", nil, nil, fmt.Errorf("invalid Uniswap V3 Swap deltas")
+	}
+	tokenDelta, usdcDelta := amount1, amount0
+	if strings.Compare(strings.ToLower(token), strings.ToLower(ArcCanonicalUsdc)) < 0 {
+		tokenDelta, usdcDelta = amount0, amount1
+	}
+	side := "sell"
+	if tokenDelta.Sign() < 0 {
+		side = "buy"
+	}
+	return side, new(big.Int).Abs(new(big.Int).Set(tokenDelta)), new(big.Int).Abs(new(big.Int).Set(usdcDelta)), nil
 }

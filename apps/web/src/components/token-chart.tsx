@@ -73,7 +73,7 @@ export function headerCandle(candles: readonly DisplayCandle[], hoveredTime?: Ti
 
 export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }: { tokenAddress: string; initialSupply?: string; className?: string }) {
   const container = useRef<HTMLDivElement>(null);
-  const [timeframe, setTimeframe] = useState<ChartInterval>("1h");
+  const [timeframe, setTimeframe] = useState<ChartInterval>("5m");
   const [view, setView] = useState<ChartView>("price");
   const [inspectedTime, setInspectedTime] = useState<Time | null>(null);
   const query = useQuery({ queryKey: ["token-chart", tokenAddress, timeframe], queryFn: () => api.chart(tokenAddress, `?interval=${timeframe}&limit=500`), refetchInterval: 15_000 });
@@ -161,12 +161,12 @@ export function TokenChart({ tokenAddress, initialSupply, className = "mt-10" }:
           <OHLCValue label="C" value={displayedCandle ? formatChartValue(displayedCandle.close, currency) : "—"} />
           <span className="badge-success">{currency}</span>
         </div>
-        <p className="mt-1 text-[0.65rem] text-zinc-600">Canonical V3 {timeframe} OHLC · indexed volume · UTC</p>
+        <p className="mt-1 text-[0.65rem] text-zinc-600">Canonical {timeframe} OHLC · indexed USDC volume · UTC</p>
       </div>
       {controls}
     </div>
     <div className="bg-[#0a0e18]"><div ref={container} className="h-[min(16.5rem,46dvh)] w-full min-[390px]:h-[min(18.5rem,48dvh)] sm:h-[28rem] lg:h-[40rem] xl:h-[44rem]" role="img" aria-label={`${view === "price" ? "Price" : "FDV"} candlestick chart with volume in ${currency}`} /></div>
-    <p className="border-t border-white/8 px-4 py-3 text-xs leading-5 text-zinc-600">The chart shows 18-decimal native USDC-indexed values. No external pool feed is used before graduation.</p>
+    <p className="border-t border-white/8 px-4 py-3 text-xs leading-5 text-zinc-600">Curve trades use native USDC; graduated pool trades use canonical ERC-20 USDC. Both are normalized to USDC per token.</p>
   </section>;
 }
 

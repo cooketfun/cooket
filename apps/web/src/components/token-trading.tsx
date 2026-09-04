@@ -105,6 +105,7 @@ export function tradeInvalidationKeys(tokenAddress: Address) {
     ["curve-availability", tokenAddress],
     ["trades", tokenAddress],
     ["activity", tokenAddress],
+    ["token-chart", tokenAddress],
     ["token", tokenAddress],
     ["tokens"],
     ["trending"],

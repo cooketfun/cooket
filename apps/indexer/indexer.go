@@ -103,6 +103,10 @@ func (x *Indexer) Run(ctx context.Context) error {
 			if e != nil {
 				return e
 			}
+			senders, e := x.uniswapSwapSenders(ctx, logs)
+			if e != nil {
+				return e
+			}
 			by := map[uint64][]types.Log{}
 			for _, l := range logs {
 				by[l.BlockNumber] = append(by[l.BlockNumber], l)
@@ -132,7 +136,7 @@ func (x *Indexer) Run(ctx context.Context) error {
 				if e != nil {
 					return e
 				}
-				if e = x.store.ApplyWithProvenance(ctx, x.cfg.ChainID, x.cfg.IndexerName, b, by[n], metadata, nil, x.roots); e != nil {
+				if e = x.store.ApplyWithProvenance(ctx, x.cfg.ChainID, x.cfg.IndexerName, b, by[n], metadata, senders, x.roots); e != nil {
 					return e
 				}
 				last = n
@@ -148,6 +152,39 @@ func (x *Indexer) Run(ctx context.Context) error {
 		case <-time.After(3 * time.Second):
 		}
 	}
+}
+
+func (x *Indexer) uniswapSwapSenders(ctx context.Context, logs []types.Log) (map[common.Hash]common.Address, error) {
+	hashes := map[common.Hash]struct{}{}
+	for _, l := range logs {
+		if len(l.Topics) > 0 && l.Topics[0] == uniswapV3PoolABI.Events["Swap"].ID {
+			hashes[l.TxHash] = struct{}{}
+		}
+	}
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+	provider, ok := x.rpc.(transactionSenderRPC)
+	if !ok {
+		return nil, fmt.Errorf("transaction sender RPC is required for canonical Uniswap V3 swaps")
+	}
+	result := make(map[common.Hash]common.Address, len(hashes))
+	signer := types.LatestSignerForChainID(big.NewInt(x.cfg.ChainID))
+	for hash := range hashes {
+		tx, pending, err := provider.TransactionByHash(ctx, hash)
+		if err != nil {
+			return nil, fmt.Errorf("load canonical Uniswap V3 swap sender %s: %w", hash.Hex(), err)
+		}
+		if pending {
+			return nil, fmt.Errorf("canonical Uniswap V3 swap %s is unexpectedly pending", hash.Hex())
+		}
+		from, err := types.Sender(signer, tx)
+		if err != nil {
+			return nil, fmt.Errorf("recover canonical Uniswap V3 swap sender %s: %w", hash.Hex(), err)
+		}
+		result[hash] = from
+	}
+	return result, nil
 }
 
 type launchDiscovery struct {
