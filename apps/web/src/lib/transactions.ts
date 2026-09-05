@@ -6,10 +6,9 @@ export const idleTransaction: TransactionState = { status: "idle" };
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
-export type CreateTokenInput = { name: string; symbol: string; description: string; websiteUrl: string; xUrl: string; telegramUrl: string; discordUrl: string; imageFile: File | null; imageUrl: string; imageSource: "file" | "url"; devBuyEth: string };
+export type CreateTokenInput = { name: string; symbol: string; description: string; websiteUrl: string; xUrl: string; telegramUrl: string; discordUrl: string; imageFile: File | null; imageUrl: string; imageSource: "file" | "url"; devBuyNativeUsdc: string };
 
 export const DEFAULT_BUY_SLIPPAGE_BPS = 100;
-export const MAX_DEV_BUY_WEI = BigInt(0);
 
 const SOCIAL_HOSTS = {
   xUrl: ["x.com", "twitter.com"],
@@ -38,17 +37,20 @@ export function validateCreateToken(input: CreateTokenInput): Record<string, str
     if (!imageURL) errors.image = "Enter an image URL.";
     else if (!isHTTPSImageURL(imageURL)) errors.image = "Image URL must use HTTPS.";
   }
-  if (input.devBuyEth.trim()) {
-    try { parseDevBuyAmount(input.devBuyEth); }
-    catch (error) { errors.devBuyEth = error instanceof Error ? error.message : "Enter a valid Dev buy amount."; }
+  if (input.devBuyNativeUsdc.trim()) {
+    try { parseDevBuyNativeUsdcAmount(input.devBuyNativeUsdc); }
+    catch (error) { errors.devBuyNativeUsdc = error instanceof Error ? error.message : "Enter a valid Dev buy amount."; }
   }
   return errors;
 }
 
-export function parseDevBuyAmount(value: string): bigint {
+export function parseDevBuyNativeUsdcAmount(value: string): bigint {
   const trimmed = value.trim();
   if (!trimmed) return BigInt(0);
-  throw new Error("Dev buy is disabled until Arc native-USDC curve economics are approved.");
+  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) throw new Error("Enter a valid non-negative native USDC amount without scientific notation.");
+  const [whole, fraction = ""] = trimmed.split(".");
+  if (fraction.length > 18) throw new Error("Native USDC amounts support at most 18 decimal places.");
+  return BigInt(whole) * BigInt("1000000000000000000") + BigInt((fraction + "0".repeat(18)).slice(0, 18));
 }
 
 export class DevBuyFailure extends Error {

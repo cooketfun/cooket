@@ -2,7 +2,7 @@ import { ARC_TESTNET_CHAIN_ID } from "@cooket/contracts-sdk";
 import { selectedCooketChain, selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
 
 export const ARC_PROTOCOL_ECONOMICS_BLOCKER =
-  "Arc financial execution is disabled until the verified trading periphery and testnet E2E release gate are approved.";
+  "Arc Testnet financial execution is unavailable because the required explicit safety configuration is not enabled.";
 
 export const ARC_TESTNET_FINANCIAL_EXECUTION_ENV = "NEXT_PUBLIC_ARC_TESTNET_FINANCIAL_EXECUTION_ENABLED";
 

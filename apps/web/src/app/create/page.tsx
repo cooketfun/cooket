@@ -7,7 +7,7 @@ import { CreateTokenForm, type CreateExecution } from "@/components/create-token
 import { api, ApiClientError } from "@/lib/api";
 import { confirmCreatedToken, configuredCurveInitialization, submitCreateToken } from "@/lib/contracts";
 import { executeDevBuy, DevBuyAttemptError } from "@/lib/dev-buy";
-import { DevBuyFailure, parseDevBuyAmount, type TransactionState } from "@/lib/transactions";
+import { DevBuyFailure, parseDevBuyNativeUsdcAmount, type TransactionState } from "@/lib/transactions";
 import { activeWalletStatusMessage, useActiveWallet } from "@/providers/active-wallet-provider";
 import { useState } from "react";
 import { selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
@@ -53,25 +53,27 @@ function BrowserWalletCreatePage() {
     report({ status: "confirming", hash });
     const { created } = await confirmCreatedToken(hash);
     if (getAddress(created.creator) !== creatorAddress) throw new Error("Confirmed creator does not match the connected wallet.");
+    const tokenAddress = getAddress(created.token);
+    const devBuyAmount = parseDevBuyNativeUsdcAmount(input.devBuyNativeUsdc);
+    let devBuyHash: `0x${string}` | undefined;
+    if (devBuyAmount > BigInt(0)) {
+      const retryDevBuy = (retryReport: (state: TransactionState) => void) => performDevBuy(tokenAddress, creatorAddress, devBuyAmount, hash, retryReport);
+      try {
+        devBuyHash = await retryDevBuy(report);
+      } catch (error) {
+        if (error instanceof DevBuyAttemptError) {
+          throw new DevBuyFailure(`Token created successfully, but the Dev buy ${error.rejected ? "was rejected" : error.retryable ? "could not be completed" : "needs confirmation"}.`, tokenAddress, hash, retryDevBuy, error.retryable, error.buyHash, error.rejected);
+        }
+        throw error;
+      }
+    }
     let token;
     for (let attempt = 0; attempt < 60; attempt++) {
       try { token = await api.finalizeMetadata(draft.draft_id, created.token, hash); break; }
       catch (error) { if (!(error instanceof ApiClientError) || error.code !== "not_indexed") throw error; await pause(2000); }
     }
     if (!token) throw new Error("The transaction confirmed, but indexing did not finish in time.");
-    const tokenAddress = getAddress(created.token);
-    const devBuyAmount = parseDevBuyAmount(input.devBuyEth);
-    if (devBuyAmount === BigInt(0)) return { tokenAddress, hash };
-    const retryDevBuy = (retryReport: (state: TransactionState) => void) => performDevBuy(tokenAddress, creatorAddress, devBuyAmount, hash, retryReport);
-    try {
-      const devBuyHash = await retryDevBuy(report);
-      return { tokenAddress, hash, devBuyHash };
-    } catch (error) {
-      if (error instanceof DevBuyAttemptError) {
-        throw new DevBuyFailure(`Token created successfully, but the Dev buy ${error.rejected ? "was rejected" : error.retryable ? "could not be completed" : "needs confirmation"}.`, tokenAddress, hash, retryDevBuy, error.retryable, error.buyHash, error.rejected);
-      }
-      throw error;
-    }
+    return { tokenAddress, hash, devBuyHash };
   };
 
   return <main className="container page-shell flex-1">
@@ -100,7 +102,7 @@ function LaunchOverview({ hasDevBuy, compact = false }: { hasDevBuy: boolean; co
       <LaunchStep number="1" title="Metadata" copy="Your image and description are uploaded as a draft." />
       <LaunchStep number="2" title="Factory transaction" copy="Your wallet creates the token and its bonding curve atomically." />
       {hasDevBuy && <LaunchStep number="3" title="Initial buy" copy="A separate browser-wallet confirmation buys from the bonding curve." />}
-      <LaunchStep number={hasDevBuy ? "4" : "3"} title={hasDevBuy ? "Complete" : "Confirmation"} copy={`After ${selectedCooketChainName} confirms and the indexer catches up, your token page opens.`} />
+      <LaunchStep number={hasDevBuy ? "4" : "3"} title={hasDevBuy ? "Complete" : "Confirmation"} copy={`After ${selectedCooketChainName} confirms, your token page opens.`} />
     </ol>
     <div className={`${compact ? "mt-4" : "mt-6"} border-t border-white/8 pt-4 text-sm leading-6 text-zinc-400`}>
       <p><span className="font-medium text-zinc-200">Cost:</span> network gas{hasDevBuy ? " plus your optional Dev buy amount; each transaction is confirmed separately" : " only"}.</p>

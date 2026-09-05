@@ -3,21 +3,23 @@
 import Link from "next/link";
 import type { Token } from "@cooket/types";
 import { apiAssetURL } from "@/lib/api";
-import { formatCount, formatNative, graduationProgress } from "@/lib/format";
+import { formatCount, formatExactUSDC, formatMarketUSDC, formatPercentage, formatPrice, formatTokenSymbol, graduationProgress } from "@/lib/format";
+import { formatAbsoluteUTC, formatRelativeAge, useUnixNow } from "@/lib/relative-time";
 
 export function TokenCard({ token, variant = "grid" }: { token: Token; variant?: "grid" | "list" }) {
   const progress = graduationProgress(token.curve?.sold_supply, token.curve?.graduation_threshold);
+  const now = useUnixNow();
   const image = <TokenImage token={token} className={variant === "list" ? "h-20 w-20 rounded-xl sm:h-24 sm:w-24" : "aspect-[4/3] w-full rounded-xl"} />;
 
   if (variant === "list") return <article className="group market-card relative flex min-w-0 items-center gap-3 p-3 transition-colors hover:border-cyan-300/30 hover:bg-[#0d1322] sm:gap-4">
     <CardLink token={token} />
     {image}
     <div className="min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(8rem,1.25fr)_repeat(4,minmax(5rem,.7fr))] sm:items-center sm:gap-4">
-      <div className="min-w-0"><Identity token={token} /><p className="mt-2 truncate text-xs font-semibold text-zinc-300 sm:hidden">{formatNative(token.metrics.current_price)}</p><p className="mt-1 truncate text-[0.62rem] text-zinc-600 sm:hidden">{formatCount(token.metrics.holder_count)} holders</p></div>
-      <ListMetric label="Price" value={formatNative(token.metrics.current_price)} />
+      <div className="min-w-0"><Identity token={token} /><p className="mt-2 truncate text-xs font-semibold text-zinc-300 sm:hidden">{formatPrice(token.metrics.current_price)}</p><p className="mt-1 truncate text-[0.62rem] text-zinc-600 sm:hidden">{formatCount(token.metrics.holder_count)} holders</p></div>
+      <ListMetric label="Price" value={formatPrice(token.metrics.current_price)} />
       <ListMetric label="24h" value="—" unavailable />
-      <ListMetric label="FDV" value={formatNative(token.metrics.fully_diluted_value)} />
-      <ListMetric label="Volume" value={formatNative(token.metrics.volume)} />
+      <ListMetric label="FDV" value={formatMarketUSDC(token.metrics.fully_diluted_value)} title={formatExactUSDC(token.metrics.fully_diluted_value)} />
+      <ListMetric label="Volume" value={formatMarketUSDC(token.metrics.volume)} title={formatExactUSDC(token.metrics.volume)} />
     </div>
     <div className="relative z-10 hidden w-28 flex-none sm:block"><Progress value={progress} compact /></div>
     <span className="hidden flex-none text-zinc-600 transition-transform group-hover:translate-x-0.5 group-hover:text-cyan-300 sm:block" aria-hidden>→</span>
@@ -33,16 +35,16 @@ export function TokenCard({ token, variant = "grid" }: { token: Token; variant?:
     <div className="min-w-0 flex-1 p-3.5 max-md:p-0">
       <Identity token={token} />
       <div className="mt-3 flex items-end justify-between gap-3 border-b border-white/7 pb-3 max-md:mt-1.5 max-md:border-0 max-md:pb-0">
-        <div className="min-w-0"><p className="text-[0.65rem] text-zinc-600 max-md:hidden">USDC price</p><p className="mt-0.5 truncate text-base font-semibold text-zinc-50 max-md:text-sm" title={formatNative(token.metrics.current_price)}>{formatNative(token.metrics.current_price)}</p></div>
+        <div className="min-w-0"><p className="text-[0.65rem] text-zinc-600 max-md:hidden">Price</p><p className="mt-0.5 truncate text-base font-semibold text-zinc-50 max-md:text-sm" title={formatExactUSDC(token.metrics.current_price)}>{formatPrice(token.metrics.current_price)}</p></div>
         <div className="text-right" title="The current API does not expose a 24-hour price-change field"><p className="text-[0.65rem] text-zinc-600">24h</p><p className="mt-0.5 text-sm font-semibold text-zinc-600">—</p></div>
       </div>
       <dl className="mt-3 grid grid-cols-3 gap-2 max-md:mt-2">
-        <Metric label="FDV" value={formatNative(token.metrics.fully_diluted_value)} />
-        <Metric label="Volume" value={formatNative(token.metrics.volume)} />
+        <Metric label="FDV" value={formatMarketUSDC(token.metrics.fully_diluted_value)} title={formatExactUSDC(token.metrics.fully_diluted_value)} />
+        <Metric label="Volume" value={formatMarketUSDC(token.metrics.volume)} title={formatExactUSDC(token.metrics.volume)} />
         <Metric label="Holders" value={formatCount(token.metrics.holder_count)} />
       </dl>
       <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/7 pt-3 text-[0.68rem] max-md:hidden">
-        <p className="min-w-0 text-zinc-600">Age <span className="ml-1 text-zinc-400" title="The current API exposes launch block provenance but not launch time">—</span></p>
+        <p className="min-w-0 text-zinc-600">Age <span className="ml-1 text-zinc-400" title={token.created_at.block_timestamp === undefined ? "Launch timestamp unavailable" : formatAbsoluteUTC(token.created_at.block_timestamp)}>{token.created_at.block_timestamp === undefined ? "Not available" : now === null ? "Loading" : formatRelativeAge(token.created_at.block_timestamp, now)}</span></p>
         <p className="min-w-0 truncate text-right text-zinc-600">Creator <span className="font-mono text-zinc-400">{shortAddress(token.creator)}</span></p>
       </div>
       <div className="max-md:hidden"><Progress value={progress} /></div>
@@ -57,8 +59,8 @@ export function TopTokenCard({ token, rank }: { token: Token; rank: number }) {
     <TokenImage token={token} className="h-16 w-16 rounded-xl" />
     <div className="min-w-0 flex-1">
       <Identity token={token} compact />
-      <div className="mt-2 flex items-end justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{formatNative(token.metrics.current_price)}</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">USDC price</p></div><div className="text-right" title="The current API does not expose a 24-hour price-change field"><p className="text-xs font-semibold text-zinc-600">—</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">24h</p></div></div>
-      <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/7 pt-2 text-[0.65rem] text-zinc-600"><span>Vol <strong className="font-medium text-zinc-400">{formatNative(token.metrics.volume)}</strong></span><span>{formatCount(token.metrics.holder_count)} holders</span></div>
+      <div className="mt-2 flex items-end justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white" title={formatExactUSDC(token.metrics.current_price)}>{formatPrice(token.metrics.current_price)}</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">Price</p></div><div className="text-right" title="The current API does not expose a 24-hour price-change field"><p className="text-xs font-semibold text-zinc-600">—</p><p className="mt-0.5 text-[0.62rem] text-zinc-600">24h</p></div></div>
+      <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/7 pt-2 text-[0.65rem] text-zinc-600"><span>Vol <strong className="font-medium text-zinc-400" title={formatExactUSDC(token.metrics.volume)}>{formatMarketUSDC(token.metrics.volume)}</strong></span><span>{formatCount(token.metrics.holder_count)} holders</span></div>
     </div>
   </article>;
 }
@@ -74,20 +76,20 @@ function TokenImage({ token, className }: { token: Token; className: string }) {
 }
 
 function Identity({ token, compact = false }: { token: Token; compact?: boolean }) {
-  return <div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><h3 className={`${compact ? "text-sm" : "text-[0.95rem]"} truncate font-semibold text-white transition-colors group-hover:text-cyan-100`}>{token.name}</h3>{token.graduation?.phase && <span className="h-1.5 w-1.5 flex-none rounded-full bg-violet-300" title={token.graduation.phase} />}</div><p className="mt-0.5 truncate text-[0.65rem] font-bold uppercase tracking-[0.14em] text-cyan-300">{token.symbol}</p></div>;
+  return <div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><h3 className={`${compact ? "text-sm" : "text-[0.95rem]"} truncate font-semibold text-white transition-colors group-hover:text-cyan-100`}>{token.name}</h3>{token.graduation?.phase && <span className="h-1.5 w-1.5 flex-none rounded-full bg-violet-300" title={token.graduation.phase} />}</div><p className="mt-0.5 truncate text-[0.65rem] font-bold uppercase tracking-[0.14em] text-cyan-300">{formatTokenSymbol(token.symbol)}</p></div>;
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="min-w-0"><dt className="text-[0.62rem] text-zinc-600">{label}</dt><dd className="mt-0.5 truncate text-xs font-medium text-zinc-300" title={value}>{value}</dd></div>;
+function Metric({ label, value, title }: { label: string; value: string; title?: string }) {
+  return <div className="min-w-0"><dt className="text-[0.62rem] text-zinc-600">{label}</dt><dd className="mt-0.5 truncate text-xs font-medium text-zinc-300" title={title ?? value}>{value}</dd></div>;
 }
 
-function ListMetric({ label, value, unavailable = false }: { label: string; value: string; unavailable?: boolean }) {
-  return <div className="mt-2 hidden min-w-0 sm:block"><p className="text-[0.62rem] text-zinc-600">{label}</p><p className={`mt-1 truncate text-xs font-medium ${unavailable ? "text-zinc-600" : "text-zinc-300"}`}>{value}</p></div>;
+function ListMetric({ label, value, title, unavailable = false }: { label: string; value: string; title?: string; unavailable?: boolean }) {
+  return <div className="mt-2 hidden min-w-0 sm:block"><p className="text-[0.62rem] text-zinc-600">{label}</p><p className={`mt-1 truncate text-xs font-medium ${unavailable ? "text-zinc-600" : "text-zinc-300"}`} title={title ?? value}>{value}</p></div>;
 }
 
 function Progress({ value, compact = false }: { value: number | null; compact?: boolean }) {
   if (value === null) return <div className={compact ? "" : "mt-3"}><div className="flex items-center justify-between text-[0.62rem] text-zinc-600"><span>Graduation</span><span>Not indexed</span></div><div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/6" /></div>;
-  return <div className={compact ? "" : "mt-3"}><div className="flex items-center justify-between text-[0.62rem]"><span className="text-zinc-600">Graduation</span><span className="font-medium text-zinc-400">{value.toFixed(value >= 10 ? 1 : 2)}%</span></div><div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/6"><div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-cyan-400" style={{ width: `${value}%` }} /></div></div>;
+  return <div className={compact ? "" : "mt-3"}><div className="flex items-center justify-between text-[0.62rem]"><span className="text-zinc-600">Graduation</span><span className="font-medium text-zinc-400">{formatPercentage(value, value >= 10 ? 1 : 2)}</span></div><div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/6"><div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-cyan-400" style={{ width: `${value}%` }} /></div></div>;
 }
 
 function shortAddress(value: string) {

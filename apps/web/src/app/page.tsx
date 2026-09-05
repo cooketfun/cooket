@@ -13,7 +13,7 @@ export default function Home() {
             <span className="badge-neutral">{selectedCooketChainName} · {selectedCooketChainId}</span>
           </div>
           <h1 id="home-heading" className="mt-3 text-[1.7rem] font-semibold leading-tight tracking-[-0.045em] text-white sm:mt-4 sm:text-4xl lg:text-[2.75rem]">Discover what&apos;s launching on Cooket.</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400 sm:mt-3 sm:text-base">Explore the Arc Testnet migration foundation. Financial execution remains disabled during Phase 0.</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400 sm:mt-3 sm:text-base">Explore active markets on Arc Testnet.</p>
         </div>
         <div className="flex flex-wrap gap-2.5">
           <Link href="#all-launches" className="button-primary">Explore tokens <span aria-hidden>↓</span></Link>

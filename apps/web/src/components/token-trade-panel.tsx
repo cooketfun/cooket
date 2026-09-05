@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { parseEther, parseUnits, type Address, type Hash } from "viem";
 import type { BudgetBuyQuote, CurveTradeState, ProtectedSellQuote, TradeConfirmation } from "@/lib/contracts";
-import { formatNative, formatTokenAmount } from "@/lib/format";
+import { formatNative, formatTokenAmount, formatTokenSymbol } from "@/lib/format";
+import { TradeAssetIdentity } from "@/components/trade-asset-identity";
 import { TradeAmountPresets } from "@/components/trade-amount-presets";
 import { selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
 import { TransactionModal } from "@/components/transaction-modal";
@@ -41,6 +42,7 @@ type Props = {
   walletAddress?: Address;
   tokenAddress: Address;
   symbol: string;
+  tokenImageURL?: string;
   tokenPriceWei?: string | null;
   state?: CurveTradeState;
   statePending: boolean;
@@ -284,7 +286,7 @@ export function TokenTradePanel(props: Props) {
     }
     if (currentQuote.side === "sell" && props.state && currentQuote.tokenAmount > props.state.tokenBalance) {
       setStatus("failed");
-      setError(`Insufficient ${props.symbol} balance.`);
+      setError(`Insufficient ${formatTokenSymbol(props.symbol)} balance.`);
       return;
     }
     const wallet = props.walletAddress;
@@ -431,10 +433,11 @@ export function TokenTradePanel(props: Props) {
     <div className="trade-panel-grid grid min-w-0 gap-5">
       <div className="min-w-0" aria-label="Trade inputs and wallet">
         <div className="flex rounded-xl border border-white/8 bg-black/20 p-1" role="group" aria-label="Trade side">
-          <button className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition-colors ${side === "buy" ? "bg-emerald-400 text-[#04060b] shadow-lg shadow-emerald-950/20" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`} aria-pressed={side === "buy"} type="button" disabled={locked} onClick={() => changeSide("buy")}>Buy</button>
-          <button className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition-colors ${side === "sell" ? "bg-red-500 text-white shadow-lg shadow-red-950/25" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`} aria-pressed={side === "sell"} type="button" disabled={locked} onClick={() => changeSide("sell")}>Sell</button>
+          <button className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition-colors ${side === "buy" ? "bg-emerald-400 text-[#04060b] shadow-lg shadow-emerald-950/20" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`} aria-pressed={side === "buy"} type="button" disabled={locked} onClick={() => changeSide("buy")}>Buy {formatTokenSymbol(props.symbol)}</button>
+          <button className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition-colors ${side === "sell" ? "bg-red-500 text-white shadow-lg shadow-red-950/25" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`} aria-pressed={side === "sell"} type="button" disabled={locked} onClick={() => changeSide("sell")}>Sell {formatTokenSymbol(props.symbol)}</button>
         </div>
-        <div className="mt-5 flex items-start justify-between gap-3"><div><p className="text-xs text-zinc-500">Protected curve order</p><h3 className="mt-1 text-xl font-semibold text-white">{side === "buy" ? `Buy ${props.symbol}` : `Sell ${props.symbol}`}</h3></div><span className="badge-neutral">60s quote</span></div>
+        <div className="mt-5 flex items-start justify-between gap-3"><div><p className="text-xs text-zinc-500">Protected curve order</p><h3 className="mt-1 text-xl font-semibold text-white">{side === "buy" ? `Buy ${formatTokenSymbol(props.symbol)}` : `Sell ${formatTokenSymbol(props.symbol)}`}</h3></div><span className="badge-neutral">60s quote</span></div>
+        <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="panel-subtle p-2"><p className="text-zinc-600">Pay</p><div className="mt-1">{side === "buy" ? <TradeAssetIdentity kind="usdc" /> : <TradeAssetIdentity kind="token" symbol={props.symbol} imageURL={props.tokenImageURL} />}</div></div><div className="panel-subtle p-2"><p className="text-zinc-600">Receive</p><div className="mt-1">{side === "buy" ? <TradeAssetIdentity kind="token" symbol={props.symbol} imageURL={props.tokenImageURL} /> : <TradeAssetIdentity kind="usdc" />}</div></div></div>
         <div className="mt-4 min-w-0 rounded-xl border border-white/8 bg-black/15 p-3"><p className="text-xs text-zinc-500">Active transaction signer</p>{props.walletAddress && <p className="address mt-1 truncate" title={props.walletAddress}>{props.walletAddress}</p>}</div>
         {guard && <p className="status-box status-warning mt-4">{guard}</p>}
         {props.statePending && <p className="status-box mt-4 text-zinc-400">Loading balances and curve state…</p>}
@@ -443,10 +446,10 @@ export function TokenTradePanel(props: Props) {
         {unavailable && <p className="status-box status-warning mt-4">{side === "buy" && props.state?.lifecycle === 1 ? "Buying is unavailable while graduation is pending. Select Sell to exit." : "This trade is unavailable for the current Cooket curve lifecycle."}</p>}
         {props.state && <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div className="panel-subtle p-3"><dt className="text-xs text-zinc-500">Native USDC balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{formatNative(props.state.nativeBalance)}</dd></div>
-          <div className="panel-subtle p-3"><dt className="truncate text-xs text-zinc-500">{props.symbol} balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{tokenUSDCValue(tokenBalanceValue)}</dd><dd className="mt-0.5 truncate text-[0.68rem] text-zinc-600" title={formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}>{formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}</dd></div>
+          <div className="panel-subtle p-3"><dt className="truncate text-xs text-zinc-500">{formatTokenSymbol(props.symbol)} balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{tokenUSDCValue(tokenBalanceValue)}</dd><dd className="mt-0.5 truncate text-[0.68rem] text-zinc-600" title={formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}>{formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}</dd></div>
         </dl>}
         <div className="mt-5 grid gap-4">
-          <div className="grid gap-2 text-sm text-zinc-300"><label className="grid gap-2"><span className="flex items-center justify-between gap-3"><span className="font-medium text-zinc-200">{side === "buy" ? "Pay amount" : "Sell amount"}</span><span className="text-xs text-zinc-600">{side === "buy" ? inputUSDC : quotedTokenEstimate}</span></span><div className="relative"><input className="pr-16" aria-label={side === "buy" ? "Native USDC amount" : `${props.symbol} amount`} inputMode="decimal" value={amount} placeholder="0.0" disabled={controlsUnavailable} onChange={(event) => changeAmount(event.target.value)} /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-500">{side === "buy" ? "USDC" : props.symbol}</span></div></label><TradeAmountPresets side={side} nativeBalance={props.state?.nativeBalance} tokenBalance={props.state?.tokenBalance} tokenDecimals={props.state?.decimals ?? 18} disabled={controlsUnavailable} onSelect={changeAmount} /></div>
+          <div className="grid gap-2 text-sm text-zinc-300"><label className="grid gap-2"><span className="flex items-center justify-between gap-3"><span className="font-medium text-zinc-200">{side === "buy" ? "Pay amount" : "Sell amount"}</span><span className="text-xs text-zinc-600">{side === "buy" ? inputUSDC : quotedTokenEstimate}</span></span><div className="relative"><input className="pr-16" aria-label={side === "buy" ? "Native USDC amount" : `${props.symbol} amount`} inputMode="decimal" value={amount} placeholder="0.0" disabled={controlsUnavailable} onChange={(event) => changeAmount(event.target.value)} /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-500">{side === "buy" ? "USDC" : formatTokenSymbol(props.symbol)}</span></div></label><TradeAmountPresets side={side} nativeBalance={props.state?.nativeBalance} tokenBalance={props.state?.tokenBalance} tokenDecimals={props.state?.decimals ?? 18} disabled={controlsUnavailable} onSelect={changeAmount} /></div>
           <label className="grid gap-2 text-sm text-zinc-300"><span className="flex items-center justify-between gap-3"><span className="font-medium text-zinc-200">Slippage tolerance</span><span className="text-xs text-zinc-500">0–50%</span></span><div className="relative"><input className="pr-12" aria-label="Slippage tolerance" inputMode="decimal" value={slippage} disabled={controlsUnavailable} onChange={(event) => changeSlippage(event.target.value)} /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">%</span></div></label>
           <button className={`${quote ? "button-ghost text-xs" : "button-secondary"} w-full`} type="button" aria-label="Get quote" disabled={quoteLoading || controlsUnavailable || Boolean(guard)} onClick={refreshQuote}>{quoteLoading ? "Refreshing protected quote…" : quoteRecord ? "Refresh protected quote" : "Get protected quote"}</button>
           {quoteLoading && <p className="text-center text-xs text-zinc-500" aria-live="polite">Reading a protected quote from the curve…</p>}
@@ -477,14 +480,14 @@ export function TokenTradePanel(props: Props) {
               <QuoteRow label="Protocol fee" value={formatNative(quote.protocolFee)} />
               <QuoteRow label="Creator fee" value={formatNative(quote.creatorFee)} />
               <QuoteRow label="Price impact" value="Unavailable" />
-              {quote.side === "buy" && <p className="mt-3 leading-5">Arc financial execution remains disabled pending protocol-economic migration.</p>}
+              {quote.side === "buy" && <p className="mt-3 leading-5">This quote is prepared for execution on Arc Testnet.</p>}
               <p className="mt-3 leading-5">Quote expires after 60 seconds. Execution uses the exact displayed maximum input or minimum output and deadline.</p>
             </div>
           </details>
         </div> : <div className={`panel-subtle p-4 text-sm leading-6 ${quoteStale || quoteStateChanged ? "text-amber-200" : "text-zinc-500"}`}><p className="font-medium text-zinc-200">Protected quote</p><p className="mt-2">{quoteLoading ? "Refreshing from the active Cooket curve…" : quoteStale ? "This quote expired. Refresh it before submitting." : quoteStateChanged ? "Curve state or balances changed. Waiting for a fresh quote." : "Enter an amount to load contract-backed output, fees, protection, and expiry."}</p></div>}
       </div>
     </div>
-    <TransactionModal open={modal.open} title={`${side === "buy" ? "Buy" : status === "awaiting_approval" || status === "approval_confirming" ? "Approve" : "Sell"} ${props.symbol}`} phase={modal.phase} statusLabel={tradeStatusLabel(status)} wallet={props.walletAddress} hash={hash} error={error || (quoteStateChanged ? "Curve state or balances changed. Request a fresh quote." : undefined)} onClose={() => dispatchModal({ type: "close" })} onConfirm={() => void submit()} confirmLabel={side === "sell" && quote && props.state && props.state.allowance < quote.tokenAmount ? "Start approval + sell" : `Submit ${side}`} confirmDisabled={!walletReady || Boolean(guard)} details={quote ? tradeModalDetails(quote, props.symbol, props.state?.decimals ?? 18) : []}>
+    <TransactionModal open={modal.open} title={`${side === "buy" ? "Buy" : status === "awaiting_approval" || status === "approval_confirming" ? "Approve" : "Sell"} ${formatTokenSymbol(props.symbol)}`} phase={modal.phase} statusLabel={tradeStatusLabel(status)} wallet={props.walletAddress} hash={hash} error={error || (quoteStateChanged ? "Curve state or balances changed. Request a fresh quote." : undefined)} onClose={() => dispatchModal({ type: "close" })} onConfirm={() => void submit()} confirmLabel={side === "sell" && quote && props.state && props.state.allowance < quote.tokenAmount ? "Start approval + sell" : `Submit ${side}`} confirmDisabled={!walletReady || Boolean(guard)} details={quote ? tradeModalDetails(quote, props.symbol, props.state?.decimals ?? 18) : []}>
       {status === "confirmation_unknown" && <div className="mt-4 flex flex-wrap gap-2">{hash && <button className="button-secondary" type="button" onClick={() => void recover("check")}>Check Again</button>}{hash && <button className="button-secondary" type="button" onClick={() => void recover("resume")}>Resume Confirmation</button>}<button className="button-secondary border-red-400/40 text-red-200" type="button" onClick={abandon}>Abandon Pending Trade</button></div>}
     </TransactionModal>
   </section>;
@@ -546,9 +549,10 @@ function quoteInputIsValid(value: string, decimals: number, symbol: string, slip
 }
 
 function parsePositiveAmount(value: string, decimals: number, symbol: string) {
-  if (!/^\d+(\.\d+)?$/.test(value.trim())) throw new Error(`Enter a valid ${symbol} amount.`);
+  const displaySymbol = symbol === "native USDC" ? symbol : formatTokenSymbol(symbol);
+  if (!/^\d+(\.\d+)?$/.test(value.trim())) throw new Error(`Enter a valid ${displaySymbol} amount.`);
   const parsed = decimals === 18 ? parseEther(value.trim()) : parseUnits(value.trim(), decimals);
-  if (parsed <= BigInt(0)) throw new Error(`Enter a ${symbol} amount greater than zero.`);
+  if (parsed <= BigInt(0)) throw new Error(`Enter a ${displaySymbol} amount greater than zero.`);
   return parsed;
 }
 

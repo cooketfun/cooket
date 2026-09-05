@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -15,6 +16,17 @@ import (
 	"time"
 )
 
+func TestTokenJSONIncludesCanonicalLaunchTimestamp(t *testing.T) {
+	timestamp := int64(1788509400)
+	body, err := json.Marshal(Token{CreatedAt: BlockRef{BlockNumber: 42, BlockTimestamp: &timestamp, TransactionHash: "0xabc", LogIndex: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"created_at":{"block_number":42,"block_timestamp":1788509400,"transaction_hash":"0xabc","log_index":3}`) {
+		t.Fatalf("token launch timestamp missing from API JSON: %s", body)
+	}
+}
+
 type fakeRepo struct {
 	pingErr        error
 	tokens         Page
@@ -23,6 +35,7 @@ type fakeRepo struct {
 	listErr        error
 	calls          int
 	chartIntervals []string
+	chartRanges    []chartRangeCall
 	ctoStatus      *CTOStatus
 	ctoProposal    CTOProposal
 	ctoProposals   CTOProposalPage
@@ -31,6 +44,11 @@ type fakeRepo struct {
 	ctoFeePulls    CTOFeePullPage
 	ctoCheckpoints CTOCheckpointPage
 	ctoErr         error
+}
+
+type chartRangeCall struct {
+	from, to *int64
+	limit    int
 }
 
 type memoryObjectStore struct{ objects map[string][]byte }
@@ -75,6 +93,11 @@ func (f *fakeRepo) Activity(context.Context, int64, string, int, string) (Activi
 }
 func (f *fakeRepo) Chart(_ context.Context, _ int64, _ string, interval string, _ int) (ChartPage, error) {
 	f.chartIntervals = append(f.chartIntervals, interval)
+	return ChartPage{Interval: interval, SupportedIntervals: append([]string(nil), supportedChartIntervals...), Candles: []ChartPoint{}}, nil
+}
+func (f *fakeRepo) ChartRange(_ context.Context, _ int64, _ string, interval string, from, to *int64, limit int) (ChartPage, error) {
+	f.chartIntervals = append(f.chartIntervals, interval)
+	f.chartRanges = append(f.chartRanges, chartRangeCall{from: from, to: to, limit: limit})
 	return ChartPage{Interval: interval, SupportedIntervals: append([]string(nil), supportedChartIntervals...), Candles: []ChartPoint{}}, nil
 }
 func (f *fakeRepo) SaveMetadataDraft(context.Context, MetadataDraft) error                { return nil }
@@ -319,6 +342,24 @@ func TestChartSupportsEveryCanonicalIntervalAndRejectsInvalidInterval(t *testing
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/tokens/"+address+"/chart?interval=2h", nil))
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"code":"invalid_interval"`) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestChartAcceptsBoundedExclusiveUTCWindows(t *testing.T) {
+	address := "0x0000000000000000000000000000000000000001"
+	repo := &fakeRepo{}
+	r := testHandler(repo)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/tokens/"+address+"/chart?interval=1m&from=60&to=120&limit=2", nil))
+	if w.Code != http.StatusOK || len(repo.chartRanges) != 1 || repo.chartRanges[0].from == nil || *repo.chartRanges[0].from != 60 || repo.chartRanges[0].to == nil || *repo.chartRanges[0].to != 120 || repo.chartRanges[0].limit != 2 {
+		t.Fatalf("range request status=%d calls=%+v", w.Code, repo.chartRanges)
+	}
+	for _, query := range []string{"from=120&to=120", "from=-1", "to=nope"} {
+		w = httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/tokens/"+address+"/chart?"+query, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("query=%s status=%d", query, w.Code)
+		}
 	}
 }
 

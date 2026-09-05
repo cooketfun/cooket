@@ -73,16 +73,18 @@ vi.mock("@/lib/contracts", async (importOriginal) => {
   };
 });
 
-import { GraduatedTokenSwap } from "./graduated-token-swap";
-import { walletTransport } from "./graduated-token-swap";
-import { GraduatedSwapRpcTimeoutError, orchestrateGraduatedSwap, quoteIsFresh, readGraduatedAllowance } from "@/lib/uniswap-v3";
+import { apiAssetURL } from "@/lib/api";
+import { GraduatedTokenSwap, receivedOutputFromSwapReceipt, walletTransport } from "./graduated-token-swap";
+import { USDC_TOKEN_LOGO_SRC } from "./trade-asset-identity";
+import { GraduatedSwapRpcTimeoutError, orchestrateGraduatedSwap, quoteGraduatedSwap, quoteIsFresh, readGraduatedAllowance } from "@/lib/uniswap-v3";
 import { approvalCall, buildGraduatedSwapTransaction } from "@/lib/uniswap-v3";
 import { ARC_PROTOCOL_ECONOMICS_BLOCKER, assertArcProtocolEconomicsReady } from "@/lib/arc-safety";
-import type { Hash } from "viem";
+import { encodeAbiParameters, encodeEventTopics, type Address, type Hash, type Hex } from "viem";
+import { ARC_CANONICAL_USDC } from "@cooket/contracts-sdk";
 
 const source = readFileSync(resolve(process.cwd(), "src/components/graduated-token-swap.tsx"), "utf8");
 
-function renderSwap() {
+function renderSwap(tokenImageURL?: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   return render(
@@ -90,9 +92,34 @@ function renderSwap() {
       tokenAddress="0x0000000000000000000000000000000000000011"
       canonicalPoolAddress="0x0000000000000000000000000000000000000033"
       symbol="COOKET"
+      tokenImageURL={tokenImageURL}
     />,
     { wrapper },
   );
+}
+
+function assetCell(label: "Pay" | "Receive") {
+  return screen.getByText(label, { selector: "p" }).parentElement as HTMLElement;
+}
+
+function expectUsdcIdentity(root: HTMLElement) {
+  const image = root.querySelector('[data-testid="trade-asset-usdc"] img');
+  expect(root.querySelector('[data-testid="trade-asset-usdc"]')?.textContent).toContain("USDC");
+  expect(image?.getAttribute("src")).toBe(USDC_TOKEN_LOGO_SRC);
+  expect(image?.getAttribute("src")).not.toMatch(/^https?:/i);
+}
+
+function expectTokenIdentity(root: HTMLElement, symbol: string, imageURL?: string) {
+  const identity = root.querySelector('[data-testid="trade-asset-token"]') as HTMLElement;
+  expect(identity.textContent).toContain(`$${symbol}`);
+  const image = identity.querySelector("img");
+  if (imageURL) {
+    expect(image).not.toBeNull();
+    expect(image!.getAttribute("src")).toBe(apiAssetURL(imageURL));
+  } else {
+    expect(image).toBeNull();
+    expect(identity.querySelector("[aria-hidden]")).toBeNull();
+  }
 }
 
 afterEach(() => {
@@ -113,6 +140,13 @@ afterEach(() => {
   vi.mocked(readGraduatedAllowance).mockReset();
   vi.mocked(readGraduatedAllowance).mockImplementation(async () => swapState.allowance);
   vi.mocked(quoteIsFresh).mockImplementation(() => swapState.quoteIsFresh);
+  vi.mocked(quoteGraduatedSwap).mockReset();
+  vi.mocked(quoteGraduatedSwap).mockResolvedValue({
+    amountIn: BigInt("100000"),
+    amountOut: BigInt("1"),
+    minimumOut: BigInt("1"),
+    deadline: BigInt(2_000_000_000),
+  } as Awaited<ReturnType<typeof quoteGraduatedSwap>>);
   vi.mocked(assertArcProtocolEconomicsReady).mockImplementation(() => {
     throw new Error(ARC_PROTOCOL_ECONOMICS_BLOCKER);
   });
@@ -165,7 +199,7 @@ describe("graduated swap presets", () => {
   it("uses the exact token balance for graduated sell MAX", async () => {
     const user = userEvent.setup();
     renderSwap();
-    await user.click(await screen.findByRole("button", { name: "Sell COOKET" }));
+    await user.click(await screen.findByRole("button", { name: "Sell $COOKET" }));
     await user.click(screen.getByRole("button", { name: "Use exact token balance" }));
     expect((screen.getByLabelText("COOKET amount") as HTMLInputElement).value).toBe("5");
   });
@@ -183,6 +217,26 @@ describe("graduated swap presets", () => {
     expect(orchestrateGraduatedSwap).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Start approval + swap" }));
     expect(orchestrateGraduatedSwap).toHaveBeenCalledOnce();
+  });
+
+  it("shows official USDC on buy Pay and a creator image on Receive only when available", async () => {
+    const user = userEvent.setup();
+    renderSwap("/uploads/cooket.png");
+    expectUsdcIdentity(assetCell("Pay"));
+    expectTokenIdentity(assetCell("Receive"), "COOKET", "/uploads/cooket.png");
+    await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
+    expectTokenIdentity(assetCell("Pay"), "COOKET", "/uploads/cooket.png");
+    expectUsdcIdentity(assetCell("Receive"));
+  });
+
+  it("omits a token image on buy and sell when the creator did not provide one", async () => {
+    const user = userEvent.setup();
+    renderSwap();
+    expectUsdcIdentity(assetCell("Pay"));
+    expectTokenIdentity(assetCell("Receive"), "COOKET");
+    await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
+    expectTokenIdentity(assetCell("Pay"), "COOKET");
+    expectUsdcIdentity(assetCell("Receive"));
   });
 });
 
@@ -220,7 +274,7 @@ function mockApprovalThenSend(allowanceAfterApproval = BigInt("100000")) {
 
 async function reviewAndConfirm(user: ReturnType<typeof userEvent.setup>, side: "buy" | "sell" = "buy", confirmLabel = "Start approval + swap") {
   renderSwap();
-  if (side === "sell") await user.click(await screen.findByRole("button", { name: "Sell COOKET" }));
+  if (side === "sell") await user.click(await screen.findByRole("button", { name: "Sell $COOKET" }));
   const amount = await screen.findByLabelText(side === "buy" ? "ERC20 USDC amount" : "COOKET amount");
   await user.type(amount, side === "buy" ? "0.1" : "1");
   const review = await screen.findByRole("button", { name: "Review swap" });
@@ -386,5 +440,90 @@ describe("graduated swap local validation", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Review swap" }) as HTMLButtonElement).disabled).toBe(false));
     expect(screen.queryByRole("dialog")).toBeNull();
     expectNoSimulationCopy();
+  });
+});
+
+const tokenAddress = "0x0000000000000000000000000000000000000011" as Address;
+const reviewedOut = BigInt("2696078431372549019578002");
+const staleOut = BigInt("2624356876970860895662498");
+const transferAbi = [{ type: "event", name: "Transfer", inputs: [{ name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "value", type: "uint256", indexed: false }] }] as const;
+
+function transferLog(token: Address, to: Address, value: bigint) {
+  return {
+    address: token,
+    topics: encodeEventTopics({ abi: transferAbi, eventName: "Transfer", args: { from: "0x0000000000000000000000000000000000000099", to } }) as Hex[],
+    data: encodeAbiParameters([{ type: "uint256" }], [value]),
+  };
+}
+
+function meowQuote(amountOut: bigint) {
+  return {
+    side: "buy" as const,
+    amountIn: BigInt("100000000"),
+    amountOut,
+    minimumOut: BigInt("2682599039217685774480111"),
+    slippageBps: 50,
+    createdAt: Date.now(),
+    deadline: BigInt(2_000_000_000),
+    pool: "0x0000000000000000000000000000000000000088" as Address,
+    wallet,
+    chainId: 5042002,
+  };
+}
+
+describe("graduated swap success modal quote snapshot", () => {
+  it("keeps the reviewed expected output after a later quote refresh and side change", async () => {
+    const user = userEvent.setup();
+    swapState.usdc = BigInt("100000000");
+    swapState.allowance = BigInt("100000000");
+    allowArcWrites();
+    mockDirectSend();
+    vi.mocked(quoteGraduatedSwap).mockResolvedValueOnce(meowQuote(reviewedOut)).mockResolvedValue(meowQuote(staleOut));
+    renderSwap();
+    await user.type(await screen.findByLabelText("ERC20 USDC amount"), "100");
+    const review = await screen.findByRole("button", { name: "Review swap" });
+    await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+    await user.click(review);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("2696078.431372549019578002 $COOKET");
+    expect(dialog.textContent).toContain("Expected output");
+    await user.click(screen.getByRole("button", { name: "Confirm swap" }));
+    expect(await screen.findByText("Transaction confirmed")).toBeTruthy();
+    vi.mocked(quoteGraduatedSwap).mockResolvedValue(meowQuote(staleOut));
+    swapState.token = BigInt("2696078431372549019578002");
+    await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
+    expect(screen.getByRole("dialog").textContent).toContain("2696078.431372549019578002 $COOKET");
+    expect(screen.getByRole("dialog").textContent).not.toContain("2624356.876970860895662498");
+    expect(screen.getByRole("dialog").textContent).toContain("Expected output");
+    expect(screen.getByRole("dialog").textContent).not.toContain("Received");
+  });
+
+  it("presents unique confirmed output as Received and ignores a later stale quote", async () => {
+    const user = userEvent.setup();
+    swapState.usdc = BigInt("100000000");
+    swapState.allowance = BigInt("100000000");
+    allowArcWrites();
+    mockDirectSend();
+    waitForTransactionReceipt.mockResolvedValue({ status: "success", logs: [transferLog(tokenAddress, wallet, reviewedOut)] });
+    vi.mocked(quoteGraduatedSwap).mockResolvedValueOnce(meowQuote(reviewedOut)).mockResolvedValue(meowQuote(staleOut));
+    renderSwap();
+    await user.type(await screen.findByLabelText("ERC20 USDC amount"), "100");
+    const review = await screen.findByRole("button", { name: "Review swap" });
+    await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+    await user.click(review);
+    expect(screen.getByRole("dialog").textContent).toContain("Expected output");
+    await user.click(screen.getByRole("button", { name: "Confirm swap" }));
+    expect(await screen.findByText("Transaction confirmed")).toBeTruthy();
+    expect(screen.getByRole("dialog").textContent).toContain("Received");
+    expect(screen.getByRole("dialog").textContent).toContain("2696078.431372549019578002 $COOKET");
+    expect(screen.getByRole("dialog").textContent).not.toContain("Expected output");
+    expect(screen.getByRole("dialog").textContent).not.toContain("2624356.876970860895662498");
+  });
+
+  it("does not invent Received when output logs are missing or ambiguous", () => {
+    expect(receivedOutputFromSwapReceipt({ logs: [] }, tokenAddress, wallet)).toBeUndefined();
+    expect(receivedOutputFromSwapReceipt({ logs: [transferLog(tokenAddress, wallet, reviewedOut), transferLog(tokenAddress, wallet, staleOut)] }, tokenAddress, wallet)).toBeUndefined();
+    expect(receivedOutputFromSwapReceipt({ logs: [transferLog(ARC_CANONICAL_USDC, wallet, reviewedOut)] }, tokenAddress, wallet)).toBeUndefined();
+    expect(receivedOutputFromSwapReceipt({ logs: [transferLog(tokenAddress, wallet, reviewedOut)] }, tokenAddress, wallet)).toBe(reviewedOut);
   });
 });

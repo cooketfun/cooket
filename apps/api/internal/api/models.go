@@ -1,22 +1,23 @@
 package api
 
 type Token struct {
-	Address       string      `json:"address"`
-	Creator       string      `json:"creator"`
-	Name          string      `json:"name"`
-	Symbol        string      `json:"symbol"`
-	InitialSupply string      `json:"initial_supply"`
-	Description   string      `json:"description,omitempty"`
-	ImageURL      string      `json:"image_url,omitempty"`
-	MetadataURL   string      `json:"metadata_url,omitempty"`
-	WebsiteURL    string      `json:"website_url,omitempty"`
-	XURL          string      `json:"x_url,omitempty"`
-	TelegramURL   string      `json:"telegram_url,omitempty"`
-	DiscordURL    string      `json:"discord_url,omitempty"`
-	CreatedAt     BlockRef    `json:"created_at"`
-	Curve         *Curve      `json:"curve,omitempty"`
-	Metrics       Metrics     `json:"metrics"`
-	Graduation    *Graduation `json:"graduation,omitempty"`
+	IndexedThroughBlock uint64      `json:"indexed_through_block"`
+	Address             string      `json:"address"`
+	Creator             string      `json:"creator"`
+	Name                string      `json:"name"`
+	Symbol              string      `json:"symbol"`
+	InitialSupply       string      `json:"initial_supply"`
+	Description         string      `json:"description,omitempty"`
+	ImageURL            string      `json:"image_url,omitempty"`
+	MetadataURL         string      `json:"metadata_url,omitempty"`
+	WebsiteURL          string      `json:"website_url,omitempty"`
+	XURL                string      `json:"x_url,omitempty"`
+	TelegramURL         string      `json:"telegram_url,omitempty"`
+	DiscordURL          string      `json:"discord_url,omitempty"`
+	CreatedAt           BlockRef    `json:"created_at"`
+	Curve               *Curve      `json:"curve,omitempty"`
+	Metrics             Metrics     `json:"metrics"`
+	Graduation          *Graduation `json:"graduation,omitempty"`
 	// LatestTradeSource is an internal provenance field used by the pricing
 	// endpoint; it is intentionally not part of the public token contract.
 	LatestTradeSource *string `json:"-"`
@@ -36,6 +37,7 @@ type MetadataDraft struct {
 }
 type BlockRef struct {
 	BlockNumber     int64  `json:"block_number"`
+	BlockTimestamp  *int64 `json:"block_timestamp,omitempty"`
 	TransactionHash string `json:"transaction_hash"`
 	LogIndex        int64  `json:"log_index"`
 }
@@ -89,8 +91,9 @@ type Page struct {
 	NextCursor string  `json:"next_cursor,omitempty"`
 }
 type TradePage struct {
-	Items      []Trade `json:"items"`
-	NextCursor string  `json:"next_cursor,omitempty"`
+	IndexedThroughBlock uint64  `json:"indexed_through_block"`
+	Items               []Trade `json:"items"`
+	NextCursor          string  `json:"next_cursor,omitempty"`
 }
 type ActivityPage struct {
 	Items      []Activity `json:"items"`
@@ -109,9 +112,10 @@ type ChartPoint struct {
 	ClosePrice        *string `json:"close_price"`
 }
 type ChartPage struct {
-	Interval           string       `json:"interval"`
-	SupportedIntervals []string     `json:"supported_intervals"`
-	Candles            []ChartPoint `json:"candles"`
+	IndexedThroughBlock uint64       `json:"indexed_through_block"`
+	Interval            string       `json:"interval"`
+	SupportedIntervals  []string     `json:"supported_intervals"`
+	Candles             []ChartPoint `json:"candles"`
 }
 type Pricing struct {
 	TokenAddress      string  `json:"token_address"`

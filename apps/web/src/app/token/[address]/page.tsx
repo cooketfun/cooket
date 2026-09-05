@@ -2,19 +2,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Token } from "@cooket/types";
 import { TokenTrading, TokenTradeHistory } from "@/components/token-trading";
 import { TokenActivity } from "@/components/token-activity";
-import { TokenChart } from "@/components/token-chart";
+import { TokenAdvancedChart } from "@/components/token-advanced-chart";
 import { hasIndexedSettlement, isGraduatedToken, TokenGraduation } from "@/components/token-graduation";
 import { TokenCTO } from "@/components/token-cto";
 import { MobileTradeActions, TokenTradeSheetProvider, TradeSheetSurface } from "@/components/mobile-trade-sheet";
 import { api, apiAssetURL } from "@/lib/api";
 import { explorerAddressURL, explorerTransactionURL, selectedCooketChainId, selectedCooketChainName, validAddress } from "@/lib/chain";
 import { readCurveOnchain, readTokenOnchain } from "@/lib/contracts";
-import { formatCount, formatNative, formatTokenAmount } from "@/lib/format";
+import { formatCount, formatExactUSDC, formatMarketUSDC, formatPrice, formatTokenAmount, formatTokenSymbol } from "@/lib/format";
+import { advanceRealtimeSurfaceWatermark, overlayMetrics, reconcileRealtimeTrades, safeRealtimeRetirementFloor, useTokenRealtimeTrades, type RealtimeSurface } from "@/lib/token-realtime";
 
 type MobileSection = "market" | "about" | "trades" | "activity";
 
@@ -22,6 +23,15 @@ export default function TokenDetailPage() {
   const { address } = useParams<{ address: string }>();
   const valid = validAddress(address);
   const query = useQuery({ queryKey: ["token", address], queryFn: () => api.token(address), enabled: valid });
+  const trades = useQuery({ queryKey: ["trades", address], queryFn: () => api.trades(address, "?limit=20"), enabled: valid, refetchInterval: 5_000 });
+  const [watermarks, setWatermarks] = useState<Partial<Record<RealtimeSurface, number>>>({});
+  const observeWatermark = useCallback((surface: RealtimeSurface, block: number | undefined) => {
+    setWatermarks((current) => advanceRealtimeSurfaceWatermark(current, surface, block));
+  }, []);
+  const retireThroughBlock = safeRealtimeRetirementFloor(watermarks);
+  const realtime = useTokenRealtimeTrades(valid ? address : "", retireThroughBlock);
+  const tokenWatermark = query.data?.indexed_through_block ?? 0;
+  useEffect(() => { if (query.data?.indexed_through_block !== undefined) observeWatermark("token", tokenWatermark); }, [observeWatermark, query.data?.indexed_through_block, tokenWatermark]);
   const [onchain, setOnchain] = useState<string | null>(null);
   const [mobileSection, setMobileSection] = useState<MobileSection>("market");
   useEffect(() => {
@@ -35,6 +45,9 @@ export default function TokenDetailPage() {
   if (query.isPending) return <main className="token-terminal-container page-shell flex-1" aria-label="Loading indexed token"><div className="skeleton h-6 w-28 rounded" /><div className="mt-5 flex gap-5"><div className="skeleton h-20 w-20 flex-none rounded-2xl" /><div className="min-w-0 flex-1"><div className="skeleton h-9 w-64 max-w-full rounded" /><div className="skeleton mt-4 h-4 w-full max-w-xl rounded" /></div></div><div className="skeleton mt-8 h-[34rem] rounded-2xl" /></main>;
   if (query.isError) return <PageState title="Token could not be loaded" copy={query.error.message} action={() => void query.refetch()} />;
   const token = query.data;
+  const provisional = reconcileRealtimeTrades(realtime, tokenWatermark);
+  const liveMetrics = overlayMetrics(token, provisional);
+  const liveToken = { ...token, metrics: liveMetrics };
   const graduated = isGraduatedToken(token);
   const lifecycle = lifecycleBadge(token.graduation?.phase, Boolean(token.curve));
 
@@ -48,7 +61,7 @@ export default function TokenDetailPage() {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-xl font-semibold tracking-[-0.035em] text-white md:text-2xl lg:text-3xl">{token.name}</h1>
-                <span className="font-semibold uppercase tracking-[0.14em] text-cyan-300">{token.symbol}</span>
+                <span className="font-semibold uppercase tracking-[0.14em] text-cyan-300">{formatTokenSymbol(token.symbol)}</span>
                 {lifecycle && <span className={lifecycle.className}>{lifecycle.label}</span>}
               </div>
               <CopyableAddress address={token.address} />
@@ -56,11 +69,11 @@ export default function TokenDetailPage() {
           </div>
           <div className="min-w-0 lg:ml-auto lg:text-right">
             <p className="text-xs text-zinc-600">Indexed price</p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight text-white md:text-2xl">{formatNative(token.metrics.current_price)}</p>
-            <p className="mt-1 text-xs text-zinc-500">{token.metrics.current_price ? formatNative(token.metrics.current_price) : "Not indexed"} per token</p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight text-white md:text-2xl" title={formatExactUSDC(liveMetrics.current_price)}>{formatPrice(liveMetrics.current_price)}</p>
+            <p className="mt-1 text-xs text-zinc-500">{liveMetrics.current_price ? "Per token" : "Not indexed"}</p>
           </div>
         </div>
-        <div className="mt-4 hidden grid-cols-2 gap-2 sm:grid-cols-4 md:grid lg:hidden"><TopMetric label="FDV" value={formatNative(token.metrics.fully_diluted_value)} /><TopMetric label="Volume" value={formatNative(token.metrics.volume)} />{graduated ? <TopMetric label="LP custody" value={hasIndexedSettlement(token) ? "Permanent" : "Details pending"} /> : <TopMetric label="Curve reserve" value={formatNative(token.curve?.reserve_balance)} />}<TopMetric label="Holders" value={formatCount(token.metrics.holder_count)} /></div>
+        <div className="mt-4 hidden grid-cols-2 gap-2 sm:grid-cols-4 md:grid lg:hidden"><TopMetric label="FDV" value={formatMarketUSDC(liveMetrics.fully_diluted_value)} title={formatExactUSDC(liveMetrics.fully_diluted_value)} /><TopMetric label="Volume" value={formatMarketUSDC(liveMetrics.volume)} title={formatExactUSDC(liveMetrics.volume)} />{graduated ? <TopMetric label="LP custody" value={hasIndexedSettlement(token) ? "Permanent" : "Details pending"} /> : <TopMetric label="Curve reserve" value={formatMarketUSDC(token.curve?.reserve_balance)} title={formatExactUSDC(token.curve?.reserve_balance)} />}<TopMetric label="Holders" value={formatCount(token.metrics.holder_count)} /></div>
       </section>
 
       <div className="mt-4 flex gap-1 overflow-x-auto md:hidden" role="tablist" aria-label="Token sections">
@@ -75,20 +88,20 @@ export default function TokenDetailPage() {
       <div className="token-terminal-layout mt-4 md:mt-5">
         <div className="token-terminal-main">
           <div className="token-terminal-primary">
-            <div className="terminal-chart"><TokenChart tokenAddress={address} initialSupply={token.initial_supply} className="" /></div>
+            <div className="terminal-chart"><TokenAdvancedChart tokenAddress={address} initialSupply={token.initial_supply} realtimeEvents={realtime} onIndexedThroughBlock={(block) => observeWatermark("chart", block)} className="" /></div>
           </div>
           <div className="token-terminal-sidebar">
             <TradeSheetSurface>
-              <div className="terminal-trade"><TokenTrading tokenAddress={address} symbol={token.symbol} creator={token.creator as `0x${string}`} tokenPriceWei={token.metrics.current_price} graduated={graduated} canonicalPoolAddress={(token.graduation?.canonical_pool_address || token.curve?.canonical_pool_address) as `0x${string}` | undefined} /></div>
+              <div className="terminal-trade"><TokenTrading tokenAddress={address} symbol={token.symbol} tokenImageURL={token.image_url} creator={token.creator as `0x${string}`} tokenPriceWei={liveMetrics.current_price} graduated={graduated} canonicalPoolAddress={(token.graduation?.canonical_pool_address || token.curve?.canonical_pool_address) as `0x${string}` | undefined} /></div>
             </TradeSheetSurface>
           </div>
           <div className="token-terminal-support" data-mobile-section={mobileSection}>
-            <aside className="terminal-market"><MarketOverview token={token} onchain={onchain} /></aside>
+            <aside className="terminal-market"><MarketOverview token={liveToken} onchain={onchain} /></aside>
             <aside className="terminal-graduation"><TokenGraduation token={token} /></aside>
             <aside className="terminal-cto"><TokenCTO tokenAddress={address} /></aside>
           </div>
         </div>
-        <div className="token-terminal-history" data-mobile-section={mobileSection}><TokenTradeHistory tokenAddress={address} symbol={token.symbol} /></div>
+        <div className="token-terminal-history" data-mobile-section={mobileSection}><TokenTradeHistory tokenAddress={address} symbol={token.symbol} provisional={realtime} onIndexedThroughBlock={(block) => observeWatermark("trades", block)} /></div>
       </div>
 
       <section className="mt-10 grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]" data-mobile-section={mobileSection === "about" ? "about" : "hidden"}>
@@ -100,7 +113,7 @@ export default function TokenDetailPage() {
         <TokenActivity tokenAddress={address} />
         <section className="terminal-panel mt-10 p-5"><div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="eyebrow">Provenance</p><h2 className="section-heading mt-2">Canonical launch record</h2></div><span className="badge-neutral">{selectedCooketChainName} · {selectedCooketChainId}</span></div><dl className="mt-6 grid gap-x-8 gap-y-5 text-sm sm:grid-cols-2 lg:grid-cols-3"><Detail label="Token contract" value={token.address} link={explorerAddressURL(token.address)} /><Detail label="Curve contract" value={token.curve?.address ?? "Not indexed"} link={token.curve?.address ? explorerAddressURL(token.curve.address) : undefined} /><Detail label="Created at block" value={String(token.created_at.block_number)} /><Detail label="Initial supply" value={formatTokenAmount(token.initial_supply, 18, token.symbol)} /><Detail label="Onchain read" value={onchain ?? "Checking…"} /><Detail label="Launch transaction" value={token.created_at.transaction_hash} link={explorerTransactionURL(token.created_at.transaction_hash)} /></dl></section>
       </div>
-      <p className="mt-6 text-center text-xs text-zinc-600">{selectedCooketChainName} reserve-denominated values are native 18-decimal USDC amounts.</p>
+      <p className="mt-6 text-center text-xs text-zinc-600">{selectedCooketChainName} market values use a common dollar display.</p>
       <MobileTradeActions symbol={token.symbol} />
     </main>
   </TokenTradeSheetProvider>;
@@ -122,9 +135,9 @@ function CopyableAddress({ address }: { address: string }) {
   </button>;
 }
 
-function MarketOverview({ token, onchain }: { token: Token; onchain: string | null }) { const graduated = isGraduatedToken(token); return <section className="terminal-panel"><div className="border-b border-white/8 p-4"><h2 className="font-semibold text-white">Market overview</h2><p className="mt-1 text-[0.65rem] text-zinc-600">Native 18-decimal USDC values</p></div><dl className="grid grid-cols-2 gap-px bg-white/6"><MarketStat label="Price" value={formatNative(token.metrics.current_price)} secondary="Per token" /><MarketStat label="FDV" value={formatNative(token.metrics.fully_diluted_value)} secondary="Native USDC" /><MarketStat label="Volume" value={formatNative(token.metrics.volume)} secondary="Native USDC" />{graduated ? <MarketStat label="LP custody" value={hasIndexedSettlement(token) ? "Legacy reference" : "Unavailable"} secondary="Arc graduation disabled" /> : <MarketStat label="Curve reserve" value={formatNative(token.curve?.reserve_balance)} secondary="Native USDC" />}<MarketStat label="Trades" value={formatCount(token.metrics.trade_count)} secondary={`${formatCount(token.metrics.unique_trader_count)} traders`} /><MarketStat label="Holders" value={formatCount(token.metrics.holder_count)} secondary={onchain ?? "Checking onchain"} /></dl></section>; }
-function MarketStat({ label, value, secondary }: { label: string; value: string; secondary: string }) { return <div className="min-w-0 bg-[#0d1322] p-3"><dt className="text-[0.68rem] text-zinc-600">{label}</dt><dd className="mt-1 truncate text-sm font-semibold text-zinc-100" title={value}>{value}</dd><dd className="mt-0.5 truncate text-[0.65rem] text-zinc-600" title={secondary}>{secondary}</dd></div>; }
-function TopMetric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3"><p className="text-[0.65rem] text-zinc-600">{label}</p><p className="mt-1 truncate text-sm font-semibold text-zinc-100">{value}</p></div>; }
+function MarketOverview({ token, onchain }: { token: Token; onchain: string | null }) { const graduated = isGraduatedToken(token); return <section className="terminal-panel"><div className="border-b border-white/8 p-4"><h2 className="font-semibold text-white">Market overview</h2><p className="mt-1 text-[0.65rem] text-zinc-600">Dollar-denominated market values</p></div><dl className="grid grid-cols-2 gap-px bg-white/6"><MarketStat label="Price" value={formatPrice(token.metrics.current_price)} title={formatExactUSDC(token.metrics.current_price)} secondary="Per token" /><MarketStat label="FDV" value={formatMarketUSDC(token.metrics.fully_diluted_value)} title={formatExactUSDC(token.metrics.fully_diluted_value)} secondary="Market value" /><MarketStat label="Volume" value={formatMarketUSDC(token.metrics.volume)} title={formatExactUSDC(token.metrics.volume)} secondary="Cumulative trading" />{graduated ? <MarketStat label="LP custody" value={hasIndexedSettlement(token) ? "Legacy reference" : "Unavailable"} secondary="Arc Testnet market" /> : <MarketStat label="Curve reserve" value={formatMarketUSDC(token.curve?.reserve_balance)} title={formatExactUSDC(token.curve?.reserve_balance)} secondary="Market reserve" />}<MarketStat label="Trades" value={formatCount(token.metrics.trade_count)} secondary={`${formatCount(token.metrics.unique_trader_count)} traders`} /><MarketStat label="Holders" value={formatCount(token.metrics.holder_count)} secondary={onchain ?? "Checking onchain"} /></dl></section>; }
+function MarketStat({ label, value, title, secondary }: { label: string; value: string; title?: string; secondary: string }) { return <div className="min-w-0 bg-[#0d1322] p-3"><dt className="text-[0.68rem] text-zinc-600">{label}</dt><dd className="mt-1 truncate text-sm font-semibold text-zinc-100" title={title ?? value}>{value}</dd><dd className="mt-0.5 truncate text-[0.65rem] text-zinc-600" title={secondary}>{secondary}</dd></div>; }
+function TopMetric({ label, value, title }: { label: string; value: string; title?: string }) { return <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3"><p className="text-[0.65rem] text-zinc-600">{label}</p><p className="mt-1 truncate text-sm font-semibold text-zinc-100" title={title ?? value}>{value}</p></div>; }
 
 function Detail({ label, value, link }: { label: string; value: string; link?: string }) { return <div className="min-w-0"><dt className="text-zinc-500">{label}</dt><dd className="address mt-1 text-zinc-200">{link ? <a className="text-cyan-300 hover:text-cyan-200" href={link} target="_blank" rel="noreferrer">{value} ↗</a> : value}</dd></div>; }
 function SocialLink({ href, label }: { href: string; label: string }) { return <a className="button-secondary min-h-11 px-3 text-xs" href={href} target="_blank" rel="noreferrer">{label} ↗</a>; }

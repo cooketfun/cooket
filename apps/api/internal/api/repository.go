@@ -29,6 +29,7 @@ type Repository interface {
 	Trades(context.Context, int64, string, int, string) (TradePage, error)
 	Activity(context.Context, int64, string, int, string) (ActivityPage, error)
 	Chart(context.Context, int64, string, string, int) (ChartPage, error)
+	ChartRange(context.Context, int64, string, string, *int64, *int64, int) (ChartPage, error)
 	SaveMetadataDraft(context.Context, MetadataDraft) error
 	FinalizeMetadata(context.Context, int64, string, string, string) error
 	CTOStatus(context.Context, int64, string) (CTOStatus, error)
@@ -40,6 +41,29 @@ type Repository interface {
 	CTOCheckpoints(context.Context, int64, string, int, string) (CTOCheckpointPage, error)
 }
 type PostgresRepository struct{ pool *pgxpool.Pool }
+
+const canonicalIndexerName = "cooket-arc-testnet"
+
+// snapshot opens a repeatable-read view shared by a response and its indexer
+// checkpoint. ApplyWithProvenance commits projections and this checkpoint in
+// one transaction, so indexed_through_block means every projection in this
+// response is canonical through that whole block.
+func (r *PostgresRepository) snapshot(ctx context.Context, chain int64) (pgx.Tx, uint64, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, 0, err
+	}
+	var block uint64
+	err = tx.QueryRow(ctx, `SELECT last_block_number FROM indexer_checkpoints WHERE chain_id=$1 AND indexer_name=$2`, chain, canonicalIndexerName).Scan(&block)
+	if err == pgx.ErrNoRows {
+		return tx, 0, nil
+	}
+	if err != nil {
+		tx.Rollback(ctx)
+		return nil, 0, err
+	}
+	return tx, block, nil
+}
 
 func NewPostgresRepository(ctx context.Context, url string) (*PostgresRepository, error) {
 	p, e := pgxpool.New(ctx, url)
@@ -83,18 +107,19 @@ func (r *PostgresRepository) requireSchema(ctx context.Context) error {
 func (r *PostgresRepository) Close()                         { r.pool.Close() }
 func (r *PostgresRepository) Ping(ctx context.Context) error { return r.pool.Ping(ctx) }
 
-const tokenSelect = `SELECT t.token_address,t.creator_address,t.name,t.symbol,t.initial_supply,coalesce(t.description,''),coalesce(t.image_url,''),coalesce(t.metadata_url,''),coalesce(t.website_url,''),coalesce(t.x_url,''),coalesce(t.telegram_url,''),coalesce(t.discord_url,''),t.block_number,t.transaction_hash,t.log_index,
+const tokenSelect = `SELECT t.token_address,t.creator_address,t.name,t.symbol,t.initial_supply,coalesce(t.description,''),coalesce(t.image_url,''),coalesce(t.metadata_url,''),coalesce(t.website_url,''),coalesce(t.x_url,''),coalesce(t.telegram_url,''),coalesce(t.discord_url,''),t.block_number,launch_block.block_timestamp,t.transaction_hash,t.log_index,
  c.curve_address,c.canonical_pool_address,c.curve_supply,c.sold_supply,c.reserve_balance,c.starting_price,c.slope,c.graduation_threshold,c.lifecycle,
  m.trade_count,m.buy_count,m.sell_count,m.volume,m.fees,m.unique_trader_count,m.latest_trade_timestamp,m.current_price,m.fully_diluted_value,m.holder_count,
  latest_trade.source,
  g.phase,g.graduation_manager_address,g.token_amount,g.native_usdc_amount::text,g.sold_supply,g.block_number,g.transaction_hash,g.log_index,
  le.lp_custodian_address,le.position_token_id,le.liquidity_amount,le.block_number,le.transaction_hash,le.log_index,
  g.liquidity_token_address,g.quote_amount,g.liquidity_amount,g.lock_id,g.unlock_timestamp
-	 FROM (SELECT DISTINCT ON (token_address) * FROM tokens WHERE chain_id=$1 AND is_canonical
+	 FROM (SELECT DISTINCT ON (lower(token_address)) * FROM tokens WHERE chain_id=$1 AND is_canonical
 	   AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=tokens.chain_id AND x.token_address=lower(tokens.token_address))
-	   ORDER BY token_address,block_number DESC,log_index DESC) t
- LEFT JOIN LATERAL (SELECT * FROM curves c WHERE c.chain_id=$1 AND c.token_address=t.token_address AND c.is_canonical ORDER BY c.block_number DESC,c.log_index DESC LIMIT 1)c ON true
- LEFT JOIN token_metrics m ON m.chain_id=t.chain_id AND m.token_address=t.token_address
+	   ORDER BY lower(token_address),block_number DESC,log_index DESC,token_address ASC) t
+	 LEFT JOIN chain_blocks launch_block ON launch_block.chain_id=t.chain_id AND launch_block.block_hash=t.block_hash AND launch_block.is_canonical
+	 LEFT JOIN LATERAL (SELECT * FROM curves c WHERE c.chain_id=$1 AND lower(c.token_address)=lower(t.token_address) AND c.is_canonical ORDER BY c.block_number DESC,c.log_index DESC LIMIT 1)c ON true
+	 LEFT JOIN LATERAL (SELECT * FROM token_metrics m WHERE m.chain_id=t.chain_id AND lower(m.token_address)=lower(t.token_address) ORDER BY (m.token_address=t.token_address) DESC,m.block_number DESC,m.log_index DESC LIMIT 1) m ON true
  LEFT JOIN LATERAL (SELECT tr.source FROM trades tr WHERE tr.chain_id=t.chain_id AND lower(tr.token_address)=lower(t.token_address) AND tr.is_canonical ORDER BY tr.block_number DESC,tr.transaction_index DESC,tr.log_index DESC,tr.transaction_hash DESC LIMIT 1) latest_trade ON true
  LEFT JOIN LATERAL (SELECT * FROM graduations g WHERE g.chain_id=$1 AND lower(g.token_address)=lower(t.token_address) AND g.is_canonical ORDER BY g.block_number DESC,g.log_index DESC LIMIT 1)g ON true
  LEFT JOIN LATERAL (SELECT * FROM liquidity_events le WHERE le.chain_id=$1 AND lower(le.token_address)=lower(t.token_address) AND le.is_canonical AND le.event_name='GraduatedV3' AND lower(le.transaction_hash)=lower(g.transaction_hash) AND le.block_hash=g.block_hash AND lower(le.graduation_manager_address)=lower(g.graduation_manager_address) ORDER BY le.log_index DESC LIMIT 1)le ON true`
@@ -110,7 +135,7 @@ func scanToken(row pgx.Row) (Token, error) {
 	var curveBlock, curveLog, settlementBlock, settlementLog *int64
 	var curveTx, settlementTx *string
 	var legacyUnlock *int64
-	e := row.Scan(&t.Address, &t.Creator, &t.Name, &t.Symbol, &t.InitialSupply, &t.Description, &t.ImageURL, &t.MetadataURL, &t.WebsiteURL, &t.XURL, &t.TelegramURL, &t.DiscordURL, &t.CreatedAt.BlockNumber, &t.CreatedAt.TransactionHash, &t.CreatedAt.LogIndex, &caddr, &poolAddress, &csupply, &sold, &reserve, &start, &slope, &threshold, &life, &tc, &bc, &sc, &vol, &fees, &uniqueTraders, &latestTrade, &price, &fullyDilutedValue, &holders, &latestTradeSource, &phase, &manager, &ta, &nativeUsdcAmount, &graduationSold, &curveBlock, &curveTx, &curveLog, &custodian, &positionTokenID, &liquidity, &settlementBlock, &settlementTx, &settlementLog, &legacyLiquidityToken, &legacyQuote, &legacyLiquidity, &legacyLockID, &legacyUnlock)
+	e := row.Scan(&t.Address, &t.Creator, &t.Name, &t.Symbol, &t.InitialSupply, &t.Description, &t.ImageURL, &t.MetadataURL, &t.WebsiteURL, &t.XURL, &t.TelegramURL, &t.DiscordURL, &t.CreatedAt.BlockNumber, &t.CreatedAt.BlockTimestamp, &t.CreatedAt.TransactionHash, &t.CreatedAt.LogIndex, &caddr, &poolAddress, &csupply, &sold, &reserve, &start, &slope, &threshold, &life, &tc, &bc, &sc, &vol, &fees, &uniqueTraders, &latestTrade, &price, &fullyDilutedValue, &holders, &latestTradeSource, &phase, &manager, &ta, &nativeUsdcAmount, &graduationSold, &curveBlock, &curveTx, &curveLog, &custodian, &positionTokenID, &liquidity, &settlementBlock, &settlementTx, &settlementLog, &legacyLiquidityToken, &legacyQuote, &legacyLiquidity, &legacyLockID, &legacyUnlock)
 	if e != nil {
 		return t, e
 	}
@@ -384,7 +409,7 @@ func (r *PostgresRepository) TrendingTokens(ctx context.Context, chain int64, li
 		last := out.Items[len(out.Items)-1]
 		var recentVolume string
 		var recentTrades, recentUsers int64
-		e = r.pool.QueryRow(ctx, `SELECT recent_volume::text,recent_trade_count,recent_trader_count FROM token_metrics WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, last.Address).Scan(&recentVolume, &recentTrades, &recentUsers)
+		e = r.pool.QueryRow(ctx, `SELECT recent_volume::text,recent_trade_count,recent_trader_count FROM token_metrics WHERE chain_id=$1 AND lower(token_address)=lower($2) ORDER BY (token_address=$2) DESC,block_number DESC,log_index DESC LIMIT 1`, chain, last.Address).Scan(&recentVolume, &recentTrades, &recentUsers)
 		if e != nil {
 			return Page{}, e
 		}
@@ -393,11 +418,23 @@ func (r *PostgresRepository) TrendingTokens(ctx context.Context, chain int64, li
 	return out, nil
 }
 func (r *PostgresRepository) Token(ctx context.Context, chain int64, address string) (Token, error) {
-	t, e := scanToken(r.pool.QueryRow(ctx, tokenSelect+" WHERE lower(t.token_address)=lower($2)", chain, address))
+	tx, indexedThrough, e := r.snapshot(ctx, chain)
+	if e != nil {
+		return Token{}, e
+	}
+	defer tx.Rollback(ctx)
+	t, e := scanToken(tx.QueryRow(ctx, tokenSelect+" WHERE lower(t.token_address)=lower($2)", chain, address))
 	if errors.Is(e, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
-	return t, e
+	if e != nil {
+		return t, e
+	}
+	t.IndexedThroughBlock = indexedThrough
+	if e = tx.Commit(ctx); e != nil {
+		return Token{}, e
+	}
+	return t, nil
 }
 func (r *PostgresRepository) CreatorTokens(ctx context.Context, chain int64, creator string, limit int, rawCursor string) (Page, error) {
 	c, e := decodeCursor(rawCursor, "creator")
@@ -441,7 +478,7 @@ func (r *PostgresRepository) Creator(ctx context.Context, chain int64, creator s
 	}
 	var count int64
 	var volume string
-	e = r.pool.QueryRow(ctx, `SELECT count(*),coalesce((SELECT sum(CASE WHEN tr.source='uniswap_v3' THEN tr.reserve_amount ELSE tr.curve_value END) FROM trades tr JOIN tokens tk ON tk.chain_id=tr.chain_id AND lower(tk.token_address)=lower(tr.token_address) AND tk.is_canonical WHERE tr.chain_id=$1 AND tr.is_canonical AND lower(tk.creator_address)=lower($2) AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=tk.chain_id AND x.token_address=lower(tk.token_address))),'0') FROM tokens tk WHERE chain_id=$1 AND lower(creator_address)=lower($2) AND is_canonical AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=tk.chain_id AND x.token_address=lower(tk.token_address))`, chain, creator).Scan(&count, &volume)
+	e = r.pool.QueryRow(ctx, `SELECT count(*),coalesce((SELECT sum(CASE WHEN tr.source='uniswap_v3' THEN tr.reserve_amount*1000000000000::numeric ELSE tr.curve_value END) FROM trades tr JOIN tokens tk ON tk.chain_id=tr.chain_id AND lower(tk.token_address)=lower(tr.token_address) AND tk.is_canonical WHERE tr.chain_id=$1 AND tr.is_canonical AND lower(tk.creator_address)=lower($2) AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=tk.chain_id AND x.token_address=lower(tk.token_address))),'0') FROM tokens tk WHERE chain_id=$1 AND lower(creator_address)=lower($2) AND is_canonical AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=tk.chain_id AND x.token_address=lower(tk.token_address))`, chain, creator).Scan(&count, &volume)
 	if e != nil {
 		return CreatorProfile{}, e
 	}
@@ -459,12 +496,17 @@ func (r *PostgresRepository) Trades(ctx context.Context, chain int64, token stri
 		where = " AND (block_number < $3 OR (block_number = $3 AND (transaction_index < $4 OR (transaction_index = $4 AND (transaction_hash < $5 OR (transaction_hash = $5 AND log_index < $6))))))"
 	}
 	args = append(args, limit+1)
-	rows, e := r.pool.Query(ctx, `SELECT token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,block_number,transaction_index,transaction_hash,log_index FROM trades WHERE chain_id=$1 AND lower(token_address)=lower($2) AND is_canonical AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=trades.chain_id AND x.token_address=lower(trades.token_address))`+where+` ORDER BY block_number DESC,transaction_index DESC,log_index DESC,transaction_hash DESC LIMIT $`+strconv.Itoa(len(args)), args...)
+	tx, indexedThrough, e := r.snapshot(ctx, chain)
+	if e != nil {
+		return TradePage{}, e
+	}
+	defer tx.Rollback(ctx)
+	rows, e := tx.Query(ctx, `SELECT token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,block_number,transaction_index,transaction_hash,log_index FROM trades WHERE chain_id=$1 AND lower(token_address)=lower($2) AND is_canonical AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=trades.chain_id AND x.token_address=lower(trades.token_address))`+where+` ORDER BY block_number DESC,transaction_index DESC,log_index DESC,transaction_hash DESC LIMIT $`+strconv.Itoa(len(args)), args...)
 	if e != nil {
 		return TradePage{}, e
 	}
 	defer rows.Close()
-	out := TradePage{Items: []Trade{}}
+	out := TradePage{IndexedThroughBlock: indexedThrough, Items: []Trade{}}
 	for rows.Next() {
 		var t Trade
 		e = rows.Scan(&t.TokenAddress, &t.Trader, &t.Side, &t.TokenAmount, &t.ReserveAmount, &t.CurveValue, &t.ProtocolFee, &t.CreatorFee, &t.Source, &t.BlockNumber, &t.TransactionIndex, &t.TransactionHash, &t.LogIndex)
@@ -480,6 +522,9 @@ func (r *PostgresRepository) Trades(ctx context.Context, chain int64, token stri
 		out.Items = out.Items[:limit]
 		last := out.Items[len(out.Items)-1]
 		out.NextCursor = encodeCursor(pageCursor{Kind: "trades", BlockNumber: last.BlockNumber, TransactionIndex: last.TransactionIndex, Transaction: last.TransactionHash, LogIndex: last.LogIndex})
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return TradePage{}, e
 	}
 	return out, nil
 }
@@ -544,11 +589,23 @@ func parseChartInterval(value string) (chartInterval, bool) {
 }
 
 func (r *PostgresRepository) Chart(ctx context.Context, chain int64, token, interval string, limit int) (ChartPage, error) {
+	return r.ChartRange(ctx, chain, token, interval, nil, nil, limit)
+}
+
+// ChartRange returns a bounded canonical UTC bucket slice. `to` is exclusive,
+// which makes adjacent history requests non-overlapping. Nil bounds retain the
+// original most-recent chart behavior for existing clients.
+func (r *PostgresRepository) ChartRange(ctx context.Context, chain int64, token, interval string, from, to *int64, limit int) (ChartPage, error) {
 	spec, ok := parseChartInterval(interval)
 	if !ok {
 		return ChartPage{}, fmt.Errorf("unsupported chart interval %q", interval)
 	}
-	rows, e := r.pool.Query(ctx, `WITH ordered AS (
+	tx, indexedThrough, e := r.snapshot(ctx, chain)
+	if e != nil {
+		return ChartPage{}, e
+	}
+	defer tx.Rollback(ctx)
+	rows, e := tx.Query(ctx, `WITH ordered AS (
 		SELECT CASE WHEN $4::boolean
 				THEN extract(epoch FROM date_trunc('week', to_timestamp(b.block_timestamp) AT TIME ZONE 'UTC'))::bigint
 				ELSE (b.block_timestamp / $3::bigint) * $3::bigint
@@ -568,22 +625,24 @@ func (r *PostgresRepository) Chart(ctx context.Context, chain int64, token, inte
 		FROM ordered
 	), buckets AS (
 		SELECT bucket_start,count(*) trade_count,count(*) FILTER (WHERE side='buy') buy_count,count(*) FILTER (WHERE side='sell') sell_count,
-			coalesce(sum(CASE WHEN source='uniswap_v3' THEN reserve_amount ELSE curve_value END),0) volume,count(DISTINCT lower(trader_address)) unique_trader_count,
+			coalesce(sum(CASE WHEN source='uniswap_v3' THEN reserve_amount*1000000000000::numeric ELSE curve_value END),0) volume,count(DISTINCT lower(trader_address)) unique_trader_count,
 			CASE WHEN count(price)=count(*) THEN (array_agg(price ORDER BY block_number,transaction_index,log_index,transaction_hash))[1] END open_price,
 			CASE WHEN count(price)=count(*) THEN max(price) END high_price,
 			CASE WHEN count(price)=count(*) THEN min(price) END low_price,
 			CASE WHEN count(price)=count(*) THEN (array_agg(price ORDER BY block_number DESC,transaction_index DESC,log_index DESC,transaction_hash DESC))[1] END close_price
 		FROM priced GROUP BY bucket_start
+	), ranged AS (
+		SELECT * FROM buckets WHERE ($5::bigint IS NULL OR bucket_start >= $5) AND ($6::bigint IS NULL OR bucket_start < $6)
 	), limited AS (
-		SELECT * FROM buckets ORDER BY bucket_start DESC LIMIT $5
+		SELECT * FROM ranged ORDER BY bucket_start DESC LIMIT $7
 	)
 	SELECT bucket_start,trade_count,buy_count,sell_count,volume::text,unique_trader_count,open_price::text,high_price::text,low_price::text,close_price::text
-	FROM limited ORDER BY bucket_start ASC`, chain, token, spec.seconds, spec.weekly, limit)
+	FROM limited ORDER BY bucket_start ASC`, chain, token, spec.seconds, spec.weekly, from, to, limit)
 	if e != nil {
 		return ChartPage{}, e
 	}
 	defer rows.Close()
-	out := ChartPage{Interval: interval, SupportedIntervals: append([]string(nil), supportedChartIntervals...), Candles: []ChartPoint{}}
+	out := ChartPage{IndexedThroughBlock: indexedThrough, Interval: interval, SupportedIntervals: append([]string(nil), supportedChartIntervals...), Candles: []ChartPoint{}}
 	for rows.Next() {
 		var point ChartPoint
 		if e = rows.Scan(&point.BucketStart, &point.TradeCount, &point.BuyCount, &point.SellCount, &point.Volume, &point.UniqueTraderCount, &point.OpenPrice, &point.HighPrice, &point.LowPrice, &point.ClosePrice); e != nil {
@@ -592,6 +651,9 @@ func (r *PostgresRepository) Chart(ctx context.Context, chain int64, token, inte
 		out.Candles = append(out.Candles, point)
 	}
 	if e = rows.Err(); e != nil {
+		return ChartPage{}, e
+	}
+	if e = tx.Commit(ctx); e != nil {
 		return ChartPage{}, e
 	}
 	return out, nil

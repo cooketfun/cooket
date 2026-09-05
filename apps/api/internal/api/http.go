@@ -648,12 +648,37 @@ func (h *Handler) chart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	out, e := h.repo.Chart(r.Context(), h.chainID, a, interval, limit)
+	from, e := optionalUnixSecond(r.URL.Query().Get("from"))
+	if e != nil {
+		writeError(w, 400, "invalid_request", "from must be a non-negative Unix timestamp")
+		return
+	}
+	to, e := optionalUnixSecond(r.URL.Query().Get("to"))
+	if e != nil {
+		writeError(w, 400, "invalid_request", "to must be a non-negative Unix timestamp")
+		return
+	}
+	if from != nil && to != nil && *from >= *to {
+		writeError(w, 400, "invalid_request", "from must be before to")
+		return
+	}
+	out, e := h.repo.ChartRange(r.Context(), h.chainID, a, interval, from, to, limit)
 	if e != nil {
 		h.repositoryError(w, r, e)
 		return
 	}
 	writeJSON(w, 200, out)
+}
+
+func optionalUnixSecond(raw string) (*int64, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value < 0 {
+		return nil, errors.New("invalid timestamp")
+	}
+	return &value, nil
 }
 
 func optionalPublicURL(raw string, allowedHosts []string) (string, error) {

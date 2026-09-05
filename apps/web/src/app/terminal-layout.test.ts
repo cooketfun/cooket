@@ -45,7 +45,7 @@ describe("token terminal responsive layout", () => {
     expect(sidebarStart).toBeGreaterThan(primaryStart);
     expect(supportStart).toBeGreaterThan(sidebarStart);
     expect(historyStart).toBeGreaterThan(supportStart);
-    expect(primarySource).toContain("<TokenChart ");
+    expect(primarySource).toContain("<TokenAdvancedChart ");
     expect(sidebarSource).toContain("<TokenTrading ");
     expect(sidebarSource).not.toContain("<MarketOverview ");
     expect(sidebarSource).not.toContain("<TokenGraduation ");
@@ -56,7 +56,7 @@ describe("token terminal responsive layout", () => {
     expect(supportSource).toContain("<TokenCTO ");
     expect(supportSource).not.toContain("<TokenTrading ");
     expect(page.slice(historyStart)).toContain("<TokenTradeHistory ");
-    expect(page.match(/<TokenChart /g)).toHaveLength(1);
+    expect(page.match(/<TokenAdvancedChart /g)).toHaveLength(1);
     expect(page.match(/<TokenTrading /g)).toHaveLength(1);
     expect(page.match(/<TokenTradeHistory /g)).toHaveLength(1);
     expect(page).not.toContain('className="terminal-history"');
@@ -78,7 +78,7 @@ describe("token terminal responsive layout", () => {
     expect(page).toContain("graduated={graduated}");
     expect(graduation).toContain('label="V3 liquidity"');
     expect(graduation).toContain("native_usdc_amount");
-    expect(graduation).toContain("formatNative(graduation.native_usdc_amount)");
+    expect(graduation).toContain("formatMarketUSDC(graduation.native_usdc_amount)");
     expect(graduation).not.toContain("eth_amount");
     expect(graduation).not.toContain("ethAmount");
     expect(graduation).not.toContain("formatNative(graduation.liquidity");

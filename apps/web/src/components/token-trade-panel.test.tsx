@@ -4,8 +4,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { apiAssetURL } from "@/lib/api";
 import { pendingTradeKey, persistPendingTrade, readPendingTrade } from "@/lib/transactions";
 import { TokenTradePanel, type TradeExecution } from "./token-trade-panel";
+import { USDC_TOKEN_LOGO_SRC } from "./trade-asset-identity";
 
 const panelSource = readFileSync(resolve(process.cwd(), "src/components/token-trade-panel.tsx"), "utf8");
 
@@ -76,7 +78,7 @@ async function requestBuyQuote(user: ReturnType<typeof userEvent.setup>, value =
 }
 
 async function requestSellQuote(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Sell" }));
+  await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
   await user.type(screen.getByLabelText("COOKET amount"), "1");
   await user.click(screen.getByRole("button", { name: "Get quote" }));
   await screen.findByText(/Minimum native USDC output/);
@@ -84,6 +86,30 @@ async function requestSellQuote(user: ReturnType<typeof userEvent.setup>) {
 
 function storePending(overrides: Partial<Parameters<typeof persistPendingTrade>[0]> = {}) {
   persistPendingTrade({ version: 1, walletAddress: wallet, tokenAddress: token, side: "buy", hash, status: "confirmation_unknown", submittedAt: Date.now(), ...overrides });
+}
+
+function assetCell(label: "Pay" | "Receive") {
+  return screen.getByText(label, { selector: "p" }).parentElement as HTMLElement;
+}
+
+function expectUsdcIdentity(root: HTMLElement) {
+  const image = root.querySelector('[data-testid="trade-asset-usdc"] img');
+  expect(root.querySelector('[data-testid="trade-asset-usdc"]')?.textContent).toContain("USDC");
+  expect(image?.getAttribute("src")).toBe(USDC_TOKEN_LOGO_SRC);
+  expect(image?.getAttribute("src")).not.toMatch(/^https?:/i);
+}
+
+function expectTokenIdentity(root: HTMLElement, symbol: string, imageURL?: string) {
+  const identity = root.querySelector('[data-testid="trade-asset-token"]') as HTMLElement;
+  expect(identity.textContent).toContain(`$${symbol}`);
+  const image = identity.querySelector("img");
+  if (imageURL) {
+    expect(image).not.toBeNull();
+    expect(image!.getAttribute("src")).toBe(apiAssetURL(imageURL));
+  } else {
+    expect(image).toBeNull();
+    expect(identity.querySelector("[aria-hidden]")).toBeNull();
+  }
 }
 
 describe("TokenTradePanel", () => {
@@ -97,7 +123,7 @@ describe("TokenTradePanel", () => {
     expect(confirmation.className).toContain("border-t");
     await requestBuyQuote(user);
     expect(screen.getByText("You receive")).toBeTruthy();
-    expect(screen.getByText("1 COOKET")).toBeTruthy();
+    expect(screen.getByText("1 $COOKET")).toBeTruthy();
     expect(screen.queryByText("Exact token output")).toBeNull();
   });
 
@@ -154,7 +180,7 @@ describe("TokenTradePanel", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(view.quoteBuy).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Sell" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sell $COOKET" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(view.quoteSell).toHaveBeenCalledTimes(1);
 
@@ -182,9 +208,9 @@ describe("TokenTradePanel", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     const latest = { ...buyQuote, tokenAmount: BigInt("2000000000000000000") };
     await act(async () => { resolveSecond?.(latest); });
-    expect(screen.getByText("2 COOKET")).toBeTruthy();
+    expect(screen.getByText("2 $COOKET")).toBeTruthy();
     await act(async () => { resolveFirst?.(buyQuote); });
-    expect(screen.queryByText("1 COOKET")).toBeNull();
+    expect(screen.queryByText("1 $COOKET")).toBeNull();
   });
 
   it("shows an automatic quote error without fabricating a summary", async () => {
@@ -285,8 +311,8 @@ describe("TokenTradePanel", () => {
     storePending();
     const { execute } = renderPanel();
     expect(await screen.findByText(/New trades are blocked/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Buy" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Sell" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Buy $COOKET" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Sell $COOKET" }) as HTMLButtonElement).disabled).toBe(true);
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -416,7 +442,7 @@ describe("TokenTradePanel", () => {
     const { quoteBuy, quoteSell } = renderPanel({ state: pendingState });
     expect(screen.getByText(/New buys are paused, but holders may still sell/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Get quote" }) as HTMLButtonElement).disabled).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Sell" }));
+    await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
     await user.type(screen.getByLabelText("COOKET amount"), "1");
     await user.click(screen.getByRole("button", { name: "Get quote" }));
     expect(await screen.findByText(/Minimum native USDC output/)).toBeTruthy();
@@ -577,7 +603,7 @@ describe("TokenTradePanel", () => {
   it("uses the exact token balance for sell MAX", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(screen.getByRole("button", { name: "Sell" }));
+    await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
     await user.click(screen.getByRole("button", { name: "Use exact token balance" }));
     expect((screen.getByLabelText("COOKET amount") as HTMLInputElement).value).toBe("5");
   });
@@ -612,5 +638,25 @@ describe("TokenTradePanel", () => {
     renderPanel({ state: { ...state, nativeBalance: BigInt("1000000000000000") } });
     expect((screen.getByRole("button", { name: "Use maximum native USDC after gas reserve" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Use 10% of native USDC balance" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows official USDC on buy Pay and a creator image on Receive only when available", async () => {
+    const user = userEvent.setup();
+    renderPanel({ tokenImageURL: "/uploads/cooket.png" });
+    expectUsdcIdentity(assetCell("Pay"));
+    expectTokenIdentity(assetCell("Receive"), "COOKET", "/uploads/cooket.png");
+    await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
+    expectTokenIdentity(assetCell("Pay"), "COOKET", "/uploads/cooket.png");
+    expectUsdcIdentity(assetCell("Receive"));
+  });
+
+  it("omits a token image on buy and sell when the creator did not provide one", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    expectUsdcIdentity(assetCell("Pay"));
+    expectTokenIdentity(assetCell("Receive"), "COOKET");
+    await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
+    expectTokenIdentity(assetCell("Pay"), "COOKET");
+    expectUsdcIdentity(assetCell("Receive"));
   });
 });

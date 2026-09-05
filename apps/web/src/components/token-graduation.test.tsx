@@ -33,7 +33,7 @@ describe("TokenGraduation", () => {
   it("keeps active tokens in the bonding-curve progress state", () => {
     render(<TokenGraduation token={baseToken} />);
     expect(screen.getByText("Graduation progress")).toBeTruthy();
-    expect(screen.getByText("50.00%")).toBeTruthy();
+    expect(screen.getByText("50%")).toBeTruthy();
     expect(screen.queryByText("Permanent")).toBeNull();
     expect(screen.queryByText("External liquidity active")).toBeNull();
   });
@@ -55,14 +55,16 @@ describe("TokenGraduation", () => {
     render(<TokenGraduation token={token} />);
 
     expect(screen.getByText("Graduated")).toBeTruthy();
+    expect(screen.getByText("Indexed canonical graduation record. Trading continues through the canonical graduated liquidity pool.")).toBeTruthy();
+    expect(screen.queryByText(/deferred|disabled in Phase 0|execution remains unavailable/i)).toBeNull();
     expect(screen.getByText("External liquidity active")).toBeTruthy();
     expect(screen.getByText("Permanent")).toBeTruthy();
     expect(screen.getByText("#77")).toBeTruthy();
     expect(screen.getByText("12,345,678,901,234,567,890")).toBeTruthy();
-    expect(screen.getByText("200M GRAD")).toBeTruthy();
-    expect(screen.getByText("Native USDC")).toBeTruthy();
-    expect(screen.getByText("3 USDC")).toBeTruthy();
-    expect(screen.getByTitle("3000000000000000000")).toBeTruthy();
+    expect(screen.getByText("200M $GRAD")).toBeTruthy();
+    expect(screen.getByText("Settlement value")).toBeTruthy();
+    expect(screen.getByText("$3")).toBeTruthy();
+    expect(screen.getByTitle("3 USDC")).toBeTruthy();
     expect(screen.queryByText("Legacy ETH field (unsupported)")).toBeNull();
     expect(screen.queryByText("eth_amount")).toBeNull();
     expect(screen.queryByText("ETH")).toBeNull();
@@ -86,7 +88,7 @@ describe("TokenGraduation", () => {
       },
     } as Token;
     render(<TokenGraduation token={token} />);
-    expect(screen.getByText("3 USDC")).toBeTruthy();
+    expect(screen.getByText("$3")).toBeTruthy();
     expect(screen.queryByText("999000000000000000000")).toBeNull();
     expect(screen.queryByText("Legacy ETH field (unsupported)")).toBeNull();
     expect(screen.queryByText(/999 ETH/)).toBeNull();

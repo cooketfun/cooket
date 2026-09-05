@@ -163,21 +163,25 @@ describe("CreateTokenForm", () => {
     await user.click(screen.getByRole("button", { name: "Confirm in wallet" }));
     expect(await screen.findByText(/Confirm the transaction in your connected wallet/)).toBeTruthy();
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0][0].devBuyEth).toBe("");
+    expect(execute.mock.calls[0][0].devBuyNativeUsdc).toBe("");
     finish?.({ tokenAddress: token, hash });
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(token));
     expect(screen.getByText(/Token creation confirmed/)).toBeTruthy();
   });
 
-  it("rejects a Dev buy before review instead of applying the Base graduation limit", async () => {
+  it("accepts an arbitrary valid Dev buy and presents professional native-USDC disclosure", async () => {
     const user = userEvent.setup();
-    const execute = vi.fn<CreateExecution>();
+    const execute = vi.fn<CreateExecution>().mockResolvedValue({ tokenAddress: token, hash });
     renderForm({ execute });
     await completeForm(user);
-    await user.type(screen.getByLabelText("Dev buy"), "0.10");
+    await user.type(screen.getByLabelText("Dev buy"), "1000000000000.10");
     await user.click(screen.getByRole("button", { name: "Review metadata" }));
-    expect(screen.getByText(/Dev buy is disabled until Arc native-USDC curve economics are approved/)).toBeTruthy();
-    expect(execute).not.toHaveBeenCalled();
+    expect(screen.getByText(/1000000000000.10 native USDC/)).toBeTruthy();
+    expect(screen.getByText(/separate second wallet confirmation/i)).toBeTruthy();
+    expect(screen.queryByText(/disabled in Phase 0|protocol economics are not approved/i)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm factory transaction" }));
+    await user.click(screen.getByRole("button", { name: "Confirm in wallet" }));
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ devBuyNativeUsdc: "1000000000000.10" }), expect.any(Function));
   });
 
   it("shows a rejected transaction failure", async () => {

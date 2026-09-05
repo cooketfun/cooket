@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { api, apiAssetURL } from "@/lib/api";
+import { formatTokenSymbol } from "@/lib/format";
 
 export function HeaderTokenSearch({ id = "global-token-search", autoFocus = false, onNavigate }: { id?: string; autoFocus?: boolean; onNavigate?: () => void }) {
   const [search, setSearch] = useState("");
@@ -37,7 +38,7 @@ export function HeaderTokenSearch({ id = "global-token-search", autoFocus = fals
       {query.data?.items.length === 0 && <p className="px-3 py-3 text-xs text-zinc-500">No indexed tokens found.</p>}
       {query.data?.items.map((token) => <Link key={token.address} href={`/token/${token.address}`} onClick={() => { setSearch(""); onNavigate?.(); }} className="flex min-h-11 min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-white/5">
         <TokenThumb image={token.image_url} symbol={token.symbol} />
-        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-white">{token.name}</span><span className="block truncate text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-cyan-300">{token.symbol}</span></span>
+        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-white">{token.name}</span><span className="block truncate text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-cyan-300">{formatTokenSymbol(token.symbol)}</span></span>
         <span className="text-xs text-zinc-600" aria-hidden>→</span>
       </Link>)}
     </div>}

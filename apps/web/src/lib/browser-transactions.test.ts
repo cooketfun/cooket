@@ -124,4 +124,18 @@ describe("Arc Phase 0 write safety", () => {
     expect(client.getAddresses).not.toHaveBeenCalled();
     expect(client.writeContract).not.toHaveBeenCalled();
   });
+
+  it("fails a payable buy before wallet submission when native USDC cannot cover value plus estimated gas", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ARC_TESTNET_FINANCIAL_EXECUTION_ENABLED", "true");
+    contractAddresses.cooketCurve = curve;
+    vi.spyOn(publicClient, "simulateContract").mockResolvedValue({ request: {} } as never);
+    vi.spyOn(publicClient, "estimateContractGas").mockResolvedValue(BigInt(21_000));
+    vi.spyOn(publicClient, "getGasPrice").mockResolvedValue(BigInt(2));
+    vi.spyOn(publicClient, "getBalance").mockResolvedValue(BigInt(100));
+    const client = walletClient();
+    const quote = { reserveIn: BigInt(100), curveCost: BigInt(90), protocolFee: BigInt(5), creatorFee: BigInt(5), tokenAmount: BigInt(1), maxReserveIn: BigInt(100), slippageBps: 50, deadline: BigInt(Math.floor(Date.now() / 1000) + 60) };
+
+    await expect(submitBuy(client, wallet, token, quote)).rejects.toThrow(/cover this buy and its estimated network gas/i);
+    expect(client.writeContract).not.toHaveBeenCalled();
+  });
 });

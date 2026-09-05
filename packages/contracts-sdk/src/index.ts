@@ -199,6 +199,7 @@ export type ContractAddresses = {
   permanentLPFeeVault?: `0x${string}`;
   permanentLPCustodianDeployer?: `0x${string}`;
   graduationSettlementExecutor?: `0x${string}`;
+  ctoRegistry?: `0x${string}`;
 };
 
 function optionalRuntimeAddress(value: string | undefined, label: string): `0x${string}` | undefined {
@@ -218,6 +219,7 @@ export const contractAddresses: ContractAddresses = {
   permanentLPFeeVault: optionalRuntimeAddress(process.env.NEXT_PUBLIC_PERMANENT_LP_FEE_VAULT_V3_ADDRESS, "NEXT_PUBLIC_PERMANENT_LP_FEE_VAULT_V3_ADDRESS"),
   permanentLPCustodianDeployer: optionalRuntimeAddress(process.env.NEXT_PUBLIC_PERMANENT_LP_CUSTODIAN_DEPLOYER_V3_ADDRESS, "NEXT_PUBLIC_PERMANENT_LP_CUSTODIAN_DEPLOYER_V3_ADDRESS"),
   graduationSettlementExecutor: optionalRuntimeAddress(process.env.NEXT_PUBLIC_GRADUATION_SETTLEMENT_EXECUTOR_V3_ADDRESS, "NEXT_PUBLIC_GRADUATION_SETTLEMENT_EXECUTOR_V3_ADDRESS"),
+  ctoRegistry: optionalRuntimeAddress(process.env.NEXT_PUBLIC_CTO_REGISTRY_V3_ADDRESS, "NEXT_PUBLIC_CTO_REGISTRY_V3_ADDRESS"),
 };
 
 export type TokenLaunched = { token: Address; curve: Address; creator: Address; protocolVersion: string; totalSupply: bigint; curveAllocation: bigint; lpAllocation: bigint; canonicalPool: Address };

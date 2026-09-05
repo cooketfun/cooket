@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -171,6 +172,143 @@ func TestV3TransferAnalyticsAndIdempotency(t *testing.T) {
 	}
 	if *openPrice != expectedClose.String() || *highPrice != expectedClose.String() || *lowPrice != expectedClose.String() || *closePrice != expectedClose.String() {
 		t.Fatalf("bucket candle=%s/%s/%s/%s want=%s", *openPrice, *highPrice, *lowPrice, *closePrice, expectedClose)
+	}
+}
+
+func TestMetricsNormalizeV3USDCVolumeTo18Decimals(t *testing.T) {
+	s := integrationStore(t)
+	ctx := context.Background()
+	const chain int64 = BaseSepoliaChainID
+	token := common.HexToAddress("0x0000000000000000000000000000000000000b01")
+	creator := common.HexToAddress("0x0000000000000000000000000000000000000b02")
+	blockHash := common.HexToHash("0xb01").Hex()
+	if _, err := s.pool.Exec(ctx, `INSERT INTO chain_blocks(chain_id,block_number,block_hash,parent_hash,block_timestamp) VALUES($1,1,$2,'0x',1000)`, chain, blockHash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,'Volume','VOL',1000,'endpoint-cp-v3',1,$4,$5,0)`, chain, token.Hex(), creator.Hex(), blockHash, common.HexToHash("0xb02").Hex()); err != nil {
+		t.Fatal(err)
+	}
+	trades := []struct {
+		side, reserve, curveValue, source, tx string
+	}{
+		{"buy", "100000000000000000000", "100000000000000000000", "curve", common.HexToHash("0xb03").Hex()},
+		{"buy", "500000000", "500000000", "uniswap_v3", common.HexToHash("0xb04").Hex()},
+		{"sell", "250000000", "250000000", "uniswap_v3", common.HexToHash("0xb05").Hex()},
+	}
+	for index, trade := range trades {
+		tradeToken := token.Hex()
+		if trade.source == "uniswap_v3" {
+			tradeToken = strings.ToLower(tradeToken)
+		}
+		if _, err := s.pool.Exec(ctx, `INSERT INTO trades(chain_id,token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,transaction_index,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,1,$5,$6,0,0,$7,$8,1,$9,$10,$8)`, chain, tradeToken, creator.Hex(), trade.side, trade.reserve, trade.curveValue, trade.source, index, blockHash, trade.tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO graduations(chain_id,token_address,phase,native_usdc_amount,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,'graduated',999999999999999999999,1,$3,$4,99)`, chain, token.Hex(), blockHash, common.HexToHash("0xb06").Hex()); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err = rebuildMetricsTx(ctx, tx, chain); err != nil {
+		t.Fatal(err)
+	}
+	if err = rebuildAnalyticsTx(ctx, tx, chain); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	const want = "850000000000000000000"
+	var volume, recentVolume, bucketVolume, rawV3 string
+	var metricRows, bucketRows, tradeCount, buyCount, sellCount int
+	if err = s.pool.QueryRow(ctx, `SELECT volume::text,recent_volume::text FROM token_metrics WHERE chain_id=$1 AND token_address=$2`, chain, token.Hex()).Scan(&volume, &recentVolume); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT volume::text FROM token_trade_buckets WHERE chain_id=$1 AND token_address=$2`, chain, token.Hex()).Scan(&bucketVolume); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT reserve_amount::text FROM trades WHERE chain_id=$1 AND lower(token_address)=lower($2) AND source='uniswap_v3' AND side='buy'`, chain, token.Hex()).Scan(&rawV3); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM token_metrics WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, token.Hex()).Scan(&metricRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM token_trade_buckets WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, token.Hex()).Scan(&bucketRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT trade_count,buy_count,sell_count FROM token_metrics WHERE chain_id=$1 AND token_address=$2`, chain, token.Hex()).Scan(&tradeCount, &buyCount, &sellCount); err != nil {
+		t.Fatal(err)
+	}
+	if metricRows != 1 || bucketRows != 1 || tradeCount != 3 || buyCount != 2 || sellCount != 1 || volume != want || recentVolume != want || bucketVolume != want || rawV3 != "500000000" {
+		t.Fatalf("metrics=%d buckets=%d trades=%d buys=%d sells=%d volume=%s recent=%s bucket=%s raw_v3=%s want=%s", metricRows, bucketRows, tradeCount, buyCount, sellCount, volume, recentVolume, bucketVolume, rawV3, want)
+	}
+
+	realToken := common.HexToAddress("0x0000000000000000000000000000000000000b07")
+	if _, err = s.pool.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,'Observed Volume','OBS',1000,'endpoint-cp-v3',1,$4,$5,0)`, chain, realToken.Hex(), creator.Hex(), blockHash, common.HexToHash("0xb08").Hex()); err != nil {
+		t.Fatal(err)
+	}
+	observedTrades := []struct{ side, reserve, curveValue, source string }{
+		{"buy", "7318181820470625382169", "7245000002265919128348", "curve"},
+		{"sell", "2243259937065", "2265919128348", "curve"},
+	}
+	// Match the observed casing split and counts without sacrificing exact integer
+	// totals: 12 V3 buys and 10 V3 sells sum to the canonical raw USDC amounts.
+	for i := 0; i < 12; i++ {
+		amount := "1"
+		if i == 0 {
+			amount = "34945788835"
+		}
+		observedTrades = append(observedTrades, struct{ side, reserve, curveValue, source string }{"buy", amount, amount, "uniswap_v3"})
+	}
+	for i := 0; i < 10; i++ {
+		amount := "1"
+		if i == 0 {
+			amount = "40321990531"
+		}
+		observedTrades = append(observedTrades, struct{ side, reserve, curveValue, source string }{"sell", amount, amount, "uniswap_v3"})
+	}
+	for index, trade := range observedTrades {
+		tradeToken := realToken.Hex()
+		if trade.source == "uniswap_v3" {
+			tradeToken = strings.ToLower(tradeToken)
+		}
+		if _, err = s.pool.Exec(ctx, `INSERT INTO trades(chain_id,token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,transaction_index,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,1,$5,$6,0,0,$7,$8,1,$9,$10,$8)`, chain, tradeToken, creator.Hex(), trade.side, trade.reserve, trade.curveValue, trade.source, index+10, blockHash, common.BigToHash(big.NewInt(int64(900+index))).Hex()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err = s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err = rebuildMetricsTx(ctx, tx, chain); err != nil {
+		t.Fatal(err)
+	}
+	if err = rebuildAnalyticsTx(ctx, tx, chain); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var observed string
+	if err = s.pool.QueryRow(ctx, `SELECT volume::text FROM token_metrics WHERE chain_id=$1 AND token_address=$2`, chain, realToken.Hex()).Scan(&observed); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM token_metrics WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, realToken.Hex()).Scan(&metricRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM token_trade_buckets WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, realToken.Hex()).Scan(&bucketRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT trade_count,buy_count,sell_count FROM token_metrics WHERE chain_id=$1 AND token_address=$2`, chain, realToken.Hex()).Scan(&tradeCount, &buyCount, &sellCount); err != nil {
+		t.Fatal(err)
+	}
+	if metricRows != 1 || bucketRows != 1 || tradeCount != 25 || buyCount != 14 || sellCount != 11 || observed != "82512779390531838256696" {
+		t.Fatalf("observed casing metrics=%d buckets=%d trades=%d buys=%d sells=%d volume=%s", metricRows, bucketRows, tradeCount, buyCount, sellCount, observed)
 	}
 }
 

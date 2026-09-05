@@ -89,6 +89,11 @@ func TestPostgresChartAggregatesExactCanonicalTradesAtUTCBoundaries(t *testing.T
 	if candle == nil {
 		t.Fatalf("missing 1m UTC boundary bucket: %+v", minute.Candles)
 	}
+	from, to := bucketStart, bucketStart+60
+	ranged, err := repo.ChartRange(ctx, chain, token, "1m", &from, &to, 10)
+	if err != nil || len(ranged.Candles) != 1 || ranged.Candles[0].BucketStart != bucketStart {
+		t.Fatalf("exact [from,to) range=%+v err=%v", ranged.Candles, err)
+	}
 	open := exactCurvePrice(t, "3000000000000000000", "3000000000000000")
 	closePrice := exactCurvePrice(t, "6000000000000000000", "7000000000000000")
 	if candle.TradeCount != 2 || candle.BuyCount != 2 || candle.SellCount != 0 || candle.Volume != "6000000000000000" || candle.UniqueTraderCount != 2 || candle.OpenPrice == nil || *candle.OpenPrice != open || candle.ClosePrice == nil || *candle.ClosePrice != closePrice || candle.HighPrice == nil || *candle.HighPrice != closePrice || candle.LowPrice == nil || *candle.LowPrice != open {
@@ -97,6 +102,78 @@ func TestPostgresChartAggregatesExactCanonicalTradesAtUTCBoundaries(t *testing.T
 	weekly, err := repo.Chart(ctx, chain, token, "1w", 100)
 	if err != nil || len(weekly.Candles) != 2 || weekly.Candles[0].BucketStart != time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC).Unix() || weekly.Candles[1].BucketStart != time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC).Unix() {
 		t.Fatalf("weekly UTC buckets=%+v err=%v", weekly.Candles, err)
+	}
+}
+
+func TestPostgresVolumeAggregatesCurveAndV3InCanonical18Decimals(t *testing.T) {
+	url := integrationDatabaseURL(t, "API_TEST_DATABASE_URL")
+	ctx := context.Background()
+	repo, err := NewPostgresRepository(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	const chain int64 = 84532
+	const token = "0x821aB8590e26ef7Af412fA92D75375AB4Fa58CB7"
+	const creator = "0x0000000000000000000000000000000000000c12"
+	const block = int64(499999911)
+	const blockHash = "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc11"
+	cleanup := func() {
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM trades WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, token)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM token_metrics WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, token)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM tokens WHERE chain_id=$1 AND lower(token_address)=lower($2)`, chain, token)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM chain_blocks WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
+	}
+	cleanup()
+	defer cleanup()
+	if _, err = repo.pool.Exec(ctx, `INSERT INTO chain_blocks(chain_id,block_number,block_hash,parent_hash,block_timestamp) VALUES($1,$2,$3,'0xparent',1700000000)`, chain, block, blockHash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.pool.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,'Volume API','VAPI',1000,'endpoint-cp-v3',$4,$5,$6,0)`, chain, token, creator, block, blockHash, "0x"+strings.Repeat("c", 63)+"1"); err != nil {
+		t.Fatal(err)
+	}
+	for index, trade := range []struct{ side, reserve, curveValue, source string }{
+		{"buy", "100000000000000000000", "100000000000000000000", "curve"},
+		{"buy", "500000000", "500000000", "uniswap_v3"},
+		{"sell", "250000000", "250000000", "uniswap_v3"},
+	} {
+		txHash := "0x" + strings.Repeat(string(rune('7'+index)), 64)
+		tradeToken := token
+		if trade.source == "uniswap_v3" {
+			tradeToken = strings.ToLower(token)
+		}
+		if _, err = repo.pool.Exec(ctx, `INSERT INTO trades(chain_id,token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,transaction_index,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,1,$5,$6,0,0,$7,$8,$9,$10,$11,$8)`, chain, tradeToken, creator, trade.side, trade.reserve, trade.curveValue, trade.source, index, block, blockHash, txHash); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chart, err := repo.Chart(ctx, chain, token, "1h", 10)
+	if err != nil || len(chart.Candles) != 1 || chart.Candles[0].Volume != "850000000000000000000" || chart.Candles[0].BuyCount != 2 || chart.Candles[0].SellCount != 1 {
+		t.Fatalf("chart=%+v err=%v", chart, err)
+	}
+	profile, err := repo.Creator(ctx, chain, creator, 10, "")
+	if err != nil || profile.Volume != "850000000000000000000" {
+		t.Fatalf("creator=%+v err=%v", profile, err)
+	}
+	if _, err = repo.pool.Exec(ctx, `INSERT INTO token_metrics(chain_id,token_address,trade_count,buy_count,sell_count,volume,block_number,block_hash) VALUES($1,$2,3,2,1,850000000000000000000,$3,$4),($1,$5,1,1,0,1,$3,$4)`, chain, token, block, blockHash, strings.ToLower(token)); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := repo.Token(ctx, chain, strings.ToLower(token))
+	if err != nil || detail.Address != token || detail.Metrics.Volume != "850000000000000000000" || detail.CreatedAt.BlockTimestamp == nil || *detail.CreatedAt.BlockTimestamp != 1700000000 {
+		t.Fatalf("case-insensitive token detail=%+v err=%v", detail, err)
+	}
+	page, err := repo.ListTokens(ctx, chain, 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identities := 0
+	for _, item := range page.Items {
+		if strings.EqualFold(item.Address, token) {
+			identities++
+		}
+	}
+	if identities != 1 {
+		t.Fatalf("case variants produced %d API token identities: %+v", identities, page.Items)
 	}
 }
 

@@ -245,18 +245,26 @@ func (s *Store) ApplyWithProvenance(ctx context.Context, chain int64, name strin
 	return tx.Commit(ctx)
 }
 func rebuildMetricsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
-	if _, e := tx.Exec(ctx, `UPDATE token_metrics SET trade_count=0,buy_count=0,sell_count=0,volume=0,fees=0,block_number=0,block_hash='',transaction_hash='',log_index=0,updated_at=now() WHERE chain_id=$1`, chain); e != nil {
+	// token_address is text in the historical tables. Rebuild from the canonical
+	// launch address rather than preserving a prior casing variant in a projection.
+	if _, e := tx.Exec(ctx, `DELETE FROM token_metrics WHERE chain_id=$1`, chain); e != nil {
 		return e
 	}
-	_, e := tx.Exec(ctx, `WITH stats AS (
-		SELECT chain_id,token_address,count(*) trade_count,count(*) FILTER (WHERE side='buy') buy_count,
-			count(*) FILTER (WHERE side='sell') sell_count,coalesce(sum(CASE WHEN source='uniswap_v3' THEN reserve_amount ELSE curve_value END),0) volume,
+	_, e := tx.Exec(ctx, `WITH canonical_tokens AS (
+		SELECT DISTINCT ON (lower(token_address)) chain_id,lower(token_address) identity,token_address
+		FROM tokens WHERE chain_id=$1 AND is_canonical
+		ORDER BY lower(token_address),block_number DESC,log_index DESC,token_address ASC
+	), stats AS (
+		SELECT t.chain_id,ct.token_address,count(*) trade_count,count(*) FILTER (WHERE t.side='buy') buy_count,
+			count(*) FILTER (WHERE side='sell') sell_count,coalesce(sum(CASE WHEN source='uniswap_v3' THEN reserve_amount*1000000000000::numeric ELSE curve_value END),0) volume,
 			coalesce(sum(protocol_fee+creator_fee),0) fees
-		FROM trades WHERE chain_id=$1 AND is_canonical GROUP BY chain_id,token_address
+		FROM trades t JOIN canonical_tokens ct ON ct.chain_id=t.chain_id AND ct.identity=lower(t.token_address)
+		WHERE t.chain_id=$1 AND t.is_canonical GROUP BY t.chain_id,ct.token_address
 	), latest AS (
-		SELECT DISTINCT ON (chain_id,token_address) chain_id,token_address,block_number,block_hash,transaction_hash,log_index
-		FROM trades WHERE chain_id=$1 AND is_canonical
-		ORDER BY chain_id,token_address,block_number DESC,transaction_index DESC,log_index DESC
+		SELECT DISTINCT ON (t.chain_id,ct.token_address) t.chain_id,ct.token_address,t.block_number,t.block_hash,t.transaction_hash,t.log_index
+		FROM trades t JOIN canonical_tokens ct ON ct.chain_id=t.chain_id AND ct.identity=lower(t.token_address)
+		WHERE t.chain_id=$1 AND t.is_canonical
+		ORDER BY t.chain_id,ct.token_address,t.block_number DESC,t.transaction_index DESC,t.log_index DESC
 	)
 	INSERT INTO token_metrics(chain_id,token_address,trade_count,buy_count,sell_count,volume,fees,block_number,block_hash,transaction_hash,log_index,updated_at)
 	SELECT s.chain_id,s.token_address,s.trade_count,s.buy_count,s.sell_count,s.volume,s.fees,l.block_number,l.block_hash,l.transaction_hash,l.log_index,now()
@@ -271,10 +279,10 @@ func rebuildCurveStateTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 		return e
 	}
 	if _, e := tx.Exec(ctx, `UPDATE curves c SET sold_supply=q.sold_supply,reserve_balance=q.reserve_balance FROM (
-		SELECT chain_id,token_address,sum(CASE WHEN side='buy' THEN token_amount ELSE -token_amount END) sold_supply,
+		SELECT chain_id,lower(token_address) token_address,sum(CASE WHEN side='buy' THEN token_amount ELSE -token_amount END) sold_supply,
 			sum(CASE WHEN side='buy' THEN curve_value ELSE -curve_value END) reserve_balance
-		FROM trades WHERE chain_id=$1 AND is_canonical AND source='curve' GROUP BY chain_id,token_address
-	) q WHERE c.chain_id=q.chain_id AND c.token_address=q.token_address AND c.is_canonical`, chain); e != nil {
+		FROM trades WHERE chain_id=$1 AND is_canonical AND source='curve' GROUP BY chain_id,lower(token_address)
+	) q WHERE c.chain_id=q.chain_id AND lower(c.token_address)=q.token_address AND c.is_canonical`, chain); e != nil {
 		return e
 	}
 	_, e := tx.Exec(ctx, `UPDATE curves c SET lifecycle=q.lifecycle FROM (
@@ -329,7 +337,8 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 		return e
 	}
 	if _, e := tx.Exec(ctx, `INSERT INTO token_metrics(chain_id,token_address)
-		SELECT $1, lower(token_address) FROM tokens WHERE chain_id=$1 AND is_canonical
+		SELECT DISTINCT ON (lower(token_address)) $1, token_address FROM tokens WHERE chain_id=$1 AND is_canonical
+		ORDER BY lower(token_address),block_number DESC,log_index DESC,token_address ASC
 		ON CONFLICT(chain_id,token_address) DO NOTHING`, chain); e != nil {
 		return e
 	}
@@ -343,9 +352,9 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 		WHERE t.chain_id=$1 AND t.is_canonical ORDER BY lower(t.token_address),t.block_number DESC,t.transaction_hash DESC,t.log_index DESC
 	)
 	UPDATE token_metrics m SET holder_count=coalesce(h.holder_count,0),unique_trader_count=coalesce(tr.trader_count,0),latest_trade_timestamp=l.block_timestamp
-	FROM (SELECT lower(token_address) token_address FROM tokens WHERE chain_id=$1 AND is_canonical) tk
-	LEFT JOIN holders h ON h.token_address=tk.token_address LEFT JOIN traders tr ON tr.token_address=tk.token_address LEFT JOIN latest l ON l.token_address=tk.token_address
-	WHERE m.chain_id=$1 AND lower(m.token_address)=tk.token_address`, chain); e != nil {
+	FROM (SELECT DISTINCT ON (lower(token_address)) token_address,lower(token_address) identity FROM tokens WHERE chain_id=$1 AND is_canonical ORDER BY lower(token_address),block_number DESC,log_index DESC,token_address ASC) tk
+	LEFT JOIN holders h ON h.token_address=tk.identity LEFT JOIN traders tr ON tr.token_address=tk.identity LEFT JOIN latest l ON l.token_address=tk.identity
+	WHERE m.chain_id=$1 AND m.token_address=tk.token_address`, chain); e != nil {
 		return e
 	}
 	// The ranking window is anchored to indexed canonical time, making replay,
@@ -353,7 +362,7 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 	if _, e := tx.Exec(ctx, `WITH anchor AS (
 		SELECT max(block_timestamp) timestamp FROM chain_blocks WHERE chain_id=$1 AND is_canonical
 	), recent AS (
-		SELECT lower(t.token_address) token_address,count(*) trade_count,coalesce(sum(CASE WHEN t.source='uniswap_v3' THEN t.reserve_amount ELSE t.curve_value END),0) volume,
+		SELECT lower(t.token_address) token_address,count(*) trade_count,coalesce(sum(CASE WHEN t.source='uniswap_v3' THEN t.reserve_amount*1000000000000::numeric ELSE t.curve_value END),0) volume,
 			count(DISTINCT lower(t.trader_address)) trader_count
 		FROM trades t JOIN chain_blocks b ON b.chain_id=t.chain_id AND b.block_hash=t.block_hash AND b.is_canonical
 		CROSS JOIN anchor a
@@ -362,9 +371,9 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 	)
 	UPDATE token_metrics m SET recent_trade_count=coalesce(r.trade_count,0),recent_volume=coalesce(r.volume,0),
 		recent_trader_count=coalesce(r.trader_count,0),recent_window_start=(SELECT timestamp-86400 FROM anchor)
-	FROM (SELECT lower(token_address) token_address FROM tokens WHERE chain_id=$1 AND is_canonical) tk
-	LEFT JOIN recent r ON r.token_address=tk.token_address
-	WHERE m.chain_id=$1 AND lower(m.token_address)=tk.token_address`, chain); e != nil {
+	FROM (SELECT DISTINCT ON (lower(token_address)) token_address,lower(token_address) identity FROM tokens WHERE chain_id=$1 AND is_canonical ORDER BY lower(token_address),block_number DESC,log_index DESC,token_address ASC) tk
+	LEFT JOIN recent r ON r.token_address=tk.identity
+	WHERE m.chain_id=$1 AND m.token_address=tk.token_address`, chain); e != nil {
 		return e
 	}
 	if _, e := tx.Exec(ctx, `UPDATE token_metrics SET current_price=NULL,fully_diluted_value=NULL WHERE chain_id=$1`, chain); e != nil {
@@ -405,10 +414,10 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 	// candles preserve their already indexed quote/token ratio and chain order across the
 	// graduation boundary.
 	_, e := tx.Exec(ctx, `WITH ordered AS (
-		SELECT lower(t.token_address) token_address,(b.block_timestamp / 3600) * 3600 bucket_start,t.side,t.source,t.token_amount,t.reserve_amount,t.curve_value,t.trader_address,t.block_number,t.block_hash,t.transaction_hash,t.transaction_index,t.log_index,tk.token_decimals,
-			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.token_amount WHEN t.source='curve' AND t.side='sell' THEN -t.token_amount ELSE 0 END) OVER (PARTITION BY lower(t.token_address) ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) sold_supply,
-			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.curve_value WHEN t.source='curve' AND t.side='sell' THEN -t.curve_value ELSE 0 END) OVER (PARTITION BY lower(t.token_address) ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) reserve_balance
-		FROM trades t JOIN chain_blocks b ON b.chain_id=t.chain_id AND b.block_hash=t.block_hash AND b.is_canonical LEFT JOIN LATERAL (SELECT token_decimals FROM tokens tk WHERE tk.chain_id=t.chain_id AND lower(tk.token_address)=lower(t.token_address) AND tk.is_canonical ORDER BY tk.block_number DESC,tk.log_index DESC LIMIT 1) tk ON true
+		SELECT ct.token_address,(b.block_timestamp / 3600) * 3600 bucket_start,t.side,t.source,t.token_amount,t.reserve_amount,t.curve_value,t.trader_address,t.block_number,t.block_hash,t.transaction_hash,t.transaction_index,t.log_index,ct.token_decimals,
+			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.token_amount WHEN t.source='curve' AND t.side='sell' THEN -t.token_amount ELSE 0 END) OVER (PARTITION BY ct.token_address ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) sold_supply,
+			sum(CASE WHEN t.source='curve' AND t.side='buy' THEN t.curve_value WHEN t.source='curve' AND t.side='sell' THEN -t.curve_value ELSE 0 END) OVER (PARTITION BY ct.token_address ORDER BY t.block_number,t.transaction_index,t.log_index,t.transaction_hash) reserve_balance
+		FROM trades t JOIN chain_blocks b ON b.chain_id=t.chain_id AND b.block_hash=t.block_hash AND b.is_canonical JOIN LATERAL (SELECT token_address,token_decimals FROM tokens tk WHERE tk.chain_id=t.chain_id AND lower(tk.token_address)=lower(t.token_address) AND tk.is_canonical ORDER BY tk.block_number DESC,tk.log_index DESC,tk.token_address ASC LIMIT 1) ct ON true
 		WHERE t.chain_id=$1 AND t.is_canonical
 	), priced AS (
 		SELECT *,CASE WHEN source='uniswap_v3' THEN floor(reserve_amount * power(10::numeric, token_decimals + 12) / NULLIF(token_amount,0))
@@ -417,7 +426,7 @@ func rebuildAnalyticsTx(ctx context.Context, tx pgx.Tx, chain int64) error {
 		FROM ordered
 	), totals AS (
 		SELECT token_address,bucket_start,count(*) trade_count,count(*) FILTER (WHERE side='buy') buy_count,count(*) FILTER (WHERE side='sell') sell_count,
-			coalesce(sum(CASE WHEN source='uniswap_v3' THEN reserve_amount ELSE curve_value END),0) volume,count(DISTINCT lower(trader_address)) unique_trader_count FROM priced GROUP BY token_address,bucket_start
+			coalesce(sum(CASE WHEN source='uniswap_v3' THEN reserve_amount*1000000000000::numeric ELSE curve_value END),0) volume,count(DISTINCT lower(trader_address)) unique_trader_count FROM priced GROUP BY token_address,bucket_start
 	), latest AS (
 		SELECT DISTINCT ON (token_address,bucket_start) * FROM priced ORDER BY token_address,bucket_start,block_number DESC,transaction_index DESC,log_index DESC,transaction_hash DESC
 	), candles AS (
@@ -638,7 +647,7 @@ func projectedTokenAddress(event string, values map[string]any) string {
 func projectUniswapV3Swap(ctx context.Context, tx pgx.Tx, chain int64, l types.Log, values map[string]any, senders map[common.Hash]common.Address) error {
 	var token string
 	var decimals int
-	err := tx.QueryRow(ctx, `SELECT lower(t.token_address),t.token_decimals FROM curves c JOIN tokens t ON t.chain_id=c.chain_id AND lower(t.token_address)=lower(c.token_address) AND t.is_canonical WHERE c.chain_id=$1 AND lower(c.canonical_pool_address)=lower($2) AND c.is_canonical ORDER BY c.block_number DESC,c.log_index DESC LIMIT 1`, chain, l.Address.Hex()).Scan(&token, &decimals)
+	err := tx.QueryRow(ctx, `SELECT t.token_address,t.token_decimals FROM curves c JOIN tokens t ON t.chain_id=c.chain_id AND lower(t.token_address)=lower(c.token_address) AND t.is_canonical WHERE c.chain_id=$1 AND lower(c.canonical_pool_address)=lower($2) AND c.is_canonical ORDER BY c.block_number DESC,c.log_index DESC,t.block_number DESC,t.log_index DESC,t.token_address ASC LIMIT 1`, chain, l.Address.Hex()).Scan(&token, &decimals)
 	if err == pgx.ErrNoRows {
 		return nil
 	}

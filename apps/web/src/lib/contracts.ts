@@ -160,8 +160,6 @@ export async function submitBuy(client: BrowserWalletClient, account: Address, t
   const deadline = quote.deadline;
   assertBuyQuoteFresh(quote);
   assertReady();
-  const nativeBalance = await publicClient.getBalance({ address: account });
-  if (nativeBalance < quote.maxReserveIn) throw new Error("The connected wallet has insufficient native USDC for this buy.");
   const { request } = await publicClient.simulateContract({
     address: curve,
     abi: cooketCurveAbi,
@@ -170,6 +168,20 @@ export async function submitBuy(client: BrowserWalletClient, account: Address, t
     account,
     value: quote.maxReserveIn,
   });
+  const [nativeBalance, gas, gasPrice] = await Promise.all([
+    publicClient.getBalance({ address: account }),
+    publicClient.estimateContractGas({
+      address: curve,
+      abi: cooketCurveAbi,
+      functionName: "buy",
+      args: [minOutputWithSlippage(quote.tokenAmount, quote.slippageBps), deadline],
+      account,
+      value: quote.maxReserveIn,
+    }),
+    publicClient.getGasPrice(),
+  ]);
+  const requiredBalance = quote.maxReserveIn + gas * gasPrice;
+  if (nativeBalance < requiredBalance) throw new Error("The connected wallet has insufficient native USDC to cover this buy and its estimated network gas.");
   assertBuyQuoteFresh(quote);
   assertReady();
   await assertActiveWalletClient(client, account);

@@ -1,6 +1,11 @@
 import { formatEther, formatUnits } from "viem";
 
-export function formatNative(value: string | bigint | null | undefined, suffix = true) {
+type Amount = string | bigint | null | undefined;
+const USDC_DECIMALS = 18;
+const COMPACT_SUFFIXES = ["", "K", "M", "B", "T"] as const;
+
+// Precision-first formatter for transaction forms, quotes, balances, and receipts.
+export function formatNative(value: Amount, suffix = true) {
   if (value === null || value === undefined) return "—";
   try {
     const formatted = trimDecimal(formatEther(BigInt(value)), 6);
@@ -21,17 +26,82 @@ export function formatTradeUsdc(value: string | bigint | null | undefined, sourc
   } catch { return "—"; }
 }
 
-export function formatTokenAmount(value: string | bigint | null | undefined, decimals = 18, symbol?: string) {
+export function formatExactUSDC(value: Amount, suffix = true) {
+  const display = formatExactDecimal(value, USDC_DECIMALS, USDC_DECIMALS);
+  return display === "—" ? display : suffix ? `${display} USDC` : display;
+}
+
+export function formatMarketUSDC(value: Amount, suffix = true) {
+  const display = formatCompactAmount(value, USDC_DECIMALS);
+  return display === "—" ? display : suffix ? `$${display}` : display;
+}
+
+export function formatMarketTradeUSDC(value: Amount, source: "curve" | "uniswap_v3", suffix = true) {
+  const display = formatCompactAmount(value, source === "uniswap_v3" ? 6 : 18);
+  return display === "—" ? display : suffix ? `$${display}` : display;
+}
+
+export function formatPrice(value: Amount, suffix = true) {
   if (value === null || value === undefined) return "—";
   try {
-    const display = compactDecimal(formatUnits(BigInt(value), decimals));
-    return symbol ? `${display} ${symbol}` : display;
+    const raw = BigInt(value), absolute = raw < BigInt(0) ? -raw : raw, unit = BigInt(10) ** BigInt(USDC_DECIMALS);
+    let display: string;
+    if (raw === BigInt(0)) display = "0";
+    else if (absolute >= unit * BigInt(1_000)) display = formatCompactAmount(raw, USDC_DECIMALS);
+    else if (absolute >= unit * BigInt(10)) display = formatRoundedDecimal(raw, USDC_DECIMALS, 2);
+    else if (absolute >= unit) display = formatRoundedDecimal(raw, USDC_DECIMALS, 4);
+    else if (absolute >= unit / BigInt(10)) display = formatRoundedDecimal(raw, USDC_DECIMALS, 5);
+    else if (absolute >= unit / BigInt(1_000)) display = formatRoundedDecimal(raw, USDC_DECIMALS, 6);
+    else if (absolute >= unit / BigInt(100_000_000)) display = formatRoundedDecimal(raw, USDC_DECIMALS, 8);
+    else display = raw > BigInt(0) ? "<0.00000001" : ">-0.00000001";
+    if (!suffix) return display;
+    return display.startsWith("<") ? `<$${display.slice(1)}` : display.startsWith(">") ? `>$${display.slice(1)}` : `$${display}`;
   } catch { return "—"; }
 }
 
-export function formatCount(value: number | null | undefined) {
-  if (value === null || value === undefined) return "—";
-  return new Intl.NumberFormat("en-US", { notation: value >= 1_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
+export function formatCompactAmount(value: Amount, decimals = 0) {
+  if (value === null || value === undefined || !Number.isInteger(decimals) || decimals < 0) return "—";
+  try {
+    const raw = BigInt(value), negative = raw < BigInt(0), absolute = negative ? -raw : raw, unit = BigInt(10) ** BigInt(decimals);
+    let scale = 0;
+    while (scale < COMPACT_SUFFIXES.length - 1 && absolute >= unit * (BigInt(1_000) ** BigInt(scale + 1))) scale += 1;
+    while (true) {
+      const denominator = unit * (BigInt(1_000) ** BigInt(scale));
+      const rounded = (absolute * BigInt(100) + denominator / BigInt(2)) / denominator;
+      if (rounded === BigInt(0) && absolute > BigInt(0)) return `${negative ? ">-" : "<"}0.01${COMPACT_SUFFIXES[scale]}`;
+      if (rounded >= BigInt(100_000) && scale < COMPACT_SUFFIXES.length - 1) { scale += 1; continue; }
+      const whole = rounded / BigInt(100);
+      const fraction = (rounded % BigInt(100)).toString().padStart(2, "0").replace(/0+$/, "");
+      return `${negative ? "-" : ""}${groupInteger(whole.toString())}${fraction ? `.${fraction}` : ""}${COMPACT_SUFFIXES[scale]}`;
+    }
+  } catch { return "—"; }
+}
+
+export function formatTokenAmount(value: string | bigint | null | undefined, decimals = 18, symbol?: string) {
+  const display = formatCompactAmount(value, decimals);
+  const formattedSymbol = symbol ? formatTokenSymbol(symbol) : undefined;
+  return display === "—" ? display : formattedSymbol && formattedSymbol !== "—" ? `${display} ${formattedSymbol}` : display;
+}
+
+export function formatExactTokenAmount(value: Amount, decimals = 18, symbol?: string) {
+  const display = formatExactDecimal(value, decimals, decimals);
+  const formattedSymbol = symbol ? formatTokenSymbol(symbol) : undefined;
+  return display === "—" ? display : formattedSymbol && formattedSymbol !== "—" ? `${display} ${formattedSymbol}` : display;
+}
+
+export function formatTokenSymbol(symbol: string | null | undefined) {
+  const normalized = symbol?.trim().replace(/^\$+/, "");
+  return normalized && /^[A-Za-z0-9._-]+$/.test(normalized) ? `$${normalized}` : "—";
+}
+
+export function formatCount(value: string | bigint | number | null | undefined) {
+  if (value === null || value === undefined || (typeof value === "number" && (!Number.isFinite(value) || !Number.isInteger(value)))) return "—";
+  return formatCompactAmount(typeof value === "number" ? BigInt(value) : value, 0);
+}
+
+export function formatPercentage(value: number | null | undefined, maxDigits = 2) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${Math.min(100, Math.max(0, value)).toFixed(maxDigits).replace(/0+$/, "").replace(/\.$/, "")}%`;
 }
 
 export function graduationProgress(sold?: string, threshold?: string) {
@@ -50,14 +120,40 @@ export function presentationNumber(value: bigint, decimals = 18) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function compactDecimal(value: string) {
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && Math.abs(numeric) >= 1_000) return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(numeric);
-  return trimDecimal(value, 6);
+export function formatCompactNumber(value: number) {
+  if (!Number.isFinite(value)) return "—";
+  if (Math.abs(value) < 1_000) return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return formatCompactAmount(BigInt(Math.round(value * 100)), 2);
+}
+
+function formatExactDecimal(value: Amount, decimals: number, digits: number) {
+  if (value === null || value === undefined) return "—";
+  try { return groupDecimal(trimDecimal(formatUnits(BigInt(value), decimals), digits)); }
+  catch { return "—"; }
+}
+
+function formatRoundedDecimal(value: bigint, decimals: number, digits: number) {
+  const negative = value < BigInt(0), absolute = negative ? -value : value;
+  const unit = BigInt(10) ** BigInt(decimals), precision = BigInt(10) ** BigInt(digits);
+  const rounded = (absolute * precision + unit / BigInt(2)) / unit;
+  const whole = rounded / precision;
+  const fraction = (rounded % precision).toString().padStart(digits, "0").replace(/0+$/, "");
+  return `${negative ? "-" : ""}${groupInteger(whole.toString())}${fraction ? `.${fraction}` : ""}`;
 }
 
 function trimDecimal(value: string, digits: number) {
   const [whole, fraction = ""] = value.split(".");
   const trimmed = fraction.slice(0, digits).replace(/0+$/, "");
   return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
+function groupDecimal(value: string) {
+  const [whole, fraction] = value.split(".");
+  return `${groupInteger(whole)}${fraction ? `.${fraction}` : ""}`;
+}
+
+function groupInteger(value: string) {
+  const sign = value.startsWith("-") ? "-" : "";
+  const digits = sign ? value.slice(1) : value;
+  return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 }
