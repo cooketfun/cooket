@@ -7,6 +7,8 @@ import (
 	"github.com/cooketfun/cooket/apps/realtime/internal/market"
 )
 
+const maximumSubscribers = 1024
+
 // Broadcaster never blocks Publish. A subscriber whose bounded queue is full is
 // removed and disconnected, rather than allowing one slow client to delay Arc
 // WebSocket ingestion or grow process memory without bound.
@@ -27,6 +29,12 @@ func NewBroadcaster(buffer int, onSlow func()) *Broadcaster {
 
 func (b *Broadcaster) Subscribe() (<-chan market.Event, func()) {
 	b.mu.Lock()
+	if len(b.subscribers) >= maximumSubscribers {
+		b.mu.Unlock()
+		closed := make(chan market.Event)
+		close(closed)
+		return closed, func() {}
+	}
 	id := b.nextID
 	b.nextID++
 	ch := make(chan market.Event, b.buffer)

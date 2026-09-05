@@ -82,11 +82,18 @@ export class CooketTradingViewDatafeed {
     queueMicrotask(() => callback({ supported_resolutions: TRADINGVIEW_RESOLUTIONS, supports_search: false, supports_group_request: false, supports_marks: false, supports_timescale_marks: false }));
   }
 
-  resolveSymbol(_symbolName: string, onResolve: (symbol: TradingViewSymbol) => void, _onError: (reason: string) => void) { queueMicrotask(() => onResolve(this.symbol)); }
+  resolveSymbol(symbolName: string, onResolve: (symbol: TradingViewSymbol) => void, onError: (reason: string) => void) {
+    void symbolName;
+    void onError;
+    queueMicrotask(() => onResolve(this.symbol));
+  }
 
   async getBars(_symbol: TradingViewSymbol, resolution: string, period: { from: number; to: number; countBack?: number; firstDataRequest?: boolean }, onHistory: (bars: TradingViewBar[], metadata: HistoryMetadata) => void, onError: (reason: string) => void) {
     const interval = cooketIntervalForResolution(resolution);
     if (!interval) { onError(`Unsupported Cooket resolution: ${resolution}`); return; }
+    if (![period.from, period.to].every((value) => Number.isSafeInteger(value) && value >= 0) || period.from >= period.to || (period.countBack !== undefined && (!Number.isSafeInteger(period.countBack) || period.countBack <= 0))) {
+      onError("Invalid chart history range"); return;
+    }
     try {
       const limit = Math.min(1_000, Math.max(1, period.countBack ?? 1_000));
       // countBack asks for N bars ending at `to`; otherwise the exact [from,to)
@@ -127,6 +134,8 @@ export class CooketTradingViewDatafeed {
   reconcileCanonical(listenerGuid: string, page: ChartPage) {
     const subscription = this.subscriptions.get(listenerGuid);
     if (!subscription) return;
+    if (page.interval !== TRADINGVIEW_RESOLUTION_INTERVAL[subscription.resolution]) return;
+    if (subscription.indexedThroughBlock !== undefined && (page.indexed_through_block === undefined || page.indexed_through_block < subscription.indexedThroughBlock)) return;
     subscription.canonical = page.candles;
     subscription.indexedThroughBlock = page.indexed_through_block;
     this.emitSubscription(subscription);

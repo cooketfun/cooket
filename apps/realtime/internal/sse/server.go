@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,8 @@ type Server struct {
 	origins     map[string]struct{}
 	heartbeat   time.Duration
 	httpServer  *http.Server
+	done        chan struct{}
+	stop        sync.Once
 }
 
 func NewServer(address string, broadcaster *Broadcaster, origins []string, heartbeat time.Duration, logger *slog.Logger) (*Server, error) {
@@ -26,7 +29,7 @@ func NewServer(address string, broadcaster *Broadcaster, origins []string, heart
 	for _, origin := range origins {
 		allowed[origin] = struct{}{}
 	}
-	s := &Server{broadcaster: broadcaster, logger: logger, origins: allowed, heartbeat: heartbeat}
+	s := &Server{broadcaster: broadcaster, logger: logger, origins: allowed, heartbeat: heartbeat, done: make(chan struct{})}
 	s.httpServer = &http.Server{Addr: address, Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 0}
 	return s, nil
 }
@@ -40,7 +43,10 @@ func (s *Server) ListenAndServe() error {
 	return err
 }
 
-func (s *Server) Shutdown(ctx context.Context) error { return s.httpServer.Shutdown(ctx) }
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.stop.Do(func() { close(s.done) })
+	return s.httpServer.Shutdown(ctx)
+}
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
@@ -71,6 +77,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
+	// Bound each network write; a stalled socket must not retain a handler.
+	controller := http.NewResponseController(w)
+	_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -87,6 +96,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	defer ticker.Stop()
 	for {
 		select {
+		case <-s.done:
+			return
 		case <-r.Context().Done():
 			return
 		case event, ok := <-events:
@@ -97,11 +108,13 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
+			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := fmt.Fprintf(w, "event: trade\nid: %s\ndata: %s\n\n", event.Identity, payload); err != nil {
 				return
 			}
 			flusher.Flush()
 		case <-ticker.C:
+			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
 			}

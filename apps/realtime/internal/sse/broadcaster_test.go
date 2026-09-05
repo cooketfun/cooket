@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +11,27 @@ import (
 func testEvent() market.Event {
 	timestamp := uint64(123)
 	return market.Event{Identity: "5042002:0xabc:7", ChainID: 5042002, Token: "0xtoken", Market: "0xmarket", Source: market.SourceCurve, Side: market.SideBuy, LogIndex: 7, BlockTimestamp: &timestamp}
+}
+
+func TestBoundedConcurrentSubscriberChurn(t *testing.T) {
+	b := NewBroadcaster(8, nil)
+	var workers sync.WaitGroup
+	for range 32 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for range 100 {
+				_, unsubscribe := b.Subscribe()
+				b.Publish(testEvent())
+				unsubscribe()
+				unsubscribe()
+			}
+		}()
+	}
+	workers.Wait()
+	if b.Len() != 0 {
+		t.Fatalf("leaked subscribers: %d", b.Len())
+	}
 }
 
 func receive(t *testing.T, ch <-chan market.Event) market.Event {
@@ -38,6 +60,22 @@ func TestBroadcasterFanoutAndStableIdentity(t *testing.T) {
 	}
 	if got := receive(t, second); got.Identity != testEvent().Identity {
 		t.Fatalf("identity = %q", got.Identity)
+	}
+}
+
+func TestSubscriberAdmissionIsBounded(t *testing.T) {
+	b := NewBroadcaster(1, nil)
+	for range maximumSubscribers {
+		_, stop := b.Subscribe()
+		defer stop()
+	}
+	ch, stop := b.Subscribe()
+	defer stop()
+	if _, open := <-ch; open {
+		t.Fatal("accepted subscriber above capacity")
+	}
+	if b.Len() != maximumSubscribers {
+		t.Fatalf("subscribers=%d", b.Len())
 	}
 }
 

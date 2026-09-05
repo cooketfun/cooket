@@ -55,7 +55,7 @@ describe("TokenGraduation", () => {
     render(<TokenGraduation token={token} />);
 
     expect(screen.getByText("Graduated")).toBeTruthy();
-    expect(screen.getByText("Indexed canonical graduation record. Trading continues through the canonical graduated liquidity pool.")).toBeTruthy();
+    expect(screen.getByText("Trading continues in the graduated liquidity pool.")).toBeTruthy();
     expect(screen.queryByText(/deferred|disabled in Phase 0|execution remains unavailable/i)).toBeNull();
     expect(screen.getByText("External liquidity active")).toBeTruthy();
     expect(screen.getByText("Permanent")).toBeTruthy();
@@ -106,7 +106,7 @@ describe("TokenGraduation", () => {
     render(<TokenGraduation token={token} />);
 
     expect(screen.getByText("Graduated")).toBeTruthy();
-    expect(screen.getByText("External settlement details are not indexed yet.")).toBeTruthy();
+    expect(screen.getByText("Settlement details are not available yet.")).toBeTruthy();
     expect(screen.queryByText("Position NFT")).toBeNull();
     expect(screen.queryByText("V3 liquidity")).toBeNull();
     expect(screen.queryByText("#0")).toBeNull();

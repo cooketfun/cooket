@@ -34,6 +34,23 @@ func waitSubscribers(t *testing.T, b *Broadcaster, n int) {
 	t.Fatalf("subscriber count = %d, want %d", b.Len(), n)
 }
 
+func TestShutdownClosesActiveStreams(t *testing.T) {
+	s, b, server := testServer(t, time.Hour)
+	defer server.Close()
+	response, err := http.Get(server.URL + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	waitSubscribers(t, b, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitSubscribers(t, b, 0)
+}
+
 func TestEventsFramesCanonicalEventAndCORS(t *testing.T) {
 	_, b, ts := testServer(t, time.Hour)
 	defer ts.Close()

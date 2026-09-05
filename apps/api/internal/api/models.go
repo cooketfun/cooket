@@ -124,6 +124,7 @@ type Pricing struct {
 	Source            string  `json:"source"`
 }
 type Trade struct {
+	BlockTimestamp   *int64 `json:"block_timestamp,omitempty"`
 	TokenAddress     string `json:"token_address"`
 	Trader           string `json:"trader"`
 	Side             string `json:"side"`

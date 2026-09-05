@@ -82,6 +82,7 @@ describe("graduated swap simulation diagnostic", () => {
 
   it("bounds the eth_call timeout", () => {
     expect(GRADUATED_SWAP_SIMULATION_TIMEOUT_MS).toBe(15_000);
+    expect(GRADUATED_SWAP_RPC_TIMEOUT_MS).toBe(15_000);
   });
 
   it("wraps an eth_call revert as a simulation failure", async () => {

@@ -147,6 +147,15 @@ func TestPostgresVolumeAggregatesCurveAndV3InCanonical18Decimals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	tradePage, err := repo.Trades(ctx, chain, token, 10, "")
+	if err != nil || len(tradePage.Items) != 3 {
+		t.Fatalf("trades=%+v err=%v", tradePage, err)
+	}
+	for _, trade := range tradePage.Items {
+		if trade.BlockTimestamp == nil || *trade.BlockTimestamp != 1700000000 {
+			t.Fatalf("trade time=%+v", trade)
+		}
+	}
 	chart, err := repo.Chart(ctx, chain, token, "1h", 10)
 	if err != nil || len(chart.Candles) != 1 || chart.Candles[0].Volume != "850000000000000000000" || chart.Candles[0].BuyCount != 2 || chart.Candles[0].SellCount != 1 {
 		t.Fatalf("chart=%+v err=%v", chart, err)

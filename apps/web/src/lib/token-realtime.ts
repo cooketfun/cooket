@@ -11,18 +11,20 @@ const DEDUPE_CAPACITY = 256;
 const COOKET_TOKEN_DECIMALS = 18;
 const integer = (value: unknown): value is string => typeof value === "string" && /^\d+$/.test(value);
 const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const validWatermark = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 export const canonicalTradeIdentity = (trade: Pick<Trade, "transaction_hash" | "log_index">) => `${selectedCooketChainId}:${trade.transaction_hash}:${trade.log_index}`;
 
 // A page can safely forget an event only when every independently-polled
 // canonical surface has committed through the event's entire block.
 export function safeRealtimeRetirementFloor({ token, chart, trades }: RealtimeSurfaceWatermarks): number | undefined {
-  return token === undefined || chart === undefined || trades === undefined ? undefined : Math.min(token, chart, trades);
+  return !validWatermark(token) || !validWatermark(chart) || !validWatermark(trades) ? undefined : Math.min(token, chart, trades);
 }
 
 export function advanceRealtimeSurfaceWatermark(current: RealtimeSurfaceWatermarks, surface: RealtimeSurface, block: number | undefined): RealtimeSurfaceWatermarks {
   // A timeframe switch starts a new chart-snapshot generation. It is not safe
   // to use the prior interval's data until the new interval returns a snapshot.
   if (block === undefined) return surface === "chart" && current.chart !== undefined ? { ...current, chart: undefined } : current;
+  if (!validWatermark(block)) return current;
   const prior = current[surface];
   return prior === undefined || block > prior ? { ...current, [surface]: block } : current;
 }
@@ -42,30 +44,35 @@ export function useTokenRealtimeTrades(tokenAddress: string, retireThroughBlock:
   const [events, setEvents] = useState<RealtimeTrade[]>([]);
   // This is the page-wide *safe floor*: an identity is retired only after every
   // canonical surface has observed a snapshot through its whole block.
-  const watermark = useRef<number | undefined>(retireThroughBlock);
+  const watermarks = useRef(new Map<string, number>());
   useEffect(() => {
-    if (retireThroughBlock === undefined) return;
-    watermark.current = watermark.current === undefined ? retireThroughBlock : Math.max(watermark.current, retireThroughBlock);
-    setEvents((current) => current.filter((event) => event.block_number > watermark.current!));
-  }, [retireThroughBlock]);
+    if (!tokenAddress || retireThroughBlock === undefined) return;
+    const prior = watermarks.current.get(tokenAddress);
+    const watermark = prior === undefined ? retireThroughBlock : Math.max(prior, retireThroughBlock);
+    watermarks.current.set(tokenAddress, watermark);
+    setEvents((current) => current.filter((event) => !sameAddress(event.token, tokenAddress) || event.block_number > watermark));
+  }, [retireThroughBlock, tokenAddress]);
   useEffect(() => {
+    let active = true;
     if (!tokenAddress || !realtimeURL || typeof EventSource === "undefined") return;
     let source: EventSource;
     try { source = new EventSource(`${realtimeURL.replace(/\/$/, "")}/events`); } catch { return; }
     const receive = (message: MessageEvent<string>) => {
+      if (!active) return;
       let data: unknown; try { data = JSON.parse(message.data); } catch { return; }
       const event = parseRealtimeTrade(data, tokenAddress); if (!event) return;
       setEvents((current) => {
         const exists = current.some((item) => item.identity === event.identity);
         if (event.removed) return exists ? current.filter((item) => item.identity !== event.identity) : current;
-        if (watermark.current !== undefined && event.block_number <= watermark.current) return current;
+        const watermark = watermarks.current.get(tokenAddress);
+        if (watermark !== undefined && event.block_number <= watermark) return current;
         return exists ? current : [...current, event].slice(-DEDUPE_CAPACITY);
       });
     };
     source.addEventListener("trade", receive as EventListener);
-    return () => { source.removeEventListener("trade", receive as EventListener); source.close(); };
+    return () => { active = false; source.removeEventListener("trade", receive as EventListener); source.close(); };
   }, [realtimeURL, tokenAddress]);
-  return events;
+  return events.filter((event) => sameAddress(event.token, tokenAddress) && (retireThroughBlock === undefined || event.block_number > retireThroughBlock));
 }
 
 export function reconcileRealtimeTrades(events: readonly RealtimeTrade[], indexedThroughBlock: number | undefined, canonical?: readonly Trade[]) {
@@ -88,7 +95,9 @@ export function overlayCandles(canonical: readonly ChartPoint[], events: readonl
   for (const event of [...events].sort(chainOrder)) {
     if (event.block_timestamp === undefined) continue;
     const price = realtimePrice(event); if (price === null) continue;
-    const bucket = Math.floor(event.block_timestamp / seconds[interval]) * seconds[interval]; const current = buckets.get(bucket); const priceText = price.toString(); const volume = realtimeVolume(event);
+    // PostgreSQL date_trunc('week') anchors weeks at Monday, not Unix Thursday.
+    const origin = interval === "1w" ? 4 * 86400 : 0;
+    const bucket = Math.floor((event.block_timestamp - origin) / seconds[interval]) * seconds[interval] + origin; const current = buckets.get(bucket); const priceText = price.toString(); const volume = realtimeVolume(event);
     if (!current) { buckets.set(bucket, { bucket_start: bucket, trade_count: 1, buy_count: event.side === "buy" ? 1 : 0, sell_count: event.side === "sell" ? 1 : 0, volume: volume.toString(), unique_trader_count: 0, open_price: priceText, high_price: priceText, low_price: priceText, close_price: priceText }); continue; }
     buckets.set(bucket, { ...current, trade_count: current.trade_count + 1, buy_count: current.buy_count + (event.side === "buy" ? 1 : 0), sell_count: current.sell_count + (event.side === "sell" ? 1 : 0), volume: (BigInt(current.volume) + volume).toString(), open_price: current.open_price ?? priceText, high_price: !current.high_price || BigInt(current.high_price) < price ? priceText : current.high_price, low_price: !current.low_price || BigInt(current.low_price) > price ? priceText : current.low_price, close_price: priceText });
   }

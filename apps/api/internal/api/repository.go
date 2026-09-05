@@ -501,7 +501,7 @@ func (r *PostgresRepository) Trades(ctx context.Context, chain int64, token stri
 		return TradePage{}, e
 	}
 	defer tx.Rollback(ctx)
-	rows, e := tx.Query(ctx, `SELECT token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,block_number,transaction_index,transaction_hash,log_index FROM trades WHERE chain_id=$1 AND lower(token_address)=lower($2) AND is_canonical AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=trades.chain_id AND x.token_address=lower(trades.token_address))`+where+` ORDER BY block_number DESC,transaction_index DESC,log_index DESC,transaction_hash DESC LIMIT $`+strconv.Itoa(len(args)), args...)
+	rows, e := tx.Query(ctx, `SELECT token_address,trader_address,side,token_amount,reserve_amount,curve_value,protocol_fee,creator_fee,source,block_number,transaction_index,transaction_hash,log_index,(SELECT b.block_timestamp FROM chain_blocks b WHERE b.chain_id=trades.chain_id AND b.block_hash=trades.block_hash AND b.is_canonical) FROM trades WHERE chain_id=$1 AND lower(token_address)=lower($2) AND is_canonical AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=trades.chain_id AND x.token_address=lower(trades.token_address))`+where+` ORDER BY block_number DESC,transaction_index DESC,log_index DESC,transaction_hash DESC LIMIT $`+strconv.Itoa(len(args)), args...)
 	if e != nil {
 		return TradePage{}, e
 	}
@@ -509,7 +509,7 @@ func (r *PostgresRepository) Trades(ctx context.Context, chain int64, token stri
 	out := TradePage{IndexedThroughBlock: indexedThrough, Items: []Trade{}}
 	for rows.Next() {
 		var t Trade
-		e = rows.Scan(&t.TokenAddress, &t.Trader, &t.Side, &t.TokenAmount, &t.ReserveAmount, &t.CurveValue, &t.ProtocolFee, &t.CreatorFee, &t.Source, &t.BlockNumber, &t.TransactionIndex, &t.TransactionHash, &t.LogIndex)
+		e = rows.Scan(&t.TokenAddress, &t.Trader, &t.Side, &t.TokenAmount, &t.ReserveAmount, &t.CurveValue, &t.ProtocolFee, &t.CreatorFee, &t.Source, &t.BlockNumber, &t.TransactionIndex, &t.TransactionHash, &t.LogIndex, &t.BlockTimestamp)
 		if e != nil {
 			return TradePage{}, e
 		}

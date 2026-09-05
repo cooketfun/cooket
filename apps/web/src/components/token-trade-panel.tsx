@@ -438,14 +438,14 @@ export function TokenTradePanel(props: Props) {
         </div>
         <div className="mt-5 flex items-start justify-between gap-3"><div><p className="text-xs text-zinc-500">Protected curve order</p><h3 className="mt-1 text-xl font-semibold text-white">{side === "buy" ? `Buy ${formatTokenSymbol(props.symbol)}` : `Sell ${formatTokenSymbol(props.symbol)}`}</h3></div><span className="badge-neutral">60s quote</span></div>
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="panel-subtle p-2"><p className="text-zinc-600">Pay</p><div className="mt-1">{side === "buy" ? <TradeAssetIdentity kind="usdc" /> : <TradeAssetIdentity kind="token" symbol={props.symbol} imageURL={props.tokenImageURL} />}</div></div><div className="panel-subtle p-2"><p className="text-zinc-600">Receive</p><div className="mt-1">{side === "buy" ? <TradeAssetIdentity kind="token" symbol={props.symbol} imageURL={props.tokenImageURL} /> : <TradeAssetIdentity kind="usdc" />}</div></div></div>
-        <div className="mt-4 min-w-0 rounded-xl border border-white/8 bg-black/15 p-3"><p className="text-xs text-zinc-500">Active transaction signer</p>{props.walletAddress && <p className="address mt-1 truncate" title={props.walletAddress}>{props.walletAddress}</p>}</div>
+        <div className="mt-4 min-w-0 rounded-xl border border-white/8 bg-black/15 p-3"><p className="text-xs text-zinc-500">Connected wallet</p>{props.walletAddress && <p className="address mt-1 truncate" title={props.walletAddress}>{props.walletAddress}</p>}</div>
         {guard && <p className="status-box status-warning mt-4">{guard}</p>}
-        {props.statePending && <p className="status-box mt-4 text-zinc-400">Loading balances and curve state…</p>}
+        {props.statePending && <p className="status-box mt-4 text-zinc-400">Loading balances…</p>}
         {props.stateError && <p className="status-box status-error mt-4">{props.stateError}</p>}
         {props.state?.lifecycle === 1 && <p className="status-box status-warning mt-4">Graduation is pending. New buys are paused, but holders may still sell.</p>}
         {unavailable && <p className="status-box status-warning mt-4">{side === "buy" && props.state?.lifecycle === 1 ? "Buying is unavailable while graduation is pending. Select Sell to exit." : "This trade is unavailable for the current Cooket curve lifecycle."}</p>}
         {props.state && <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div className="panel-subtle p-3"><dt className="text-xs text-zinc-500">Native USDC balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{formatNative(props.state.nativeBalance)}</dd></div>
+          <div className="panel-subtle p-3"><dt className="text-xs text-zinc-500">Available USDC</dt><dd className="mt-1 truncate font-medium text-zinc-100">{formatNative(props.state.nativeBalance)}</dd></div>
           <div className="panel-subtle p-3"><dt className="truncate text-xs text-zinc-500">{formatTokenSymbol(props.symbol)} balance</dt><dd className="mt-1 truncate font-medium text-zinc-100">{tokenUSDCValue(tokenBalanceValue)}</dd><dd className="mt-0.5 truncate text-[0.68rem] text-zinc-600" title={formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}>{formatTokenAmount(props.state.tokenBalance, props.state.decimals, props.symbol)}</dd></div>
         </dl>}
         <div className="mt-5 grid gap-4">
@@ -464,7 +464,7 @@ export function TokenTradePanel(props: Props) {
           </> : <>
             <QuoteRow label="Token input" value={formatTokenAmount(quote.tokenAmount, props.state?.decimals ?? 18, props.symbol)} secondary={quotedTokenEstimate} strong />
             <QuoteRow label="You receive" value={formatNative(quote.reserveOut)} strong />
-            <QuoteRow label="Minimum native USDC output" value={formatNative(quote.minReserveOut)} />
+            <QuoteRow label="Minimum USDC output" value={formatNative(quote.minReserveOut)} />
           </>}
           <QuoteRow label="Fees" value="Protocol + creator" />
           <QuoteRow label="Slippage protection" value={`${(quote.slippageBps / 100).toFixed(2)}%`} />
@@ -474,7 +474,7 @@ export function TokenTradePanel(props: Props) {
           <details className="mt-3 border-t border-white/8 pt-3 text-xs text-zinc-500">
             <summary className="cursor-pointer font-medium text-zinc-300 hover:text-white">Quote details</summary>
             <div className="mt-3">
-              <p className="leading-5">Values use 18-decimal native USDC units.</p>
+              <p className="leading-5">Amounts shown include the fees below.</p>
               {quote.side === "buy" && <QuoteRow label="Pay" value={formatNative(quote.reserveIn)} />}
               <QuoteRow label="Reference token value" value={quotedTokenEstimate} />
               <QuoteRow label="Protocol fee" value={formatNative(quote.protocolFee)} />

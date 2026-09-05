@@ -8,7 +8,7 @@ const COMPACT_SUFFIXES = ["", "K", "M", "B", "T"] as const;
 export function formatNative(value: Amount, suffix = true) {
   if (value === null || value === undefined) return "—";
   try {
-    const formatted = trimDecimal(formatEther(BigInt(value)), 6);
+    const formatted = groupDecimal(trimDecimal(formatEther(BigInt(value)), 6));
     const display = formatted === "0" && BigInt(value) > BigInt(0) ? "<0.000001" : formatted;
     return suffix ? `${display} USDC` : display;
   } catch { return "—"; }
@@ -20,7 +20,7 @@ export function formatTradeUsdc(value: string | bigint | null | undefined, sourc
   if (value === null || value === undefined) return "—";
   try {
     const raw = BigInt(value);
-    const formatted = trimDecimal(formatUnits(raw, source === "uniswap_v3" ? 6 : 18), 6);
+    const formatted = groupDecimal(trimDecimal(formatUnits(raw, source === "uniswap_v3" ? 6 : 18), 6));
     const display = formatted === "0" && raw > BigInt(0) ? "<0.000001" : formatted;
     return suffix ? `${display} USDC` : display;
   } catch { return "—"; }

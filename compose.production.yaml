@@ -70,6 +70,23 @@ services:
     depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_healthy }, migrate: { condition: service_completed_successfully } }
     logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
 
+  realtime:
+    build: { context: ., dockerfile: apps/realtime/Dockerfile }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      ARC_WSS_URL: ${ARC_WSS_URL:-wss://rpc.testnet.arc.io}
+      COOKET_CHAIN_ID: ${COOKET_CHAIN_ID:-5042002}
+      COOKET_CANONICAL_USDC: ${COOKET_CANONICAL_USDC:-0x3600000000000000000000000000000000000000}
+      REALTIME_RECONCILE_INTERVAL: ${REALTIME_RECONCILE_INTERVAL:-3s}
+      REALTIME_HTTP_ADDR: ${REALTIME_HTTP_ADDR:-:4300}
+      REALTIME_SSE_HEARTBEAT_INTERVAL: ${REALTIME_SSE_HEARTBEAT_INTERVAL:-15s}
+      REALTIME_SSE_ALLOWED_ORIGINS: ${REALTIME_SSE_ALLOWED_ORIGINS:-https://cooket.fun}
+      REALTIME_SSE_SUBSCRIBER_BUFFER: ${REALTIME_SSE_SUBSCRIBER_BUFFER:-64}
+    ports: ["127.0.0.1:4300:4300"]
+    depends_on: { postgres: { condition: service_healthy }, migrate: { condition: service_completed_successfully } }
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
+
 volumes:
   cooket_production_postgres_data: { name: cooket_production_postgres_data }
   cooket_production_redis_data: { name: cooket_production_redis_data }

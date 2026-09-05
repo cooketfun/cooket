@@ -29,7 +29,7 @@ export function TokenGraduation({ token }: { token: Token }) {
         <div><p className="eyebrow text-violet-300">Bonding curve complete</p><h2 className="mt-1 text-lg font-semibold text-white">Graduated</h2></div>
         <span className={hasSettlement ? "badge-success" : "badge-warning"}>{hasSettlement ? "External liquidity active" : "Settlement indexing pending"}</span>
       </div>
-      <p className="mt-3 text-sm leading-6 text-zinc-400">Indexed canonical graduation record. Trading continues through the canonical graduated liquidity pool.</p>
+      <p className="mt-3 text-sm leading-6 text-zinc-400">Trading continues in the graduated liquidity pool.</p>
     </div>
 
     <div className="p-4">
@@ -41,7 +41,7 @@ export function TokenGraduation({ token }: { token: Token }) {
       {hasSettlement ? <>
         <dl className="mt-4 grid gap-3 border-t border-white/8 pt-4 text-sm">
           <GraduationDetail label="LP custody" value="Permanent" />
-          {canonicalPool && <GraduationDetail label="Canonical V3 pool" value={canonicalPool} href={explorerAddressURL(canonicalPool)} />}
+          {canonicalPool && <GraduationDetail label="Liquidity pool" value={canonicalPool} href={explorerAddressURL(canonicalPool)} />}
           <GraduationDetail label="LP custodian" value={graduation.lp_custodian_address!} href={explorerAddressURL(graduation.lp_custodian_address!)} />
           <GraduationDetail label="Position NFT" value={`#${graduation.position_token_id}`} />
           <GraduationDetail label="V3 liquidity" value={formatExactInteger(graduation.liquidity!)} />
@@ -50,10 +50,10 @@ export function TokenGraduation({ token }: { token: Token }) {
           {graduation.curve_terminal_at && <ExplorerLink href={explorerTransactionURL(graduation.curve_terminal_at.transaction_hash)} label="Graduation transaction" />}
           {graduation.settled_at && <ExplorerLink href={explorerTransactionURL(graduation.settled_at.transaction_hash)} label="Settlement transaction" />}
         </div>
-      </> : <div className="status-box status-warning mt-4 text-sm leading-6">External settlement details are not indexed yet.</div>}
+      </> : <div className="status-box status-warning mt-4 text-sm leading-6">Settlement details are not available yet.</div>}
 
       {!hasSettlement && graduation.curve_terminal_at && <div className="mt-3"><ExplorerLink href={explorerTransactionURL(graduation.curve_terminal_at.transaction_hash)} label="Graduation transaction" /></div>}
-      {!hasSettlement && canonicalPool && <div className="mt-3 text-sm"><GraduationDetail label="Canonical V3 pool" value={canonicalPool} href={explorerAddressURL(canonicalPool)} /></div>}
+      {!hasSettlement && canonicalPool && <div className="mt-3 text-sm"><GraduationDetail label="Liquidity pool" value={canonicalPool} href={explorerAddressURL(canonicalPool)} /></div>}
     </div>
   </section>;
 }
@@ -62,7 +62,7 @@ function ActiveGraduation({ token }: { token: Token }) {
   const progress = graduationProgress(token.curve?.sold_supply, token.curve?.graduation_threshold);
   return <section className="terminal-panel p-4" aria-label="Active bonding curve graduation progress">
     <div className="flex items-center justify-between gap-3"><h2 className="font-semibold text-white">Graduation progress</h2><span className={progress === 100 ? "badge-violet" : "badge-neutral"}>{formatPercentage(progress)}</span></div>
-    {progress === null ? <p className="mt-4 text-sm leading-6 text-zinc-500">The current API has not indexed a graduation threshold for this token.</p> : <>
+    {progress === null ? <p className="mt-4 text-sm leading-6 text-zinc-500">The graduation target is not available yet.</p> : <>
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/6"><div className="h-full rounded-full bg-violet-400" style={{ width: `${progress}%` }} /></div>
       <div className="mt-3 flex justify-between gap-4 text-xs text-zinc-600"><span>Sold {formatTokenAmount(token.curve?.sold_supply, 18)}</span><span>Target {formatTokenAmount(token.curve?.graduation_threshold, 18)}</span></div>
     </>}

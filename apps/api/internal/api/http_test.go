@@ -27,6 +27,38 @@ func TestTokenJSONIncludesCanonicalLaunchTimestamp(t *testing.T) {
 	}
 }
 
+func TestTradeTimestampIsOptionalCanonicalSeconds(t *testing.T) {
+	timestamp := int64(1788509400)
+	body, err := json.Marshal(Trade{BlockTimestamp: &timestamp})
+	if err != nil || !strings.Contains(string(body), `"block_timestamp":1788509400`) {
+		t.Fatalf("timestamp: %s %v", body, err)
+	}
+	body, err = json.Marshal(Trade{})
+	if err != nil || strings.Contains(string(body), "block_timestamp") {
+		t.Fatalf("missing time fabricated: %s %v", body, err)
+	}
+}
+
+func TestChartRepeatedBoundedHistoryRequests(t *testing.T) {
+	repo := &fakeRepo{}
+	handler := testHandler(repo)
+	for range 100 {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/tokens/0x0000000000000000000000000000000000000001/chart?interval=1h&from=0&to=3600&limit=1000", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("status=%d", w.Code)
+		}
+	}
+	if len(repo.chartRanges) != 100 {
+		t.Fatalf("calls=%d", len(repo.chartRanges))
+	}
+	for _, call := range repo.chartRanges {
+		if call.limit != 1000 || call.from == nil || call.to == nil || *call.from != 0 || *call.to != 3600 {
+			t.Fatalf("unbounded call: %+v", call)
+		}
+	}
+}
+
 type fakeRepo struct {
 	pingErr        error
 	tokens         Page

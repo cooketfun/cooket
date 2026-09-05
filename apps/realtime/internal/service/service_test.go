@@ -85,6 +85,28 @@ func TestStartupDiscoveryRegistersCanonicalCurveWithoutHistoricalScan(t *testing
 	}
 }
 
+func TestReconnectReplaysLastBlockWithoutReplayingSourceLifetime(t *testing.T) {
+	token := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	curve := common.HexToAddress("0x2000000000000000000000000000000000000001")
+	svc := newTestService(t, &testLoader{markets: []market.Market{{Token: token, Curve: curve, Stage: market.StageCurve, SourceStartBlock: 1}}}, &bytes.Buffer{})
+	if _, err := svc.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	svc.queueReconnectBackfill(1000)
+	client := &testClient{head: 1010}
+	if err := svc.backfillPending(context.Background(), client); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.queries) != 1 || client.queries[0].FromBlock.Uint64() != 1000 || client.queries[0].ToBlock.Uint64() != 1010 {
+		t.Fatalf("unexpected query: %+v", client.queries)
+	}
+	svc.queueReconnectBackfill(1000)
+	client.head = 1513
+	if err := svc.backfillPending(context.Background(), client); err == nil {
+		t.Fatal("unbounded reconnect replay accepted")
+	}
+}
+
 func TestNewSourceBackfillUsesExactAddressAndTopicsAndDeduplicatesWSS(t *testing.T) {
 	token := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	curve := common.HexToAddress("0x2000000000000000000000000000000000000001")

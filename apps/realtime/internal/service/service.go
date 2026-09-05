@@ -52,6 +52,7 @@ type Service struct {
 	registryLoaded    bool
 	pendingBackfills  map[common.Address]market.Registration
 	blockTimestamps   *blockTimestampCache
+	reconnectFrom     *uint64
 }
 
 func New(wssURL string, reconcileInterval time.Duration, canonicalUSDC common.Address, loader MarketLoader, output io.Writer, publisher EventPublisher, logger *slog.Logger) (*Service, error) {
@@ -118,10 +119,21 @@ func (s *Service) runConnection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if s.reconnectFrom != nil {
+		s.queueReconnectBackfill(*s.reconnectFrom)
+	} else {
+		head, err := client.BlockNumber(ctx)
+		if err != nil {
+			closeSubscription(current)
+			return err
+		}
+		s.reconnectFrom = &head
+	}
+	defer func() { closeSubscription(current) }()
 	if err := s.backfillPending(ctx, client); err != nil {
 		return err
 	}
-	defer closeSubscription(current)
+	// Capture the variable, not the original subscription before rediscovery.
 
 	ticker := time.NewTicker(s.reconcileInterval)
 	defer ticker.Stop()
@@ -161,6 +173,21 @@ func (s *Service) runConnection(ctx context.Context) error {
 				return err
 			}
 		}
+	}
+}
+
+// Inclusive replay of the last delivered block closes reconnect gaps. New
+// sources retain their earlier registration boundary. Existing 512-block
+// checks fail closed when the interruption exceeds the operational bound.
+func (s *Service) queueReconnectBackfill(from uint64) {
+	for address, registration := range s.registry.Registrations() {
+		if _, pending := s.pendingBackfills[address]; pending {
+			continue
+		}
+		if registration.Market.SourceStartBlock < from {
+			registration.Market.SourceStartBlock = from
+		}
+		s.pendingBackfills[address] = registration
 	}
 }
 
@@ -320,6 +347,9 @@ func (s *Service) handleLog(ctx context.Context, client LogClient, entry types.L
 	}
 	if s.publisher != nil {
 		s.publisher.Publish(event)
+	}
+	if !entry.Removed && s.reconnectFrom != nil && entry.BlockNumber > *s.reconnectFrom {
+		*s.reconnectFrom = entry.BlockNumber
 	}
 	return nil
 }

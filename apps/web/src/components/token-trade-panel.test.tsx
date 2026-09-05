@@ -81,7 +81,7 @@ async function requestSellQuote(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
   await user.type(screen.getByLabelText("COOKET amount"), "1");
   await user.click(screen.getByRole("button", { name: "Get quote" }));
-  await screen.findByText(/Minimum native USDC output/);
+  await screen.findByText(/Minimum USDC output/);
 }
 
 function storePending(overrides: Partial<Parameters<typeof persistPendingTrade>[0]> = {}) {
@@ -445,7 +445,7 @@ describe("TokenTradePanel", () => {
     await user.click(screen.getByRole("button", { name: "Sell $COOKET" }));
     await user.type(screen.getByLabelText("COOKET amount"), "1");
     await user.click(screen.getByRole("button", { name: "Get quote" }));
-    expect(await screen.findByText(/Minimum native USDC output/)).toBeTruthy();
+    expect(await screen.findByText(/Minimum USDC output/)).toBeTruthy();
     expect(quoteBuy).not.toHaveBeenCalled();
     expect(quoteSell).toHaveBeenCalledTimes(1);
   });

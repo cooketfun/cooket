@@ -114,6 +114,24 @@ describe("Cooket TradingView-compatible datafeed", () => {
     expect(callback).toHaveBeenCalledTimes(count);
   });
 
+  it("rejects malformed history requests without issuing API traffic", async () => {
+    const fetch = vi.fn(); const error = vi.fn(); const history = vi.fn();
+    const feed = new CooketTradingViewDatafeed(token, fetch);
+    for (const countBack of [NaN, Infinity, -1, 0, 1.5]) await feed.getBars(cooketSymbol(token), "1", { from: 0, to: 180, countBack }, history, error);
+    expect(fetch).not.toHaveBeenCalled(); expect(error).toHaveBeenCalledTimes(5);
+  });
+
+  it("ignores old interval and regressing snapshots during subscription reuse", () => {
+    const feed = new CooketTradingViewDatafeed(token, vi.fn()); const callback = vi.fn();
+    feed.subscribeBars(cooketSymbol(token), "5", callback, "chart");
+    feed.reconcileCanonical("chart", page([point()], 40));
+    expect(callback).not.toHaveBeenCalled();
+    feed.reconcileCanonical("chart", { ...page([point({ bucket_start: 300 })], 40), interval: "5m" });
+    expect(callback).toHaveBeenCalledOnce();
+    feed.reconcileCanonical("chart", { ...page([point()], 39), interval: "5m" });
+    expect(callback).toHaveBeenCalledOnce();
+  });
+
   it("isolates multiple token addresses and accepts case-insensitive current-token events", () => {
     const feed = new CooketTradingViewDatafeed(token, vi.fn());
     const callback = vi.fn(); feed.subscribeBars(cooketSymbol(token), "1", callback, "one");

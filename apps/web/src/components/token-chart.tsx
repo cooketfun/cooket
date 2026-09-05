@@ -146,25 +146,26 @@ export function headerCandle(candles: readonly DisplayCandle[], hoveredTime?: Ti
   return (hoveredTime === null || hoveredTime === undefined ? undefined : candles.find((candle) => candle.time === hoveredTime)) ?? candles.at(-1) ?? null;
 }
 
-export function TokenChart({ tokenAddress, initialSupply, realtimeEvents = [], onIndexedThroughBlock, className = "mt-10" }: { tokenAddress: string; initialSupply?: string; realtimeEvents?: readonly RealtimeTrade[]; onIndexedThroughBlock?: (block: number | undefined) => void; className?: string }) {
+export function TokenChart({ tokenAddress, symbol = "TOKEN", initialSupply, realtimeEvents = [], onIndexedThroughBlock, className = "mt-10" }: { tokenAddress: string; symbol?: string; initialSupply?: string; realtimeEvents?: readonly RealtimeTrade[]; onIndexedThroughBlock?: (block: number | undefined) => void; className?: string }) {
+  const pair = `${symbol.trim().replace(/^[$]+/, "").toUpperCase() || "TOKEN"} / USDC`;
   const container = useRef<HTMLDivElement>(null);
-  const liveSeries = useRef<{ price: { setData: (data: CandlestickData<Time>[]) => void }; volume: { setData: (data: HistogramData<Time>[]) => void }; timeScale: { scrollToRealTime: () => void }; barCount: number } | null>(null);
+  const liveSeries = useRef<{ price: { setData: (data: CandlestickData<Time>[]) => void }; volume: { setData: (data: HistogramData<Time>[]) => void }; timeScale: { scrollToRealTime: () => void; setVisibleLogicalRange: (range: LogicalViewport) => void }; barCount: number } | null>(null);
   const followsLatest = useRef(true);
+  const needsInitialViewport = useRef(false);
   const [timeframe, setTimeframe] = useState<ChartInterval>("5m");
   const [view, setView] = useState<ChartView>("price");
   const [inspectedTime, setInspectedTime] = useState<Time | null>(null);
   const query = useQuery({ queryKey: ["token-chart", tokenAddress, timeframe], queryFn: () => api.chart(tokenAddress, `?interval=${timeframe}&limit=500`), refetchInterval: 5_000 });
   const snapshotEvents = useMemo(() => reconcileRealtimeTrades(realtimeEvents, query.data?.indexed_through_block), [query.data?.indexed_through_block, realtimeEvents]);
-  useEffect(() => { if (query.data?.indexed_through_block !== undefined) onIndexedThroughBlock?.(query.data.indexed_through_block); }, [onIndexedThroughBlock, query.data?.indexed_through_block]);
+  useEffect(() => { if (query.data?.indexed_through_block !== undefined) onIndexedThroughBlock?.(query.data.indexed_through_block); }, [onIndexedThroughBlock, query.data?.indexed_through_block, timeframe]);
   const chartData = useMemo(() => query.data ? chartDisplayData(overlayCandles(query.data.candles, snapshotEvents, timeframe), view, initialSupply) : { candles: [], volumes: [] }, [initialSupply, query.data, snapshotEvents, timeframe, view]);
-  const currency = "USDC";
   const displayedCandle = headerCandle(chartData.candles, inspectedTime);
   const hasChartData = chartData.candles.length > 0;
 
   useEffect(() => {
     const element = container.current;
     if (!element || !hasChartData) return;
-    const formatValue = (value: number) => formatChartValue(value, currency);
+    const formatValue = (value: number) => formatChartValue(value);
     const chart = createChart(element, {
       width: element.clientWidth,
       height: element.clientHeight,
@@ -198,14 +199,11 @@ export function TokenChart({ tokenAddress, initialSupply, realtimeEvents = [], o
     panes[0]?.setStretchFactor(PANE_STRETCH.price);
     panes[1]?.setStretchFactor(PANE_STRETCH.volume);
     volumeSeries.priceScale().applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0 }, borderVisible: false });
-    priceSeries.setData(chartData.candles);
-    volumeSeries.setData(chartData.volumes);
     const timeScale = chart.timeScale();
-    liveSeries.current = { price: priceSeries, volume: volumeSeries, timeScale, barCount: chartData.candles.length };
+    liveSeries.current = { price: priceSeries, volume: volumeSeries, timeScale, barCount: 0 };
+    needsInitialViewport.current = true;
     followsLatest.current = true;
-    const initialViewport = defaultChartViewport(timeframe, chartData.candles.map((candle) => Number(candle.time)));
-    if (initialViewport) timeScale.setVisibleLogicalRange(initialViewport);
-    const observeViewport = (range: LogicalViewport | null) => { followsLatest.current = viewportFollowsLatest(range, liveSeries.current?.barCount ?? chartData.candles.length); };
+    const observeViewport = (range: LogicalViewport | null) => { followsLatest.current = viewportFollowsLatest(range, liveSeries.current?.barCount ?? 0); };
     timeScale.subscribeVisibleLogicalRangeChange(observeViewport);
     chart.subscribeCrosshairMove((params) => {
       if (!params.time || !params.point || params.point.x < 0 || params.point.y < 0 || params.point.x > element.clientWidth || params.point.y > element.clientHeight) {
@@ -219,7 +217,7 @@ export function TokenChart({ tokenAddress, initialSupply, realtimeEvents = [], o
     const observer = new ResizeObserver(resize);
     observer.observe(element);
     return () => { timeScale.unsubscribeVisibleLogicalRangeChange(observeViewport); liveSeries.current = null; observer.disconnect(); chart.remove(); };
-  }, [currency, hasChartData, timeframe, tokenAddress, view]);
+  }, [hasChartData, timeframe, tokenAddress, view]);
 
   useEffect(() => {
     const current = liveSeries.current;
@@ -229,8 +227,14 @@ export function TokenChart({ tokenAddress, initialSupply, realtimeEvents = [], o
     current.barCount = chartData.candles.length;
     current.price.setData(chartData.candles);
     current.volume.setData(chartData.volumes);
+    if (needsInitialViewport.current) {
+      const initialViewport = defaultChartViewport(timeframe, chartData.candles.map((candle) => Number(candle.time)));
+      if (initialViewport) current.timeScale.setVisibleLogicalRange(initialViewport);
+      needsInitialViewport.current = false;
+      return;
+    }
     if (shouldFollowAfterDataUpdate(shouldFollow, priorCount, chartData.candles.length)) current.timeScale.scrollToRealTime();
-  }, [chartData]);
+  }, [chartData.candles, chartData.volumes, timeframe]);
 
   const controls = <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-center">
     <div className="flex min-w-0 items-center gap-2">
@@ -249,25 +253,24 @@ export function TokenChart({ tokenAddress, initialSupply, realtimeEvents = [], o
     </div>
   </div>;
 
-  if (query.isPending) return <ChartState className={className} controls={controls} timeframe={timeframe} copy={`Loading canonical ${timeframe} candles and volume…`} loading />;
-  if (query.isError) return <ChartState className={className} controls={controls} timeframe={timeframe} copy="Historical prices could not be loaded." error />;
-  if (chartData.candles.length === 0) return <ChartState className={className} controls={controls} timeframe={timeframe} copy={`No complete canonical ${timeframe} candle is available yet.`} />;
+  if (query.isPending) return <ChartState className={className} controls={controls} pair={pair} copy={`Loading ${timeframe} chart…`} loading />;
+  if (query.isError) return <ChartState className={className} controls={controls} pair={pair} copy="Historical prices could not be loaded." error />;
+  if (chartData.candles.length === 0) return <ChartState className={className} controls={controls} pair={pair} copy={`No trades in this timeframe yet.`} />;
   return <section className={`terminal-panel min-w-0 overflow-hidden ${className}`} aria-label="Price history">
     <div className="flex min-w-0 flex-col gap-3 border-b border-white/8 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[0.68rem]" aria-label="Canonical candle OHLC">
-          <OHLCValue label="O" value={displayedCandle ? formatChartValue(displayedCandle.open, currency) : "—"} />
-          <OHLCValue label="H" value={displayedCandle ? formatChartValue(displayedCandle.high, currency) : "—"} />
-          <OHLCValue label="L" value={displayedCandle ? formatChartValue(displayedCandle.low, currency) : "—"} />
-          <OHLCValue label="C" value={displayedCandle ? formatChartValue(displayedCandle.close, currency) : "—"} />
-          <span className="badge-success">USD</span>
-        </div>
-        <p className="mt-1 text-[0.65rem] text-zinc-600">Canonical {timeframe} OHLC · indexed volume · UTC</p>
+        <h2 className="text-sm font-semibold text-white">{pair}</h2>
+        <details className="mt-1 text-xs text-zinc-500"><summary>Candle details</summary><div className="flex flex-wrap gap-3 py-2">
+          <OHLCValue label="O" value={displayedCandle ? formatChartValue(displayedCandle.open) : "—"} />
+          <OHLCValue label="H" value={displayedCandle ? formatChartValue(displayedCandle.high) : "—"} />
+          <OHLCValue label="L" value={displayedCandle ? formatChartValue(displayedCandle.low) : "—"} />
+          <OHLCValue label="C" value={displayedCandle ? formatChartValue(displayedCandle.close) : "—"} />
+          </div></details>
       </div>
       {controls}
     </div>
-    <div className="bg-[#0a0e18]"><div ref={container} className="h-[min(16.5rem,46dvh)] w-full min-[390px]:h-[min(18.5rem,48dvh)] sm:h-[28rem] lg:h-[40rem] xl:h-[44rem]" role="img" aria-label={`${view === "price" ? "Price" : "FDV"} candlestick chart with volume in ${currency}`} /></div>
-    <p className="border-t border-white/8 px-4 py-3 text-xs leading-5 text-zinc-600">Curve and graduated pool trades are normalized to a common dollar display per token.</p>
+    <div className="bg-[#0a0e18]"><div ref={container} className="h-[min(16.5rem,46dvh)] w-full min-[390px]:h-[min(18.5rem,48dvh)] sm:h-[28rem] lg:h-[40rem] xl:h-[44rem]" role="img" aria-label={`${view === "price" ? "Price" : "FDV"} candlestick chart with volume`} /></div>
+    <p className="border-t border-white/8 px-4 py-3 text-xs leading-5 text-zinc-600">Volume</p>
   </section>;
 }
 
@@ -275,11 +278,11 @@ function OHLCValue({ label, value }: { label: "O" | "H" | "L" | "C"; value: stri
   return <span className="whitespace-nowrap"><span className="text-zinc-600">{label}</span> <span className="text-zinc-200">{value}</span></span>;
 }
 
-function ChartState({ copy, controls, timeframe = "1h", error = false, loading = false, className }: { copy: string; controls: React.ReactNode; timeframe?: ChartInterval; error?: boolean; loading?: boolean; className: string }) {
-  return <section className={`terminal-panel ${className}`} aria-label="Price history"><div className="flex min-w-0 flex-col gap-3 border-b border-white/8 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-sm font-semibold text-white">Market chart</h2><p className="mt-1 text-[0.65rem] text-zinc-600">Canonical V3 {timeframe} OHLC</p></div>{controls}</div><p className={`m-4 text-sm ${error ? "text-red-300" : "text-zinc-400"}`}>{copy}</p>{loading && <div className="skeleton m-4 h-52 rounded-xl sm:h-80" />}</section>;
+function ChartState({ copy, controls, pair, error = false, loading = false, className }: { copy: string; controls: React.ReactNode; pair: string; error?: boolean; loading?: boolean; className: string }) {
+  return <section className={`terminal-panel ${className}`} aria-label="Price history"><div className="flex min-w-0 flex-col gap-3 border-b border-white/8 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-sm font-semibold text-white">{pair}</h2></div>{controls}</div><p className={`m-4 text-sm ${error ? "text-red-300" : "text-zinc-400"}`}>{copy}</p>{loading && <div className="skeleton m-4 h-52 rounded-xl sm:h-80" />}</section>;
 }
 
-export function formatChartValue(value: number, currency: "USDC") {
+export function formatChartValue(value: number) {
   if (!Number.isFinite(value)) return "—";
   const absolute = Math.abs(value);
   if (absolute === 0) return "$0";

@@ -6,7 +6,9 @@ describe("market presentation formatting", () => {
     expect(formatNative(BigInt(1234567890000000000))).toBe("1.234567 USDC");
     expect(formatNative("1000000000000000000")).toBe("1 USDC");
     expect(formatNative("42")).toBe("<0.000001 USDC");
-    expect(formatNative("123456789012345678901234567890")).toBe("123456789012.345678 USDC");
+    expect(formatNative("123456789012345678901234567890")).toBe("123,456,789,012.345678 USDC");
+    expect(formatNative("10193730000000000000000")).toBe("10,193.73 USDC");
+    expect(formatTradeUsdc("10193730000", "uniswap_v3")).toBe("10,193.73 USDC");
   });
 
   it("formats raw trade USDC using the indexed source", () => {

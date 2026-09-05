@@ -186,9 +186,9 @@ describe("canonical chart presentation", () => {
   });
 
   it("keeps tiny non-zero prices readable", () => {
-    expect(formatChartValue(0.00001209, "USDC")).toBe("$0.00001209");
-    expect(formatChartValue(0.00000247, "USDC")).toBe("$0.00000247");
-    expect(formatChartValue(0.0000000009375, "USDC")).toBe("<$0.00000001");
+    expect(formatChartValue(0.00001209)).toBe("$0.00001209");
+    expect(formatChartValue(0.00000247)).toBe("$0.00000247");
+    expect(formatChartValue(0.0000000009375)).toBe("<$0.00000001");
   });
 
   it("does not send malformed or negative prices to the chart", () => {
@@ -204,7 +204,7 @@ describe("canonical chart presentation", () => {
     const source = readFileSync(resolve(process.cwd(), "src/components/token-chart.tsx"), "utf8");
     expect(source).not.toContain("fitContent()");
     expect(source).toContain("setVisibleLogicalRange(initialViewport)");
-    expect(source).toContain("[currency, hasChartData, timeframe, tokenAddress, view]");
+    expect(source).toContain("[hasChartData, timeframe, tokenAddress, view]");
     expect(source).not.toContain("green buy-dominant, red sell-dominant");
     expect(source).not.toContain("sell_count > buy_count");
     expect(source).not.toContain("candleTradeSide");

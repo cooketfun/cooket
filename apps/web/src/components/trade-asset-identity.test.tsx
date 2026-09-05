@@ -56,4 +56,13 @@ describe("TradeAssetIdentity", () => {
     expect(root.querySelector("[aria-hidden]")).toBeNull();
     expect(root.textContent).toBe("$MEOW");
   });
+
+  it("allows a replacement token image after the previous URL fails", () => {
+    const { rerender } = render(<TradeAssetIdentity kind="token" symbol="MEOW" imageURL="/uploads/broken.png" />);
+    fireEvent.error(identity("token").querySelector("img")!);
+    expect(identity("token").querySelector("img")).toBeNull();
+
+    rerender(<TradeAssetIdentity kind="token" symbol="MEOW" imageURL="/uploads/replacement.png" />);
+    expect(identity("token").querySelector("img")?.getAttribute("src")).toBe(apiAssetURL("/uploads/replacement.png"));
+  });
 });

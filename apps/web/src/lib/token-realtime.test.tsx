@@ -8,6 +8,24 @@ const event = (overrides: Partial<RealtimeTrade> = {}): RealtimeTrade => ({ iden
 const canonicalToken = (): Token => ({ address: tokenAddress, creator: tokenAddress, name: "Cooket", symbol: "COOK", initial_supply: "1000000000000000000000000000", created_at: { block_number: 1, transaction_hash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", log_index: 1 }, metrics: { trade_count: 2, buy_count: 1, sell_count: 1, volume: "1000000000000000000", fees: "0", unique_trader_count: 1, latest_trade_timestamp: null, current_price: "1", fully_diluted_value: "1", holder_count: 1 } });
 
 describe("realtime trade normalization", () => {
+  it("aligns weekly provisional volume with the API Monday bucket", () => {
+    const monday = 1788134400; // 2026-08-31 00:00 UTC
+    const live = event({ block_timestamp: monday + 6 * 86400 });
+    const canonical = overlayCandles([], [event({ block_timestamp: monday })], "1w");
+    const result = overlayCandles(canonical, [live], "1w");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ bucket_start: monday, trade_count: 2, volume: "4000000000000000000" });
+  });
+
+  it("rejects invalid watermark proof and handles every asymmetric ordering", () => {
+    for (const invalid of [NaN, Infinity, -1, 1.5]) {
+      expect(safeRealtimeRetirementFloor({ token: 40, chart: invalid, trades: 40 })).toBeUndefined();
+      expect(advanceRealtimeSurfaceWatermark({ chart: 39 }, "chart", invalid)).toEqual({ chart: 39 });
+    }
+    for (const token of [39, 40]) for (const chart of [39, 40]) for (const trades of [39, 40]) {
+      expect(safeRealtimeRetirementFloor({ token, chart, trades })).toBe(Math.min(token, chart, trades));
+    }
+  });
   it("accepts case-insensitive matching events and rejects invalid chain, token, source, side, malformed data, or normal events without block time", () => {
     expect(parseRealtimeTrade({ ...event(), token: tokenAddress.toLowerCase() }, tokenAddress)?.identity).toBe(event().identity);
     for (const invalid of [{ ...event(), chain_id: 1 }, { ...event(), token: "0x0000000000000000000000000000000000000000" }, { ...event(), source: "other" }, { ...event(), side: "hold" }, { ...event(), block_timestamp: undefined }, { nope: true }]) expect(parseRealtimeTrade(invalid, tokenAddress)).toBeNull();
@@ -77,6 +95,34 @@ class FakeEventSource {
 afterEach(() => { FakeEventSource.instances = []; vi.restoreAllMocks(); });
 
 describe("EventSource lifecycle", () => {
+  it("isolates token navigation and ignores a queued callback after cleanup", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const nextToken = "0x1111111111111111111111111111111111111111";
+    const hook = renderHook(({ token, floor }) => useTokenRealtimeTrades(token, floor, "http://realtime.test"), { initialProps: { token: tokenAddress, floor: 100 } });
+    const old = FakeEventSource.instances[0]!;
+    const stale = old.listeners.get("trade")!;
+    hook.rerender({ token: nextToken, floor: 0 });
+    act(() => { stale({ data: JSON.stringify(event({ block_number: 101 })) } as MessageEvent); FakeEventSource.instances[1]!.emit(event({ token: nextToken })); });
+    expect(old.close).toHaveBeenCalledOnce();
+    expect(hook.result.current.map((item) => item.token)).toEqual([nextToken]);
+    hook.unmount();
+    expect(FakeEventSource.instances[1]!.close).toHaveBeenCalledOnce();
+  });
+
+  it("handles 10000 duplicate deliveries as one contribution, then retracts and retires", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const hook = renderHook(({ floor }) => useTokenRealtimeTrades(tokenAddress, floor, "http://realtime.test"), { initialProps: { floor: 0 } });
+    const source = FakeEventSource.instances[0]!;
+    act(() => { for (let i = 0; i < 10000; i++) source.emit(event()); });
+    expect(hook.result.current).toHaveLength(1);
+    expect(overlayCandles([], hook.result.current, "1m")[0].trade_count).toBe(1);
+    act(() => source.emit(event({ removed: true })));
+    expect(overlayCandles([], hook.result.current, "1m")).toEqual([]);
+    hook.rerender({ floor: 20 });
+    act(() => source.emit(event()));
+    expect(hook.result.current).toEqual([]);
+    hook.unmount();
+  });
   it("opens one token stream, deduplicates/retracts, and closes on unmount", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     const hook = renderHook(() => useTokenRealtimeTrades(tokenAddress, 0, "http://realtime.test"));
