@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/big"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"math/big"
-	"sort"
-	"strings"
-	"time"
 )
 
 type Indexer struct {
@@ -22,10 +23,41 @@ type Indexer struct {
 	roots CTOProvenance
 }
 
+// Arc's public RPC rejects eth_getLogs requests with large address sets even
+// for a single block. Eight addresses is the largest directly tested size with
+// headroom below the provider's observed failure threshold.
+const maxFilterLogAddresses = 8
+
 func New(cfg Config, rpc RPC, store *Store) *Indexer {
 	cfg.defaults()
 	return &Indexer{cfg: cfg, rpc: rpc, store: store}
 }
+
+func (x *Indexer) filterLogsByAddressChunks(ctx context.Context, query ethereum.FilterQuery) ([]types.Log, error) {
+	if len(query.Addresses) == 0 {
+		return nil, fmt.Errorf("log scan requires at least one contract address")
+	}
+
+	logs := make([]types.Log, 0)
+	for start := 0; start < len(query.Addresses); start += maxFilterLogAddresses {
+		stop := start + maxFilterLogAddresses
+		if stop > len(query.Addresses) {
+			stop = len(query.Addresses)
+		}
+
+		chunkQuery := query
+		chunkQuery.Addresses = query.Addresses[start:stop]
+		chunk, err := x.rpc.FilterLogs(ctx, chunkQuery)
+		if err != nil {
+			return nil, fmt.Errorf("filter logs for address chunk %d: %w", start/maxFilterLogAddresses+1, err)
+		}
+
+		logs = append(logs, chunk...)
+	}
+
+	return canonicalLogs(logs)
+}
+
 func (x *Indexer) Run(ctx context.Context) error {
 	if x.cfg.Mode != "active" && x.cfg.Mode != "once" {
 		return fmt.Errorf("indexer run is disabled in %q mode", x.cfg.Mode)
@@ -83,7 +115,11 @@ func (x *Indexer) Run(ctx context.Context) error {
 			if e != nil {
 				return e
 			}
-			logs, e := x.rpc.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: new(big.Int).SetUint64(from), ToBlock: new(big.Int).SetUint64(end), Addresses: contracts})
+			logs, e := x.filterLogsByAddressChunks(ctx, ethereum.FilterQuery{
+				FromBlock: new(big.Int).SetUint64(from),
+				ToBlock:   new(big.Int).SetUint64(end),
+				Addresses: contracts,
+			})
 			if e != nil {
 				return e
 			}

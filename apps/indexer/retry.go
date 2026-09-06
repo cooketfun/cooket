@@ -40,7 +40,11 @@ func NewRetryingRPC(inner RPC, cfg RetryConfig) *RetryingRPC {
 }
 func permanentRPCError(err error) bool {
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "invalid argument") || strings.Contains(s, "method not found") || strings.Contains(s, "unsupported") || strings.Contains(s, "unauthorized")
+	return strings.Contains(s, "invalid argument") ||
+		strings.Contains(s, "method not found") ||
+		strings.Contains(s, "unsupported") ||
+		strings.Contains(s, "unauthorized") ||
+		strings.Contains(s, "requested range too large")
 }
 func (r *RetryingRPC) wait(ctx context.Context, attempt int) error {
 	d := r.cfg.InitialDelay << (attempt - 1)
