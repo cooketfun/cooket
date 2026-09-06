@@ -79,6 +79,7 @@ func newHandler(repo Repository, chainID int64, timeout time.Duration, logger *s
 		r.Get("/cto/treasuries/{treasury}/fee-pulls", h.ctoTreasuryFeePulls)
 		r.Get("/creators/{address}", h.creator)
 		r.Get("/creators/{address}/tokens", h.creatorTokens)
+		r.Get("/wallets/{address}/holdings", h.walletHoldings)
 	})
 	return r
 }
@@ -454,6 +455,7 @@ func (h *Handler) finalizeMetadata(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		TokenAddress    string `json:"token_address"`
 		TransactionHash string `json:"transaction_hash"`
+		Signature       string `json:"signature"`
 	}
 	if e := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); e != nil {
 		writeError(w, 400, "invalid_request", "invalid JSON body")
@@ -469,9 +471,22 @@ func (h *Handler) finalizeMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.TokenAddress = "0x" + cleanAddress
-	e := h.repo.FinalizeMetadata(r.Context(), h.chainID, chi.URLParam(r, "draft"), in.TokenAddress, in.TransactionHash)
+	creator, e := recoverMetadataClaimSigner(h.chainID, chi.URLParam(r, "draft"), in.TokenAddress, in.TransactionHash, in.Signature)
+	if e != nil {
+		writeError(w, 400, "invalid_signature", e.Error())
+		return
+	}
+	e = h.repo.FinalizeMetadata(r.Context(), h.chainID, chi.URLParam(r, "draft"), in.TokenAddress, in.TransactionHash, creator)
+	if errors.Is(e, ErrMetadataPending) {
+		writeError(w, 409, "not_indexed", "metadata finalization is durably pending canonical token indexing")
+		return
+	}
+	if errors.Is(e, ErrMetadataMismatch) {
+		writeError(w, 409, "metadata_mismatch", "metadata draft does not match the canonical token creation identity")
+		return
+	}
 	if errors.Is(e, ErrNotFound) {
-		writeError(w, 409, "not_indexed", "confirmed token has not been indexed yet")
+		writeError(w, 404, "not_found", "metadata draft was not found")
 		return
 	}
 	if e != nil {
@@ -559,15 +574,26 @@ func (h *Handler) tokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("search")))
+	view := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("view")))
 	if len([]byte(search)) > 64 || (search != "" && !regexp.MustCompile(`^[a-z0-9 _.-]+$`).MatchString(search)) {
 		writeError(w, 400, "invalid_request", "search must be at most 64 characters and use letters, numbers, spaces, dots, underscores, or hyphens")
 		return
 	}
+	if view != "" && view != "new" && view != "top" && view != "near" && view != "linked" {
+		writeError(w, 400, "invalid_request", "view must be one of new, top, near, or linked")
+		return
+	}
+	if search != "" && view != "" {
+		writeError(w, 400, "invalid_request", "search and view cannot be combined")
+		return
+	}
 	var out Page
-	if search == "" {
-		out, e = h.repo.ListTokens(r.Context(), h.chainID, limit, cursor)
-	} else {
+	if search != "" {
 		out, e = h.repo.SearchTokens(r.Context(), h.chainID, search, limit, cursor)
+	} else if view != "" && view != "new" {
+		out, e = h.repo.DiscoveryTokens(r.Context(), h.chainID, view, limit, cursor)
+	} else {
+		out, e = h.repo.ListTokens(r.Context(), h.chainID, limit, cursor)
 	}
 	if e != nil {
 		h.repositoryError(w, r, e)
@@ -740,6 +766,25 @@ func (h *Handler) creator(w http.ResponseWriter, r *http.Request) {
 	out, e := h.repo.Creator(r.Context(), h.chainID, a, limit, cursor)
 	if e != nil {
 		h.repositoryError(w, r, e)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+func (h *Handler) walletHoldings(w http.ResponseWriter, r *http.Request) {
+	a, err := addressParam(r, "address")
+	if err != nil {
+		writeError(w, 400, "invalid_address", err.Error())
+		return
+	}
+	limit, cursor, err := pagination(r)
+	if err != nil {
+		writeError(w, 400, "invalid_pagination", err.Error())
+		return
+	}
+	out, err := h.repo.WalletHoldings(r.Context(), h.chainID, a, limit, cursor)
+	if err != nil {
+		h.repositoryError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, out)

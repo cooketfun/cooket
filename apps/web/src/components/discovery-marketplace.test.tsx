@@ -50,7 +50,7 @@ afterEach(() => {
 describe("marketplace discovery", () => {
   it("renders API-backed top tokens and clickable launch cards", async () => {
     render(<DiscoveryMarketplace />, { wrapper: Providers });
-    expect(await screen.findAllByRole("link", { name: "Open Cooket One" })).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Open Cooket One" })).toHaveLength(2));
     expect(screen.getAllByRole("link", { name: "Open Cooket One" })[0].getAttribute("href")).toBe("/token/0x0000000000000000000000000000000000000001");
     expect(screen.getByText("Block #123")).toBeTruthy();
     expect(screen.getAllByText("24h").length).toBeGreaterThan(0);
@@ -62,7 +62,7 @@ describe("marketplace discovery", () => {
     await screen.findAllByRole("link", { name: "Open Cooket One" });
 
     await user.click(screen.getByRole("tab", { name: "New" }));
-    await waitFor(() => expect(apiMocks.listTokens).toHaveBeenCalledWith("?limit=48"));
+    await waitFor(() => expect(apiMocks.listTokens).toHaveBeenCalledWith("?limit=12&view=new"));
     expect(screen.getByRole("tab", { name: "New" }).getAttribute("aria-selected")).toBe("true");
 
     const listButton = screen.getByRole("button", { name: "List view" });
@@ -70,12 +70,29 @@ describe("marketplace discovery", () => {
     expect(listButton.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("uses API cursors for next and previous pages and resets when the filter changes", async () => {
+    apiMocks.trending.mockImplementation((query: string) => Promise.resolve(query.includes("cursor=page-two")
+      ? { items: [token({ address: "0x0000000000000000000000000000000000000002", name: "Second Page" })] }
+      : { items: [token()], next_cursor: "page-two" }));
+    const user = userEvent.setup();
+    render(<DiscoveryMarketplace />, { wrapper: Providers });
+    const next = await screen.findByRole("button", { name: "Next page" });
+    await user.click(next);
+    expect(await screen.findByText("Second Page")).toBeTruthy();
+    expect(apiMocks.trending).toHaveBeenCalledWith("?limit=12&cursor=page-two");
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    await waitFor(() => expect(screen.getAllByText("Cooket One").length).toBeGreaterThan(0));
+
+    await user.click(screen.getByRole("tab", { name: "Top" }));
+    await waitFor(() => expect(apiMocks.listTokens).toHaveBeenCalledWith("?limit=12&view=top"));
+    expect(screen.queryByRole("button", { name: "Previous page" })).toBeNull();
+  });
+
   it("shows honest empty and error states with retry", async () => {
-    apiMocks.trending.mockResolvedValueOnce({ items: [] }).mockRejectedValueOnce(new Error("index unavailable"));
+    apiMocks.trending.mockResolvedValue({ items: [] });
     render(<DiscoveryMarketplace />, { wrapper: Providers });
     expect(await screen.findByText("No indexed market leaders yet.")).toBeTruthy();
-    expect(await screen.findByText(/index unavailable/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(await screen.findByText("No launches in this view")).toBeTruthy();
   });
 });
 

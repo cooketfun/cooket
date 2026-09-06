@@ -66,7 +66,8 @@ describe("token terminal responsive layout", () => {
     expect(trading).toContain('api.trades(tokenAddress, "?limit=20")');
     expect(trading).not.toContain("max-h-[32rem]");
     expect(trading).not.toContain("overflow-y-auto");
-    expect(activity).toContain('api.activity(tokenAddress, "?limit=20")');
+    expect(activity).toContain("ACTIVITY_PAGE_SIZE = 10");
+    expect(activity).toContain("&cursor=");
     expect(activity).not.toContain("max-h-[36rem]");
     expect(activity).not.toContain("overflow-y-auto");
   });

@@ -93,7 +93,7 @@ func NewStore(ctx context.Context, url string) (*Store, error) {
 	}
 	var ready bool
 	e = p.QueryRow(ctx, `SELECT
-		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12,13]
+		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12,13,14]
 		AND to_regclass('public.chain_events') IS NOT NULL
 		AND to_regclass('public.tokens') IS NOT NULL
 		AND to_regclass('public.curves') IS NOT NULL
@@ -106,6 +106,8 @@ func NewStore(ctx context.Context, url string) (*Store, error) {
 		AND to_regclass('public.cto_treasury_transfers') IS NOT NULL
 		AND to_regclass('public.cto_fee_pulls') IS NOT NULL
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tokens' AND column_name='token_decimals')
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='token_metadata_drafts' AND column_name='creator_address')
+		AND to_regclass('public.token_holder_balances_holder_positive') IS NOT NULL
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='native_usdc_amount')
 		AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='graduations' AND column_name='eth_amount')`).Scan(&ready)
 	if e != nil {
@@ -593,6 +595,12 @@ func projection(ctx context.Context, tx pgx.Tx, c int64, l types.Log, n string, 
 		if e != nil {
 			return e
 		}
+		if metadataErr := reconcileLinkedMetadata(ctx, tx, c, u(v["token"]), u(v["creator"]), m.Name, m.Symbol, u(v["totalSupply"]), t); metadataErr != nil {
+			// Metadata is application-owned presentation data. Its recovery must
+			// never prevent canonical chain data or the durable checkpoint from
+			// advancing, so the helper contains failures in a savepoint.
+			log.Printf("metadata reconciliation failed chain=%d token=%s tx=%s: %v", c, u(v["token"]), t, metadataErr)
+		}
 		_, e = tx.Exec(ctx, `INSERT INTO curves(chain_id,token_address,curve_address,creator_address,curve_supply,starting_price,slope,graduation_threshold,lifecycle,canonical_pool_address,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,$5,0,0,$5,'active',$6,$7,$8,$9,$10)
 			ON CONFLICT (chain_id,transaction_hash,log_index) DO UPDATE SET token_address=excluded.token_address,curve_address=excluded.curve_address,creator_address=excluded.creator_address,curve_supply=excluded.curve_supply,graduation_threshold=excluded.graduation_threshold,lifecycle='active',canonical_pool_address=excluded.canonical_pool_address,block_number=excluded.block_number,block_hash=excluded.block_hash,is_canonical=true,orphaned_at=NULL`, c, u(v["token"]), u(v["curve"]), u(v["creator"]), u(v["curveAllocation"]), u(v["canonicalPool"]), l.BlockNumber, b, t, i)
 		return e
@@ -633,6 +641,73 @@ func projection(ctx context.Context, tx pgx.Tx, c int64, l types.Log, n string, 
 		return e
 	}
 	return nil
+}
+
+func reconcileLinkedMetadata(ctx context.Context, tx pgx.Tx, chain int64, token, creator, name, symbol, supply, txHash string) error {
+	metadataTx, err := tx.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer metadataTx.Rollback(ctx)
+	// Serialize with the API's durable-link transaction. Without this lock, the
+	// API could commit a pending link after this lookup but before the canonical
+	// launch transaction commits, leaving neither side responsible for recovery.
+	if _, err = metadataTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, fmt.Sprintf("%d:%s:%s", chain, strings.ToLower(token), strings.ToLower(txHash))); err != nil {
+		return err
+	}
+
+	type candidate struct {
+		id, description, imageURL, metadataURL    string
+		websiteURL, xURL, telegramURL, discordURL *string
+	}
+	rows, err := metadataTx.Query(ctx, `SELECT draft_id,description,image_url,metadata_url,website_url,x_url,telegram_url,discord_url
+		FROM token_metadata_drafts
+		WHERE lower(token_address)=lower($1) AND lower(transaction_hash)=lower($2)
+			AND lower(creator_address)=lower($3) AND name=$4 AND symbol=$5 AND initial_supply=$6
+		ORDER BY created_at,draft_id
+		LIMIT 2
+		FOR UPDATE`, token, txHash, creator, name, symbol, supply)
+	if err != nil {
+		return err
+	}
+	candidates := make([]candidate, 0, 2)
+	for rows.Next() {
+		var item candidate
+		if err = rows.Scan(&item.id, &item.description, &item.imageURL, &item.metadataURL, &item.websiteURL, &item.xURL, &item.telegramURL, &item.discordURL); err != nil {
+			rows.Close()
+			return err
+		}
+		candidates = append(candidates, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(candidates) != 1 {
+		return metadataTx.Commit(ctx)
+	}
+
+	item := candidates[0]
+	result, err := metadataTx.Exec(ctx, `UPDATE tokens SET description=$7,image_url=$8,metadata_url=$9,website_url=$10,x_url=$11,telegram_url=$12,discord_url=$13
+		WHERE chain_id=$1 AND lower(token_address)=lower($2) AND lower(transaction_hash)=lower($3)
+			AND is_canonical AND name=$4 AND symbol=$5 AND initial_supply=$6`,
+		chain, token, txHash, name, symbol, supply, item.description, item.imageURL, item.metadataURL, item.websiteURL, item.xURL, item.telegramURL, item.discordURL)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("canonical token identity changed during metadata reconciliation")
+	}
+	result, err = metadataTx.Exec(ctx, `UPDATE token_metadata_drafts SET finalized_at=coalesce(finalized_at,now())
+		WHERE draft_id=$1 AND lower(token_address)=lower($2) AND lower(transaction_hash)=lower($3)`, item.id, token, txHash)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("linked metadata draft identity changed during reconciliation")
+	}
+	return metadataTx.Commit(ctx)
 }
 
 func projectedTokenAddress(event string, values map[string]any) string {

@@ -2,10 +2,12 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -49,7 +51,7 @@ func integrationStore(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
-	for _, table := range []string{"cto_fee_pulls", "cto_treasury_transfers", "cto_supported_assets", "cto_creator_fee_checkpoint_ledger", "cto_token_state", "cto_proposals", "cto_treasuries", "token_trade_buckets", "token_holder_balances", "token_metrics", "liquidity_events", "graduations", "fees", "trades", "curves", "tokens", "chain_events", "chain_blocks", "indexer_checkpoints", "application_token_exclusions"} {
+	for _, table := range []string{"cto_fee_pulls", "cto_treasury_transfers", "cto_supported_assets", "cto_creator_fee_checkpoint_ledger", "cto_token_state", "cto_proposals", "cto_treasuries", "token_trade_buckets", "token_holder_balances", "token_metrics", "liquidity_events", "graduations", "fees", "trades", "curves", "tokens", "chain_events", "chain_blocks", "indexer_checkpoints", "application_token_exclusions", "token_metadata_drafts"} {
 		if _, err = s.pool.Exec(context.Background(), "TRUNCATE "+table+" CASCADE"); err != nil {
 			t.Fatal(err)
 		}
@@ -363,6 +365,149 @@ func TestV3LaunchReplayPreservesFinalizedMetadata(t *testing.T) {
 	}
 	if count != 1 || gotToken != token || gotCreator != creator || name != "Durable Metadata" || symbol != "DURA" || supply != "1000" || protocol != "endpoint-cp-v3" || blockNumber != int64(b.Number.Uint64()) || blockHash != b.Hash().Hex() || txHash != logs[0].TxHash.Hex() || logIndex != int64(logs[0].Index) || !canonical || orphanedAt != nil {
 		t.Fatalf("launch projection count=%d token=%s creator=%s name=%s symbol=%s supply=%s protocol=%s block=%d/%s tx=%s index=%d canonical=%t orphaned=%v", count, gotToken, gotCreator, name, symbol, supply, protocol, blockNumber, blockHash, txHash, logIndex, canonical, orphanedAt)
+	}
+}
+
+func TestV3LaunchReconcilesDurablyLinkedMetadataWithoutBrowser(t *testing.T) {
+	s := integrationStore(t)
+	ctx := context.Background()
+	tokenHash, creatorHash, curveHash := common.HexToHash("0x1111"), common.HexToHash("0x1112"), common.HexToHash("0x1113")
+	token := common.BytesToAddress(tokenHash.Bytes()).Hex()
+	creator := common.BytesToAddress(creatorHash.Bytes()).Hex()
+	b := &types.Header{Number: big.NewInt(14), Time: 8300}
+	logs := stamp(b, v3Launch(t, tokenHash, creatorHash, curveHash))
+	linked := applicationMetadata{
+		Description: "survives browser close",
+		ImageURL:    "/objects/images/pending.png",
+		MetadataURL: "/objects/metadata/pending.json",
+		WebsiteURL:  "https://cooket.fun/pending",
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO token_metadata_drafts(draft_id,name,symbol,initial_supply,description,image_url,metadata_url,website_url,token_address,transaction_hash,creator_address)
+		VALUES('pending-indexer-recovery','Pending Metadata','PND',1000,$1,$2,$3,$4,$5,$6,$7)`, linked.Description, linked.ImageURL, linked.MetadataURL, linked.WebsiteURL, token, logs[0].TxHash.Hex(), creator); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata := map[string]TokenMetadata{token: {Name: "Pending Metadata", Symbol: "PND", Decimals: 18}}
+	if err := s.ApplyWithMetadata(ctx, BaseSepoliaChainID, "v3-pending-metadata", b, logs, metadata); err != nil {
+		t.Fatal(err)
+	}
+	assertApplicationMetadata(t, s, token, linked)
+	var finalized bool
+	if err := s.pool.QueryRow(ctx, `SELECT finalized_at IS NOT NULL FROM token_metadata_drafts WHERE draft_id='pending-indexer-recovery'`).Scan(&finalized); err != nil || !finalized {
+		t.Fatalf("finalized=%t err=%v", finalized, err)
+	}
+
+	// Replaying the canonical launch and reconciling an already-finalized draft
+	// are both idempotent.
+	if err := s.ApplyWithMetadata(ctx, BaseSepoliaChainID, "v3-pending-metadata", b, logs, metadata); err != nil {
+		t.Fatal(err)
+	}
+	assertApplicationMetadata(t, s, token, linked)
+}
+
+func TestV3LaunchSerializesWithConcurrentDurableMetadataLink(t *testing.T) {
+	s := integrationStore(t)
+	ctx := context.Background()
+	tokenHash, creatorHash, curveHash := common.HexToHash("0x1131"), common.HexToHash("0x1132"), common.HexToHash("0x1133")
+	token := common.BytesToAddress(tokenHash.Bytes()).Hex()
+	creator := common.BytesToAddress(creatorHash.Bytes()).Hex()
+	b := &types.Header{Number: big.NewInt(16), Time: 8500}
+	logs := stamp(b, v3Launch(t, tokenHash, creatorHash, curveHash))
+	txHash := logs[0].TxHash.Hex()
+	linked := applicationMetadata{
+		Description: "concurrent durable link",
+		ImageURL:    "/objects/images/concurrent.png",
+		MetadataURL: "/objects/metadata/concurrent.json",
+	}
+
+	linkTx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer linkTx.Rollback(ctx)
+	lockKey := fmt.Sprintf("%d:%s:%s", BaseSepoliaChainID, strings.ToLower(token), strings.ToLower(txHash))
+	if _, err = linkTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = linkTx.Exec(ctx, `INSERT INTO token_metadata_drafts(draft_id,name,symbol,initial_supply,description,image_url,metadata_url,token_address,transaction_hash,creator_address)
+		VALUES('concurrent-indexer-recovery','Concurrent Metadata','CON',1000,$1,$2,$3,$4,$5,$6)`, linked.Description, linked.ImageURL, linked.MetadataURL, token, txHash, creator); err != nil {
+		t.Fatal(err)
+	}
+
+	applyResult := make(chan error, 1)
+	go func() {
+		applyResult <- s.ApplyWithMetadata(ctx, BaseSepoliaChainID, "v3-concurrent-metadata", b, logs, map[string]TokenMetadata{token: {Name: "Concurrent Metadata", Symbol: "CON", Decimals: 18}})
+	}()
+	select {
+	case err = <-applyResult:
+		t.Fatalf("canonical indexing completed before the durable-link transaction committed: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err = linkTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err = <-applyResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canonical indexing did not resume after durable-link commit")
+	}
+	assertApplicationMetadata(t, s, token, linked)
+}
+
+func TestV3LaunchMetadataMismatchDoesNotAttachOrBlockIndexing(t *testing.T) {
+	for index, test := range []struct {
+		id, name, symbol, supply          string
+		wrongToken, wrongTx, wrongCreator bool
+	}{
+		{id: "wrong-name", name: "Other Name", symbol: "SAFE", supply: "1000"},
+		{id: "wrong-symbol", name: "Safe Metadata", symbol: "OTHER", supply: "1000"},
+		{id: "wrong-supply", name: "Safe Metadata", symbol: "SAFE", supply: "999"},
+		{id: "wrong-token", name: "Safe Metadata", symbol: "SAFE", supply: "1000", wrongToken: true},
+		{id: "wrong-transaction", name: "Safe Metadata", symbol: "SAFE", supply: "1000", wrongTx: true},
+		{id: "attacker-creator", name: "Safe Metadata", symbol: "SAFE", supply: "1000", wrongCreator: true},
+	} {
+		t.Run(test.id, func(t *testing.T) {
+			s := integrationStore(t)
+			ctx := context.Background()
+			tokenHash := common.BigToHash(big.NewInt(int64(0x1121 + index*10)))
+			creatorHash := common.BigToHash(big.NewInt(int64(0x1122 + index*10)))
+			curveHash := common.BigToHash(big.NewInt(int64(0x1123 + index*10)))
+			token := common.BytesToAddress(tokenHash.Bytes()).Hex()
+			creator := common.BytesToAddress(creatorHash.Bytes()).Hex()
+			b := &types.Header{Number: big.NewInt(int64(15 + index)), Time: uint64(8400 + index)}
+			logs := stamp(b, v3Launch(t, tokenHash, creatorHash, curveHash))
+			draftToken, draftTx, draftCreator := token, logs[0].TxHash.Hex(), creator
+			if test.wrongToken {
+				draftToken = common.HexToAddress("0xdead").Hex()
+			}
+			if test.wrongTx {
+				draftTx = common.HexToHash("0xbeef").Hex()
+			}
+			if test.wrongCreator {
+				draftCreator = common.HexToAddress("0xbad").Hex()
+			}
+			if _, err := s.pool.Exec(ctx, `INSERT INTO token_metadata_drafts(draft_id,name,symbol,initial_supply,description,image_url,metadata_url,token_address,transaction_hash,creator_address)
+				VALUES($1,$2,$3,$4,'must not attach','/objects/wrong.png','/objects/wrong.json',$5,$6,$7)`, test.id, test.name, test.symbol, test.supply, draftToken, draftTx, draftCreator); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.ApplyWithMetadata(ctx, BaseSepoliaChainID, "v3-mismatched-metadata", b, logs, map[string]TokenMetadata{token: {Name: "Safe Metadata", Symbol: "SAFE", Decimals: 18}}); err != nil {
+				t.Fatalf("metadata mismatch blocked canonical indexing: %v", err)
+			}
+			assertApplicationMetadata(t, s, token, applicationMetadata{})
+			var tokenCount, finalizedCount int
+			if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM tokens WHERE chain_id=$1 AND lower(token_address)=lower($2) AND is_canonical`, BaseSepoliaChainID, token).Scan(&tokenCount); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM token_metadata_drafts WHERE finalized_at IS NOT NULL`).Scan(&finalizedCount); err != nil {
+				t.Fatal(err)
+			}
+			if tokenCount != 1 || finalizedCount != 0 {
+				t.Fatalf("canonical tokens=%d finalized mismatches=%d", tokenCount, finalizedCount)
+			}
+		})
 	}
 }
 

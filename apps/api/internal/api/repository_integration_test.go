@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -275,12 +276,15 @@ func TestPostgresMetadataFinalizeIsIdempotentAndProjectsIntoLists(t *testing.T) 
 	const chain int64 = 84532
 	const block int64 = 499999980
 	const draftID = "live-finalize-regression"
+	const duplicateDraftID = "live-finalize-regression-duplicate"
+	const attackerDraftID = "live-finalize-regression-attacker"
 	const token = "0x0000000000000000000000000000000000000f01"
 	const creator = "0x0000000000000000000000000000000000000f02"
+	const attacker = "0x0000000000000000000000000000000000000bad"
 	const txHash = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff01"
 	const blockHash = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff02"
 	cleanup := func() {
-		_, _ = repo.pool.Exec(ctx, `DELETE FROM token_metadata_drafts WHERE draft_id=$1`, draftID)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM token_metadata_drafts WHERE draft_id IN ($1,$2,$3)`, draftID, duplicateDraftID, attackerDraftID)
 		_, _ = repo.pool.Exec(ctx, `DELETE FROM tokens WHERE chain_id=$1 AND transaction_hash=$2`, chain, txHash)
 		_, _ = repo.pool.Exec(ctx, `DELETE FROM chain_blocks WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
 	}
@@ -292,17 +296,49 @@ func TestPostgresMetadataFinalizeIsIdempotentAndProjectsIntoLists(t *testing.T) 
 	if err = repo.SaveMetadataDraft(ctx, MetadataDraft{ID: draftID, Name: "Cooket Live Test", Symbol: "ZLT", InitialSupply: "1000000000000000000000000000", Description: "live description", ImageURL: "/objects/live.png", MetadataURL: "/objects/live.json", WebsiteURL: "https://cooket.fun", XURL: "https://x.com/cooket"}); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.FinalizeMetadata(ctx, chain, draftID, token, txHash); err != ErrNotFound {
+	if err = repo.SaveMetadataDraft(ctx, MetadataDraft{ID: attackerDraftID, Name: "Cooket Live Test", Symbol: "ZLT", InitialSupply: "1000000000000000000000000000", Description: "attacker metadata", ImageURL: "/objects/attacker.png", MetadataURL: "/objects/attacker.json"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.FinalizeMetadata(ctx, chain, attackerDraftID, token, txHash, attacker); err != ErrMetadataPending {
+		t.Fatalf("attacker's independently signed claim should remain pending, got %v", err)
+	}
+	if err = repo.FinalizeMetadata(ctx, chain, draftID, token, txHash, creator); err != ErrMetadataPending {
 		t.Fatalf("finalize before indexing error=%v", err)
+	}
+	var linkedToken, linkedTx string
+	var finalized bool
+	if err = repo.pool.QueryRow(ctx, `SELECT token_address,transaction_hash,finalized_at IS NOT NULL FROM token_metadata_drafts WHERE draft_id=$1`, draftID).Scan(&linkedToken, &linkedTx, &finalized); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.EqualFold(linkedToken, token) || !strings.EqualFold(linkedTx, txHash) || finalized {
+		t.Fatalf("pending linkage token=%s tx=%s finalized=%t", linkedToken, linkedTx, finalized)
+	}
+	if err = repo.FinalizeMetadata(ctx, chain, draftID, "0x0000000000000000000000000000000000000bad", txHash, creator); err != ErrMetadataMismatch {
+		t.Fatalf("mismatched token error=%v", err)
+	}
+	if err = repo.FinalizeMetadata(ctx, chain, draftID, token, "0x"+strings.Repeat("b", 64), creator); err != ErrMetadataMismatch {
+		t.Fatalf("mismatched transaction error=%v", err)
+	}
+	if err = repo.SaveMetadataDraft(ctx, MetadataDraft{ID: duplicateDraftID, Name: "Cooket Live Test", Symbol: "ZLT", InitialSupply: "1000000000000000000000000000", Description: "duplicate", ImageURL: "/objects/duplicate.png", MetadataURL: "/objects/duplicate.json"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.FinalizeMetadata(ctx, chain, duplicateDraftID, token, txHash, creator); err != ErrMetadataMismatch {
+		t.Fatalf("duplicate launch claim error=%v", err)
 	}
 	if _, err = repo.pool.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,'Cooket Live Test','ZLT',1000000000000000000000000000,'endpoint-cp-v3',$4,$5,$6,7)`, chain, token, creator, block, blockHash, txHash); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.FinalizeMetadata(ctx, chain, draftID, token, txHash); err != nil {
+	if err = repo.FinalizeMetadata(ctx, chain, attackerDraftID, token, txHash, attacker); err != ErrMetadataMismatch {
+		t.Fatalf("attacker metadata attached to victim launch: %v", err)
+	}
+	if err = repo.FinalizeMetadata(ctx, chain, draftID, token, txHash, creator); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.FinalizeMetadata(ctx, chain, draftID, token, txHash); err != nil {
+	if err = repo.FinalizeMetadata(ctx, chain, draftID, token, txHash, creator); err != nil {
 		t.Fatalf("repeated identical finalize was not idempotent: %v", err)
+	}
+	if err = repo.FinalizeMetadata(ctx, chain, draftID, "0x0000000000000000000000000000000000000bad", txHash, creator); err != ErrMetadataMismatch {
+		t.Fatalf("finalized draft accepted mismatched identity: %v", err)
 	}
 	page, err := repo.ListTokens(ctx, chain, 100, "")
 	if err != nil {
@@ -320,6 +356,158 @@ func TestPostgresMetadataFinalizeIsIdempotentAndProjectsIntoLists(t *testing.T) 
 	profile, err := repo.Creator(ctx, chain, creator, 100, "")
 	if err != nil || profile.TokenCount != 1 || len(profile.Tokens) != 1 || !strings.EqualFold(profile.Tokens[0].Address, token) {
 		t.Fatalf("creator projection=%+v err=%v", profile, err)
+	}
+}
+
+func TestPostgresMetadataFinalizeRejectsCanonicalFieldMismatches(t *testing.T) {
+	url := integrationDatabaseURL(t, "API_TEST_DATABASE_URL")
+	ctx := context.Background()
+	repo, err := NewPostgresRepository(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	const chain int64 = 84532
+	const creator = "0x0000000000000000000000000000000000000d02"
+
+	for index, test := range []struct {
+		name, indexedName, indexedSymbol, indexedSupply string
+	}{
+		{name: "name", indexedName: "Wrong Name", indexedSymbol: "SAFE", indexedSupply: "1000"},
+		{name: "symbol", indexedName: "Safe Metadata", indexedSymbol: "WRONG", indexedSupply: "1000"},
+		{name: "supply", indexedName: "Safe Metadata", indexedSymbol: "SAFE", indexedSupply: "999"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			draftID := "metadata-mismatch-" + test.name
+			token := fmt.Sprintf("0x%040x", 0xd10+index)
+			txHash := fmt.Sprintf("0x%064x", 0xd20+index)
+			blockHash := fmt.Sprintf("0x%064x", 0xd30+index)
+			cleanup := func() {
+				_, _ = repo.pool.Exec(ctx, `DELETE FROM token_metadata_drafts WHERE draft_id=$1`, draftID)
+				_, _ = repo.pool.Exec(ctx, `DELETE FROM tokens WHERE chain_id=$1 AND transaction_hash=$2`, chain, txHash)
+				_, _ = repo.pool.Exec(ctx, `DELETE FROM chain_blocks WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
+			}
+			cleanup()
+			defer cleanup()
+			if err := repo.SaveMetadataDraft(ctx, MetadataDraft{ID: draftID, Name: "Safe Metadata", Symbol: "SAFE", InitialSupply: "1000", Description: "must not attach", ImageURL: "/objects/safe.png", MetadataURL: "/objects/safe.json"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.FinalizeMetadata(ctx, chain, draftID, token, txHash, creator); err != ErrMetadataPending {
+				t.Fatalf("pending linkage error=%v", err)
+			}
+			if _, err := repo.pool.Exec(ctx, `INSERT INTO chain_blocks(chain_id,block_number,block_hash,parent_hash,block_timestamp) VALUES($1,$2,$3,'0xparent',0)`, chain, 499999900+index, blockHash); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repo.pool.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index)
+				VALUES($1,$2,$3,$4,$5,$6,'endpoint-cp-v3',$7,$8,$9,1)`, chain, token, creator, test.indexedName, test.indexedSymbol, test.indexedSupply, 499999900+index, blockHash, txHash); err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.FinalizeMetadata(ctx, chain, draftID, token, txHash, creator); err != ErrMetadataMismatch {
+				t.Fatalf("canonical %s mismatch error=%v", test.name, err)
+			}
+			var description *string
+			var finalized bool
+			if err := repo.pool.QueryRow(ctx, `SELECT description FROM tokens WHERE chain_id=$1 AND transaction_hash=$2`, chain, txHash).Scan(&description); err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.pool.QueryRow(ctx, `SELECT finalized_at IS NOT NULL FROM token_metadata_drafts WHERE draft_id=$1`, draftID).Scan(&finalized); err != nil {
+				t.Fatal(err)
+			}
+			if description != nil || finalized {
+				t.Fatalf("mismatched metadata attached description=%v finalized=%t", description, finalized)
+			}
+		})
+	}
+}
+
+func TestPostgresWalletHoldingsCanonicalPositivePaginationAndValue(t *testing.T) {
+	url := integrationDatabaseURL(t, "API_TEST_DATABASE_URL")
+	ctx := context.Background()
+	repo, err := NewPostgresRepository(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	const chain int64 = 84532
+	const block int64 = 499999850
+	const holder = "0x0000000000000000000000000000000000000AbC"
+	const blockHash = "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc01"
+	tokens := []string{
+		"0x0000000000000000000000000000000000000a01",
+		"0x0000000000000000000000000000000000000a02",
+		"0x0000000000000000000000000000000000000a03",
+		"0x0000000000000000000000000000000000000a04",
+	}
+	cleanup := func() {
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM token_holder_balances WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM token_metrics WHERE chain_id=$1 AND token_address=ANY($2)`, chain, tokens)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM curves WHERE chain_id=$1 AND token_address=ANY($2)`, chain, tokens)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM tokens WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM chain_blocks WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM indexer_checkpoints WHERE chain_id=$1 AND indexer_name=$2`, chain, canonicalIndexerName)
+	}
+	cleanup()
+	defer cleanup()
+	if _, err = repo.pool.Exec(ctx, `INSERT INTO chain_blocks(chain_id,block_number,block_hash,parent_hash,block_timestamp) VALUES($1,$2,$3,'0xparent',0)`, chain, block, blockHash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.pool.Exec(ctx, `INSERT INTO indexer_checkpoints(chain_id,indexer_name,last_block_number,last_block_hash) VALUES($1,$2,$3,$4)`, chain, canonicalIndexerName, block, blockHash); err != nil {
+		t.Fatal(err)
+	}
+	for index, token := range tokens {
+		canonical := index != 3
+		if _, err = repo.pool.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,token_decimals,initial_supply,protocol_version,block_number,block_hash,transaction_hash,log_index,is_canonical,image_url)
+			VALUES($1,$2,'0x0000000000000000000000000000000000000c01',$3,$4,18,1000000000000000000000,'endpoint-cp-v3',$5,$6,$7,$8,$9,$10)`, chain, token, fmt.Sprintf("Holding %d", index+1), fmt.Sprintf("H%d", index+1), block, blockHash, fmt.Sprintf("0x%064x", 0xc100+index), index+1, canonical, fmt.Sprintf("/objects/%d.png", index+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index, token := range tokens[:2] {
+		lifecycle := "active"
+		if index == 1 {
+			lifecycle = "graduated"
+		}
+		if _, err = repo.pool.Exec(ctx, `INSERT INTO curves(chain_id,token_address,curve_address,creator_address,curve_supply,sold_supply,reserve_balance,graduation_threshold,lifecycle,block_number,block_hash,transaction_hash,log_index)
+			VALUES($1,$2,$3,'0x0000000000000000000000000000000000000c01',1000,0,0,1000,$4,$5,$6,$7,$8)`, chain, token, fmt.Sprintf("0x%040x", 0xc200+index), lifecycle, block, blockHash, fmt.Sprintf("0x%064x", 0xc300+index), index+1); err != nil {
+			t.Fatal(err)
+		}
+		price := "3000000000000000000"
+		if index == 1 {
+			price = "2000000000000000000"
+		}
+		if _, err = repo.pool.Exec(ctx, `INSERT INTO token_metrics(chain_id,token_address,trade_count,volume,current_price,holder_count,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9)`, chain, token, index+1, (index+1)*100, price, block, blockHash, fmt.Sprintf("0x%064x", 0xc400+index), index+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	balances := []string{"2000000000000000000", "500000000000000000", "0", "9000000000000000000"}
+	for index, token := range tokens {
+		if _, err = repo.pool.Exec(ctx, `INSERT INTO token_holder_balances(chain_id,token_address,holder_address,balance,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, chain, token, strings.ToUpper(holder), balances[index], block, blockHash, fmt.Sprintf("0x%064x", 0xc500+index), index+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := repo.WalletHoldings(ctx, chain, strings.ToLower(holder), 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.IndexedThroughBlock != uint64(block) || len(first.Items) != 1 || first.NextCursor == "" {
+		t.Fatalf("first page=%+v", first)
+	}
+	if first.Items[0].TokenAddress != tokens[0] || first.Items[0].RawBalance != balances[0] || value(first.Items[0].EstimatedValue) != "6000000000000000000" || first.Items[0].TokenDecimals != 18 || first.Items[0].Lifecycle != "active" {
+		t.Fatalf("first holding=%+v", first.Items[0])
+	}
+	second, err := repo.WalletHoldings(ctx, chain, strings.ToUpper(holder), 2, first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 1 || second.NextCursor != "" || second.Items[0].TokenAddress != tokens[1] || value(second.Items[0].EstimatedValue) != "1000000000000000000" || second.Items[0].Lifecycle != "graduated" {
+		t.Fatalf("second page=%+v", second)
+	}
+	if _, err = repo.pool.Exec(ctx, `UPDATE token_holder_balances SET balance=0 WHERE chain_id=$1 AND token_address=$2 AND lower(holder_address)=lower($3)`, chain, tokens[0], holder); err != nil {
+		t.Fatal(err)
+	}
+	afterZero, err := repo.WalletHoldings(ctx, chain, holder, 10, "")
+	if err != nil || len(afterZero.Items) != 1 || afterZero.Items[0].TokenAddress != tokens[1] {
+		t.Fatalf("zero balance was not removed: page=%+v err=%v", afterZero, err)
 	}
 }
 
@@ -521,6 +709,7 @@ func TestPostgresRepositoryKeysetPagination(t *testing.T) {
 		_, _ = repo.pool.Exec(ctx, `DELETE FROM chain_events WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
 		_, _ = repo.pool.Exec(ctx, `DELETE FROM trades WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
 		_, _ = repo.pool.Exec(ctx, `DELETE FROM token_metrics WHERE chain_id=$1 AND token_address = ANY($2::text[])`, chain, addresses)
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM curves WHERE chain_id=$1 AND token_address = ANY($2::text[])`, chain, addresses)
 		_, _ = repo.pool.Exec(ctx, `DELETE FROM tokens WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
 		_, _ = repo.pool.Exec(ctx, `DELETE FROM chain_blocks WHERE chain_id=$1 AND block_hash=$2`, chain, blockHash)
 	}()
@@ -529,9 +718,15 @@ func TestPostgresRepositoryKeysetPagination(t *testing.T) {
 		if _, e = repo.pool.Exec(ctx, `INSERT INTO tokens(chain_id,token_address,creator_address,name,symbol,initial_supply,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,$5,1000,$6,$7,$8,$9)`, chain, address, creator, "Fixture", "FIX", block, blockHash, tx, i); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = repo.pool.Exec(ctx, `INSERT INTO token_metrics(chain_id,token_address,trade_count,volume,recent_volume,recent_trade_count,recent_trader_count,block_number,block_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, chain, address, 3-i, 100-i, 300-i*100, 3-i, 2-i, block, blockHash); e != nil {
+		if _, e = repo.pool.Exec(ctx, `INSERT INTO token_metrics(chain_id,token_address,trade_count,volume,recent_volume,recent_trade_count,recent_trader_count,fully_diluted_value,block_number,block_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, chain, address, 3-i, 100-i, 300-i*100, 3-i, 2-i, []int{100, 300, 200}[i], block, blockHash); e != nil {
 			t.Fatal(e)
 		}
+		if _, e = repo.pool.Exec(ctx, `INSERT INTO curves(chain_id,token_address,curve_address,sold_supply,reserve_balance,graduation_threshold,lifecycle,block_number,block_hash,transaction_hash,log_index) VALUES($1,$2,$3,$4,0,1000,'active',$5,$6,$7,$8)`, chain, address, fmt.Sprintf("0x%040x", 0xd100+i), []int{100, 900, 500}[i], block, blockHash, fmt.Sprintf("0x%064x", 0xd200+i), i); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if _, e = repo.pool.Exec(ctx, `UPDATE tokens SET x_url='https://x.com/fixture' WHERE chain_id=$1 AND token_address=$2`, chain, addresses[1]); e != nil {
+		t.Fatal(e)
 	}
 	page, e := repo.ListTokens(ctx, chain, 1, "")
 	if e != nil {
@@ -560,6 +755,28 @@ func TestPostgresRepositoryKeysetPagination(t *testing.T) {
 	}
 	if _, e = repo.SearchTokens(ctx, chain, "different", 1, search.NextCursor); e != ErrInvalidCursor {
 		t.Fatalf("search cursor query mismatch=%v", e)
+	}
+	top, e := repo.DiscoveryTokens(ctx, chain, "top", 1, "")
+	if e != nil || len(top.Items) != 1 || top.Items[0].Address != addresses[1] || top.NextCursor == "" {
+		t.Fatalf("top discovery=%+v err=%v", top, e)
+	}
+	top2, e := repo.DiscoveryTokens(ctx, chain, "top", 2, top.NextCursor)
+	if e != nil || len(top2.Items) != 2 || top2.Items[0].Address != addresses[2] || top2.Items[1].Address != addresses[0] {
+		t.Fatalf("top discovery page 2=%+v err=%v", top2, e)
+	}
+	near, e := repo.DiscoveryTokens(ctx, chain, "near", 3, "")
+	if e != nil || len(near.Items) != 3 || near.Items[0].Address != addresses[1] || near.Items[1].Address != addresses[2] || near.Items[2].Address != addresses[0] {
+		t.Fatalf("near discovery=%+v err=%v", near, e)
+	}
+	linked, e := repo.DiscoveryTokens(ctx, chain, "linked", 3, "")
+	if e != nil || len(linked.Items) != 1 || linked.Items[0].Address != addresses[1] {
+		t.Fatalf("linked discovery=%+v err=%v", linked, e)
+	}
+	if _, e = repo.DiscoveryTokens(ctx, chain, "top", 1, "not-a-cursor"); e != ErrInvalidCursor {
+		t.Fatalf("invalid discovery cursor=%v", e)
+	}
+	if _, e = repo.DiscoveryTokens(ctx, chain, "near", 1, top.NextCursor); e != ErrInvalidCursor {
+		t.Fatalf("cross-view discovery cursor=%v", e)
 	}
 	trend, e := repo.TrendingTokens(ctx, chain, 1, "")
 	if e != nil || len(trend.Items) != 1 || trend.Items[0].Address != addresses[0] {

@@ -17,10 +17,13 @@ import (
 var ErrNotFound = errors.New("not found")
 var ErrInvalidCursor = errors.New("invalid cursor")
 var ErrInconsistentAccounting = errors.New("checkpoint claimed exceeds checkpointed")
+var ErrMetadataPending = errors.New("metadata finalization pending canonical indexing")
+var ErrMetadataMismatch = errors.New("metadata draft identity mismatch")
 
 type Repository interface {
 	Ping(context.Context) error
 	ListTokens(context.Context, int64, int, string) (Page, error)
+	DiscoveryTokens(context.Context, int64, string, int, string) (Page, error)
 	SearchTokens(context.Context, int64, string, int, string) (Page, error)
 	TrendingTokens(context.Context, int64, int, string) (Page, error)
 	Token(context.Context, int64, string) (Token, error)
@@ -31,7 +34,8 @@ type Repository interface {
 	Chart(context.Context, int64, string, string, int) (ChartPage, error)
 	ChartRange(context.Context, int64, string, string, *int64, *int64, int) (ChartPage, error)
 	SaveMetadataDraft(context.Context, MetadataDraft) error
-	FinalizeMetadata(context.Context, int64, string, string, string) error
+	FinalizeMetadata(context.Context, int64, string, string, string, string) error
+	WalletHoldings(context.Context, int64, string, int, string) (HoldingPage, error)
 	CTOStatus(context.Context, int64, string) (CTOStatus, error)
 	CTOProposals(context.Context, int64, string, int, string) (CTOProposalPage, error)
 	CTOProposal(context.Context, int64, string) (CTOProposal, error)
@@ -80,12 +84,14 @@ func NewPostgresRepository(ctx context.Context, url string) (*PostgresRepository
 func (r *PostgresRepository) requireSchema(ctx context.Context) error {
 	var ready bool
 	e := r.pool.QueryRow(ctx, `SELECT
-		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12,13]
+		(SELECT array_agg(version ORDER BY version) FROM schema_migrations) = ARRAY[1,2,3,4,5,6,7,8,9,10,11,12,13,14]
 		AND to_regclass('public.tokens') IS NOT NULL
 		AND to_regclass('public.token_metadata_drafts') IS NOT NULL
 		AND to_regclass('public.token_holder_balances') IS NOT NULL
 		AND to_regclass('public.token_trade_buckets') IS NOT NULL
 		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tokens' AND column_name='token_decimals')
+		AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='token_metadata_drafts' AND column_name='creator_address')
+		AND to_regclass('public.token_holder_balances_holder_positive') IS NOT NULL
 			AND to_regclass('public.application_token_exclusions') IS NOT NULL
 		AND to_regclass('public.cto_treasuries') IS NOT NULL
 		AND to_regclass('public.cto_proposals') IS NOT NULL
@@ -175,35 +181,65 @@ func (r *PostgresRepository) SaveMetadataDraft(ctx context.Context, d MetadataDr
 	_, e := r.pool.Exec(ctx, `INSERT INTO token_metadata_drafts(draft_id,name,symbol,initial_supply,description,image_url,metadata_url,website_url,x_url,telegram_url,discord_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, d.ID, d.Name, d.Symbol, d.InitialSupply, d.Description, d.ImageURL, d.MetadataURL, emptyNull(d.WebsiteURL), emptyNull(d.XURL), emptyNull(d.TelegramURL), emptyNull(d.DiscordURL))
 	return e
 }
-func (r *PostgresRepository) FinalizeMetadata(ctx context.Context, chain int64, draftID, token, txHash string) error {
+func (r *PostgresRepository) FinalizeMetadata(ctx context.Context, chain int64, draftID, token, txHash, creator string) error {
 	tx, e := r.pool.Begin(ctx)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var name, symbol, supply, description, imageURL, metadataURL, finalizedToken, finalizedTx string
+	var name, symbol, supply, description, imageURL, metadataURL, finalizedToken, finalizedTx, finalizedCreator string
 	var websiteURL, xURL, telegramURL, discordURL *string
 	var finalized bool
-	e = tx.QueryRow(ctx, `SELECT name,symbol,initial_supply::text,description,image_url,metadata_url,website_url,x_url,telegram_url,discord_url,coalesce(token_address,''),coalesce(transaction_hash,''),finalized_at IS NOT NULL FROM token_metadata_drafts WHERE draft_id=$1 FOR UPDATE`, draftID).Scan(&name, &symbol, &supply, &description, &imageURL, &metadataURL, &websiteURL, &xURL, &telegramURL, &discordURL, &finalizedToken, &finalizedTx, &finalized)
+	e = tx.QueryRow(ctx, `SELECT name,symbol,initial_supply::text,description,image_url,metadata_url,website_url,x_url,telegram_url,discord_url,coalesce(token_address,''),coalesce(transaction_hash,''),coalesce(creator_address,''),finalized_at IS NOT NULL FROM token_metadata_drafts WHERE draft_id=$1 FOR UPDATE`, draftID).Scan(&name, &symbol, &supply, &description, &imageURL, &metadataURL, &websiteURL, &xURL, &telegramURL, &discordURL, &finalizedToken, &finalizedTx, &finalizedCreator, &finalized)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if e != nil {
 		return e
 	}
-	if finalized {
-		if strings.EqualFold(finalizedToken, token) && strings.EqualFold(finalizedTx, txHash) {
-			return nil
-		}
-		return ErrNotFound
+	if (finalizedToken != "" || finalizedTx != "") && (!strings.EqualFold(finalizedToken, token) || !strings.EqualFold(finalizedTx, txHash)) {
+		return ErrMetadataMismatch
 	}
-	var indexed bool
-	e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tokens t WHERE t.chain_id=$1 AND lower(t.token_address)=lower($2) AND lower(t.transaction_hash)=lower($3) AND t.is_canonical AND t.name=$4 AND t.symbol=$5 AND t.initial_supply=$6)`, chain, token, txHash, name, symbol, supply).Scan(&indexed)
+	if finalizedCreator != "" && !strings.EqualFold(finalizedCreator, creator) {
+		return ErrMetadataMismatch
+	}
+	if !finalized && finalizedToken == "" && finalizedTx == "" {
+		// Serialize claims for this launch identity. The recovered creator is part
+		// of the durable claim, so an unrelated signer cannot reserve or block the
+		// canonical creator's launch.
+		if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, fmt.Sprintf("%d:%s:%s", chain, strings.ToLower(token), strings.ToLower(txHash))); e != nil {
+			return e
+		}
+		var claimed bool
+		e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM token_metadata_drafts WHERE draft_id<>$1 AND lower(token_address)=lower($2) AND lower(transaction_hash)=lower($3) AND lower(creator_address)=lower($4))`, draftID, token, txHash, creator).Scan(&claimed)
+		if e != nil {
+			return e
+		}
+		if claimed {
+			return ErrMetadataMismatch
+		}
+		if _, e = tx.Exec(ctx, `UPDATE token_metadata_drafts SET token_address=$2,transaction_hash=$3,creator_address=$4 WHERE draft_id=$1`, draftID, token, txHash, creator); e != nil {
+			return e
+		}
+	} else if finalizedCreator == "" {
+		if _, e = tx.Exec(ctx, `UPDATE token_metadata_drafts SET creator_address=$2 WHERE draft_id=$1`, draftID, creator); e != nil {
+			return e
+		}
+	}
+	var indexedName, indexedSymbol, indexedSupply string
+	var indexedCreator string
+	e = tx.QueryRow(ctx, `SELECT name,symbol,initial_supply::text,creator_address FROM tokens WHERE chain_id=$1 AND lower(token_address)=lower($2) AND lower(transaction_hash)=lower($3) AND is_canonical`, chain, token, txHash).Scan(&indexedName, &indexedSymbol, &indexedSupply, &indexedCreator)
+	if errors.Is(e, pgx.ErrNoRows) {
+		if e = tx.Commit(ctx); e != nil {
+			return e
+		}
+		return ErrMetadataPending
+	}
 	if e != nil {
 		return e
 	}
-	if !indexed {
-		return ErrNotFound
+	if indexedName != name || indexedSymbol != symbol || indexedSupply != supply || !strings.EqualFold(indexedCreator, creator) {
+		return ErrMetadataMismatch
 	}
 	result, e := tx.Exec(ctx, `UPDATE tokens SET description=$4,image_url=$5,metadata_url=$6,website_url=$7,x_url=$8,telegram_url=$9,discord_url=$10 WHERE chain_id=$1 AND lower(token_address)=lower($2) AND lower(transaction_hash)=lower($3) AND is_canonical`, chain, token, txHash, description, imageURL, metadataURL, websiteURL, xURL, telegramURL, discordURL)
 	if e != nil {
@@ -212,7 +248,7 @@ func (r *PostgresRepository) FinalizeMetadata(ctx context.Context, chain int64, 
 	if result.RowsAffected() != 1 {
 		return ErrNotFound
 	}
-	_, e = tx.Exec(ctx, `UPDATE token_metadata_drafts SET token_address=$2,transaction_hash=$3,finalized_at=now() WHERE draft_id=$1`, draftID, token, txHash)
+	_, e = tx.Exec(ctx, `UPDATE token_metadata_drafts SET token_address=$2,transaction_hash=$3,creator_address=$4,finalized_at=coalesce(finalized_at,now()) WHERE draft_id=$1`, draftID, token, txHash, creator)
 	if e != nil {
 		return e
 	}
@@ -256,6 +292,8 @@ type pageCursor struct {
 	RecentUsers      int64  `json:"u,omitempty"`
 	Query            string `json:"q,omitempty"`
 	ProposalID       string `json:"p,omitempty"`
+	View             string `json:"w,omitempty"`
+	Threshold        string `json:"h,omitempty"`
 }
 
 func encodeCursor(c pageCursor) string {
@@ -271,7 +309,7 @@ func decodeCursor(raw, kind string) (pageCursor, error) {
 	if e != nil || json.Unmarshal(b, &c) != nil || c.Kind != kind || c.BlockNumber < 0 {
 		return pageCursor{}, ErrInvalidCursor
 	}
-	if (kind == "tokens" || kind == "creator") && !validCursorHex(c.TokenAddress, 40) {
+	if (kind == "tokens" || kind == "creator" || kind == "holdings") && !validCursorHex(c.TokenAddress, 40) {
 		return pageCursor{}, ErrInvalidCursor
 	}
 	if kind == "trending" && (!validCursorHex(c.TokenAddress, 40) || c.Volume == "") {
@@ -279,6 +317,14 @@ func decodeCursor(raw, kind string) (pageCursor, error) {
 	}
 	if kind == "search" && (!validCursorHex(c.TokenAddress, 40) || c.Query == "") {
 		return pageCursor{}, ErrInvalidCursor
+	}
+	if kind == "discovery" {
+		if !validCursorHex(c.TokenAddress, 40) || (c.View != "top" && c.View != "near" && c.View != "linked") {
+			return pageCursor{}, ErrInvalidCursor
+		}
+		if (c.View == "top" && !validCursorInteger(c.Volume, true)) || (c.View == "near" && (!validCursorInteger(c.Volume, true) || !validCursorInteger(c.Threshold, false))) {
+			return pageCursor{}, ErrInvalidCursor
+		}
 	}
 	if (kind == "trades" || kind == "activity") && (!validCursorHex(c.Transaction, 64) || c.TransactionIndex < 0 || c.LogIndex < 0) {
 		return pageCursor{}, ErrInvalidCursor
@@ -338,6 +384,20 @@ func validCursorHex(value string, bytes int) bool {
 	return e == nil
 }
 
+func validCursorInteger(value string, allowZero bool) bool {
+	if value == "" {
+		return false
+	}
+	allZero := true
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+		allZero = allZero && digit == '0'
+	}
+	return allowZero || !allZero
+}
+
 func (r *PostgresRepository) ListTokens(ctx context.Context, chain int64, limit int, rawCursor string) (Page, error) {
 	c, e := decodeCursor(rawCursor, "tokens")
 	if e != nil {
@@ -370,6 +430,75 @@ func (r *PostgresRepository) ListTokens(ctx context.Context, chain int64, limit 
 		out.Items = out.Items[:limit]
 		last := out.Items[len(out.Items)-1]
 		out.NextCursor = encodeCursor(pageCursor{Kind: "tokens", BlockNumber: last.CreatedAt.BlockNumber, TokenAddress: last.Address})
+	}
+	return out, nil
+}
+
+// DiscoveryTokens provides stable, server-side filtered views for the launch
+// marketplace. The cursor carries the complete ordering tuple for its view so
+// clients never need to fetch the whole token set or re-rank partial pages.
+func (r *PostgresRepository) DiscoveryTokens(ctx context.Context, chain int64, view string, limit int, rawCursor string) (Page, error) {
+	c, e := decodeCursor(rawCursor, "discovery")
+	if e != nil || (rawCursor != "" && c.View != view) {
+		return Page{}, ErrInvalidCursor
+	}
+	args := []any{chain}
+	where, order := "", ""
+	switch view {
+	case "linked":
+		where = " AND coalesce(t.x_url,'')<>''"
+		if rawCursor != "" {
+			args = append(args, c.BlockNumber, c.TokenAddress)
+			where += " AND (t.block_number<$2 OR (t.block_number=$2 AND t.token_address>$3))"
+		}
+		order = " ORDER BY t.block_number DESC,t.token_address ASC"
+	case "top":
+		if rawCursor != "" {
+			args = append(args, c.Volume, c.BlockNumber, c.TokenAddress)
+			where = " AND (coalesce(m.fully_diluted_value,0)<$2 OR (coalesce(m.fully_diluted_value,0)=$2 AND t.block_number<$3) OR (coalesce(m.fully_diluted_value,0)=$2 AND t.block_number=$3 AND t.token_address>$4))"
+		}
+		order = " ORDER BY coalesce(m.fully_diluted_value,0) DESC,t.block_number DESC,t.token_address ASC"
+	case "near":
+		where = " AND c.lifecycle='active' AND c.graduation_threshold>0 AND c.sold_supply<c.graduation_threshold"
+		if rawCursor != "" {
+			args = append(args, c.Volume, c.Threshold, c.BlockNumber, c.TokenAddress)
+			where += " AND ((c.sold_supply*$3)<($2*c.graduation_threshold) OR ((c.sold_supply*$3)=($2*c.graduation_threshold) AND t.block_number<$4) OR ((c.sold_supply*$3)=($2*c.graduation_threshold) AND t.block_number=$4 AND t.token_address>$5))"
+		}
+		order = " ORDER BY (c.sold_supply/c.graduation_threshold) DESC,t.block_number DESC,t.token_address ASC"
+	default:
+		return Page{}, ErrInvalidCursor
+	}
+	args = append(args, limit+1)
+	rows, e := r.pool.Query(ctx, tokenSelect+" WHERE 1=1"+where+order+" LIMIT $"+strconv.Itoa(len(args)), args...)
+	if e != nil {
+		return Page{}, e
+	}
+	defer rows.Close()
+	out := Page{Items: []Token{}}
+	for rows.Next() {
+		t, scanErr := scanToken(rows)
+		if scanErr != nil {
+			return Page{}, scanErr
+		}
+		out.Items = append(out.Items, t)
+	}
+	if e = rows.Err(); e != nil {
+		return Page{}, e
+	}
+	if len(out.Items) > limit {
+		out.Items = out.Items[:limit]
+		last := out.Items[len(out.Items)-1]
+		next := pageCursor{Kind: "discovery", View: view, BlockNumber: last.CreatedAt.BlockNumber, TokenAddress: last.Address}
+		if view == "top" {
+			next.Volume = optionalValue(last.Metrics.FullyDilutedValue)
+			if next.Volume == "" {
+				next.Volume = "0"
+			}
+		}
+		if view == "near" && last.Curve != nil {
+			next.Volume, next.Threshold = last.Curve.SoldSupply, last.Curve.GraduationThreshold
+		}
+		out.NextCursor = encodeCursor(next)
 	}
 	return out, nil
 }
@@ -483,6 +612,64 @@ func (r *PostgresRepository) Creator(ctx context.Context, chain int64, creator s
 		return CreatorProfile{}, e
 	}
 	return CreatorProfile{Address: creator, TokenCount: count, Volume: volume, Tokens: tokens.Items, NextCursor: tokens.NextCursor}, nil
+}
+
+func (r *PostgresRepository) WalletHoldings(ctx context.Context, chain int64, holder string, limit int, rawCursor string) (HoldingPage, error) {
+	cursor, err := decodeCursor(rawCursor, "holdings")
+	if err != nil {
+		return HoldingPage{}, err
+	}
+	tx, indexedThrough, err := r.snapshot(ctx, chain)
+	if err != nil {
+		return HoldingPage{}, err
+	}
+	defer tx.Rollback(ctx)
+	args := []any{chain, holder}
+	where := ""
+	if rawCursor != "" {
+		args = append(args, cursor.TokenAddress)
+		where = " AND lower(t.token_address)>lower($3)"
+	}
+	args = append(args, limit+1)
+	rows, err := tx.Query(ctx, `WITH canonical_tokens AS (
+		SELECT DISTINCT ON (lower(token_address)) chain_id,token_address,name,symbol,coalesce(image_url,'') image_url,token_decimals
+		FROM tokens
+		WHERE chain_id=$1 AND is_canonical
+			AND NOT EXISTS (SELECT 1 FROM application_token_exclusions x WHERE x.chain_id=tokens.chain_id AND x.token_address=lower(tokens.token_address))
+		ORDER BY lower(token_address),block_number DESC,log_index DESC,token_address ASC
+	)
+	SELECT t.token_address,t.name,t.symbol,t.image_url,b.balance::text,t.token_decimals,coalesce(c.lifecycle,''),m.current_price::text,
+		CASE WHEN m.current_price IS NULL THEN NULL ELSE floor(b.balance*m.current_price/power(10::numeric,t.token_decimals))::text END,
+		coalesce(m.trade_count,0),coalesce(m.volume,0)::text,m.holder_count
+	FROM token_holder_balances b
+	JOIN canonical_tokens t ON t.chain_id=b.chain_id AND lower(t.token_address)=lower(b.token_address)
+	LEFT JOIN LATERAL (SELECT lifecycle FROM curves c WHERE c.chain_id=t.chain_id AND lower(c.token_address)=lower(t.token_address) AND c.is_canonical ORDER BY c.block_number DESC,c.log_index DESC LIMIT 1) c ON true
+	LEFT JOIN LATERAL (SELECT current_price,trade_count,volume,holder_count FROM token_metrics m WHERE m.chain_id=t.chain_id AND lower(m.token_address)=lower(t.token_address) ORDER BY m.block_number DESC,m.log_index DESC LIMIT 1) m ON true
+	WHERE b.chain_id=$1 AND lower(b.holder_address)=lower($2) AND b.balance>0`+where+`
+	ORDER BY lower(t.token_address),t.token_address LIMIT $`+strconv.Itoa(len(args)), args...)
+	if err != nil {
+		return HoldingPage{}, err
+	}
+	defer rows.Close()
+	out := HoldingPage{IndexedThroughBlock: indexedThrough, Items: []Holding{}}
+	for rows.Next() {
+		var item Holding
+		if err = rows.Scan(&item.TokenAddress, &item.Name, &item.Symbol, &item.ImageURL, &item.RawBalance, &item.TokenDecimals, &item.Lifecycle, &item.CurrentPrice, &item.EstimatedValue, &item.Metrics.TradeCount, &item.Metrics.Volume, &item.Metrics.HolderCount); err != nil {
+			return HoldingPage{}, err
+		}
+		out.Items = append(out.Items, item)
+	}
+	if err = rows.Err(); err != nil {
+		return HoldingPage{}, err
+	}
+	if len(out.Items) > limit {
+		out.Items = out.Items[:limit]
+		out.NextCursor = encodeCursor(pageCursor{Kind: "holdings", TokenAddress: out.Items[len(out.Items)-1].TokenAddress})
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return HoldingPage{}, err
+	}
+	return out, nil
 }
 func (r *PostgresRepository) Trades(ctx context.Context, chain int64, token string, limit int, rawCursor string) (TradePage, error) {
 	c, e := decodeCursor(rawCursor, "trades")

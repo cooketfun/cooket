@@ -155,6 +155,31 @@ type CreatorProfile struct {
 	NextCursor string  `json:"next_cursor,omitempty"`
 }
 
+type HoldingMetrics struct {
+	TradeCount  int64  `json:"trade_count"`
+	Volume      string `json:"volume"`
+	HolderCount *int64 `json:"holder_count"`
+}
+
+type Holding struct {
+	TokenAddress   string         `json:"token_address"`
+	Name           string         `json:"name"`
+	Symbol         string         `json:"symbol"`
+	ImageURL       string         `json:"image_url,omitempty"`
+	RawBalance     string         `json:"raw_balance"`
+	TokenDecimals  int            `json:"token_decimals"`
+	Lifecycle      string         `json:"lifecycle"`
+	CurrentPrice   *string        `json:"current_price"`
+	EstimatedValue *string        `json:"estimated_value"`
+	Metrics        HoldingMetrics `json:"metrics"`
+}
+
+type HoldingPage struct {
+	IndexedThroughBlock uint64    `json:"indexed_through_block"`
+	Items               []Holding `json:"items"`
+	NextCursor          string    `json:"next_cursor,omitempty"`
+}
+
 // IndexedProvenance is canonical indexed event identity, including block hash so
 // clients can display finality without treating API data as chain authority.
 type IndexedProvenance struct {

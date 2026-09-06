@@ -103,6 +103,49 @@ button:disabled { cursor: not-allowed; }
   scrollbar-width: thin;
   scrollbar-color: var(--faint) transparent;
 }
+
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.pagination-button,
+.carousel-button {
+  display: inline-flex;
+  min-height: 2.5rem;
+  min-width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 0.09);
+  border-radius: 0.6rem;
+  background: rgb(0 0 0 / 0.2);
+  color: rgb(161 161 170);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: border-color 150ms, background-color 150ms, color 150ms;
+}
+
+.pagination-button:hover:not(:disabled),
+.carousel-button:hover:not(:disabled) {
+  border-color: rgb(103 232 249 / 0.35);
+  color: rgb(165 243 252);
+}
+
+.pagination-button-active {
+  border-color: rgb(103 232 249 / 0.35);
+  background: rgb(103 232 249 / 0.1);
+  color: rgb(165 243 252);
+}
+
+.pagination-button:disabled,
+.carousel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
 .top-token-card {
   position: relative;
   display: flex;

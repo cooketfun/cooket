@@ -1,18 +1,22 @@
 "use client";
 
 import { FIXED_TOKEN_SUPPLY } from "@cooket/contracts-sdk";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { getAddress, type Address } from "viem";
 import { CreateTokenForm, type CreateExecution } from "@/components/create-token-form";
-import { api, ApiClientError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { confirmCreatedToken, configuredCurveInitialization, submitCreateToken } from "@/lib/contracts";
 import { executeDevBuy, DevBuyAttemptError } from "@/lib/dev-buy";
 import { DevBuyFailure, parseDevBuyNativeUsdcAmount, type TransactionState } from "@/lib/transactions";
 import { activeWalletStatusMessage, useActiveWallet } from "@/providers/active-wallet-provider";
 import { useState } from "react";
 import { selectedCooketChainId, selectedCooketChainName } from "@/lib/chain";
+import { synchronizeCreatedTokenQueries } from "@/lib/canonical-queries";
+import { metadataClaimMessage, retryPendingMetadataFinalization, tryMetadataFinalization } from "@/lib/metadata-finalization";
 
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const metadataFinalizationAttempts = 15;
 
 export default function CreatePage() {
   return <BrowserWalletCreatePage />;
@@ -21,6 +25,7 @@ export default function CreatePage() {
 function BrowserWalletCreatePage() {
   const { connected, canTransact, status, activeAddress, activeChainId: chainId, walletClient } = useActiveWallet();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const creator = activeAddress;
   const [hasDevBuy, setHasDevBuy] = useState(false);
 
@@ -54,6 +59,12 @@ function BrowserWalletCreatePage() {
     const { created } = await confirmCreatedToken(hash);
     if (getAddress(created.creator) !== creatorAddress) throw new Error("Confirmed creator does not match the connected wallet.");
     const tokenAddress = getAddress(created.token);
+    const signature = await walletClient.signMessage({ account: creatorAddress, message: metadataClaimMessage(selectedCooketChainId, draft.draft_id, tokenAddress, hash) });
+    const finalize = () => api.finalizeMetadata(draft.draft_id, tokenAddress, hash, signature);
+    // The API commits the exact draft/token/transaction linkage before
+    // returning not_indexed. Later canonical indexing completes recovery even
+    // if this browser disappears.
+    let token = await tryMetadataFinalization(finalize);
     const devBuyAmount = parseDevBuyNativeUsdcAmount(input.devBuyNativeUsdc);
     let devBuyHash: `0x${string}` | undefined;
     if (devBuyAmount > BigInt(0)) {
@@ -67,13 +78,9 @@ function BrowserWalletCreatePage() {
         throw error;
       }
     }
-    let token;
-    for (let attempt = 0; attempt < 60; attempt++) {
-      try { token = await api.finalizeMetadata(draft.draft_id, created.token, hash); break; }
-      catch (error) { if (!(error instanceof ApiClientError) || error.code !== "not_indexed") throw error; await pause(2000); }
-    }
-    if (!token) throw new Error("The transaction confirmed, but indexing did not finish in time.");
-    return { tokenAddress, hash, devBuyHash };
+    if (!token) token = await retryPendingMetadataFinalization(finalize, metadataFinalizationAttempts - 1, () => pause(2000));
+    if (token) await synchronizeCreatedTokenQueries(queryClient, token);
+    return { tokenAddress, hash, devBuyHash, metadataPending: !token };
   };
 
   return <main className="container page-shell flex-1">

@@ -169,6 +169,21 @@ describe("CreateTokenForm", () => {
     expect(screen.getByText(/Token creation confirmed/)).toBeTruthy();
   });
 
+  it("treats durable metadata finalization pending as confirmed token success", async () => {
+    const user = userEvent.setup();
+    const execute = vi.fn<CreateExecution>().mockResolvedValue({ tokenAddress: token, hash, metadataPending: true });
+    const onSuccess = vi.fn();
+    renderForm({ execute, onSuccess });
+    await completeForm(user);
+    await user.click(screen.getByRole("button", { name: "Review metadata" }));
+    await user.click(screen.getByRole("button", { name: "Confirm factory transaction" }));
+    await user.click(screen.getByRole("button", { name: "Confirm in wallet" }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(token));
+    expect(screen.getByText(/Metadata is safely linked and will appear after canonical indexing catches up/)).toBeTruthy();
+    expect(screen.queryByText(/Token creation failed/)).toBeNull();
+  });
+
   it("accepts an arbitrary valid Dev buy and presents professional native-USDC disclosure", async () => {
     const user = userEvent.setup();
     const execute = vi.fn<CreateExecution>().mockResolvedValue({ tokenAddress: token, hash });

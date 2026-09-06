@@ -60,22 +60,27 @@ func TestChartRepeatedBoundedHistoryRequests(t *testing.T) {
 }
 
 type fakeRepo struct {
-	pingErr        error
-	tokens         Page
-	token          Token
-	tokenErr       error
-	listErr        error
-	calls          int
-	chartIntervals []string
-	chartRanges    []chartRangeCall
-	ctoStatus      *CTOStatus
-	ctoProposal    CTOProposal
-	ctoProposals   CTOProposalPage
-	ctoTreasury    CTOTreasury
-	ctoTransfers   CTOTreasuryTransferPage
-	ctoFeePulls    CTOFeePullPage
-	ctoCheckpoints CTOCheckpointPage
-	ctoErr         error
+	pingErr         error
+	tokens          Page
+	token           Token
+	tokenErr        error
+	listErr         error
+	calls           int
+	chartIntervals  []string
+	chartRanges     []chartRangeCall
+	ctoStatus       *CTOStatus
+	ctoProposal     CTOProposal
+	ctoProposals    CTOProposalPage
+	ctoTreasury     CTOTreasury
+	ctoTransfers    CTOTreasuryTransferPage
+	ctoFeePulls     CTOFeePullPage
+	ctoCheckpoints  CTOCheckpointPage
+	ctoErr          error
+	finalizeErr     error
+	finalizeCreator string
+	holdings        HoldingPage
+	holdingsErr     error
+	discoveryView   string
 }
 
 type chartRangeCall struct {
@@ -102,6 +107,11 @@ func (s *memoryObjectStore) Open(_ context.Context, key string) (io.ReadCloser, 
 func (f *fakeRepo) Ping(context.Context) error { return f.pingErr }
 func (f *fakeRepo) ListTokens(context.Context, int64, int, string) (Page, error) {
 	f.calls++
+	return f.tokens, f.listErr
+}
+func (f *fakeRepo) DiscoveryTokens(_ context.Context, _ int64, view string, _ int, _ string) (Page, error) {
+	f.calls++
+	f.discoveryView = view
 	return f.tokens, f.listErr
 }
 func (f *fakeRepo) SearchTokens(context.Context, int64, string, int, string) (Page, error) {
@@ -132,8 +142,18 @@ func (f *fakeRepo) ChartRange(_ context.Context, _ int64, _ string, interval str
 	f.chartRanges = append(f.chartRanges, chartRangeCall{from: from, to: to, limit: limit})
 	return ChartPage{Interval: interval, SupportedIntervals: append([]string(nil), supportedChartIntervals...), Candles: []ChartPoint{}}, nil
 }
-func (f *fakeRepo) SaveMetadataDraft(context.Context, MetadataDraft) error                { return nil }
-func (f *fakeRepo) FinalizeMetadata(context.Context, int64, string, string, string) error { return nil }
+func (f *fakeRepo) SaveMetadataDraft(context.Context, MetadataDraft) error { return nil }
+func (f *fakeRepo) FinalizeMetadata(_ context.Context, _ int64, _, _, _, creator string) error {
+	f.finalizeCreator = creator
+	return f.finalizeErr
+}
+
+func (f *fakeRepo) WalletHoldings(context.Context, int64, string, int, string) (HoldingPage, error) {
+	if f.holdings.Items == nil {
+		f.holdings.Items = []Holding{}
+	}
+	return f.holdings, f.holdingsErr
+}
 func (f *fakeRepo) CTOStatus(_ context.Context, chain int64, token string) (CTOStatus, error) {
 	if f.tokenErr != nil {
 		return CTOStatus{}, f.tokenErr
@@ -320,6 +340,38 @@ func TestTokenListEmptyAndDetailNotFound(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestTokenDiscoveryViewsAreValidatedAndServerBacked(t *testing.T) {
+	repo := &fakeRepo{tokens: Page{Items: []Token{}}}
+	r := testHandler(repo)
+	for _, view := range []string{"top", "near", "linked"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/tokens?limit=12&view="+view, nil))
+		if w.Code != http.StatusOK || repo.discoveryView != view {
+			t.Fatalf("view=%s status=%d called=%s body=%s", view, w.Code, repo.discoveryView, w.Body.String())
+		}
+	}
+	for _, target := range []string{"/api/v1/tokens?view=unknown", "/api/v1/tokens?view=top&search=cat"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"code":"invalid_request"`) {
+			t.Fatalf("target=%s status=%d body=%s", target, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestDiscoveryCursorRejectsInvalidNumericOrderingFields(t *testing.T) {
+	address := "0x0000000000000000000000000000000000000001"
+	for _, cursor := range []pageCursor{
+		{Kind: "discovery", View: "top", TokenAddress: address, Volume: "not-a-number"},
+		{Kind: "discovery", View: "near", TokenAddress: address, Volume: "1", Threshold: "0"},
+		{Kind: "discovery", View: "near", TokenAddress: address, Volume: "-1", Threshold: "10"},
+	} {
+		if _, err := decodeCursor(encodeCursor(cursor), "discovery"); err != ErrInvalidCursor {
+			t.Fatalf("cursor=%+v err=%v", cursor, err)
+		}
+	}
+}
 func TestTokenSearchAndV3PricingResponse(t *testing.T) {
 	address := "0x0000000000000000000000000000000000000001"
 	price, fdv := "7", "7000"
@@ -456,6 +508,60 @@ func TestMetadataUploadAcceptsOnlyOneImageSourceAndPersistsFetchedBytes(t *testi
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "not both") {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestMetadataFinalizeReportsDurablePendingAndIdentityMismatch(t *testing.T) {
+	body, expectedCreator := signedMetadataFinalizeBody(t, 5042002, "draft", "0x0000000000000000000000000000000000000001", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	for _, test := range []struct {
+		name, code string
+		err        error
+		status     int
+	}{
+		{name: "pending canonical indexing", err: ErrMetadataPending, status: http.StatusConflict, code: "not_indexed"},
+		{name: "identity mismatch", err: ErrMetadataMismatch, status: http.StatusConflict, code: "metadata_mismatch"},
+		{name: "missing draft", err: ErrNotFound, status: http.StatusNotFound, code: "not_found"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeRepo{finalizeErr: test.err}
+			handler := testHandler(repo)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/token-metadata/draft/finalize", strings.NewReader(body))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.status || !strings.Contains(response.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if !strings.EqualFold(repo.finalizeCreator, expectedCreator) {
+				t.Fatalf("recovered creator=%s want=%s", repo.finalizeCreator, expectedCreator)
+			}
+		})
+	}
+}
+
+func TestMetadataFinalizeRejectsUnsignedClaimsBeforeRepository(t *testing.T) {
+	repo := &fakeRepo{}
+	handler := testHandler(repo)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/token-metadata/draft/finalize", strings.NewReader(`{"token_address":"0x0000000000000000000000000000000000000001","transaction_hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_signature"`) || repo.finalizeCreator != "" {
+		t.Fatalf("status=%d creator=%s body=%s", response.Code, repo.finalizeCreator, response.Body.String())
+	}
+}
+
+func TestWalletHoldingsEndpointIsPublicBoundedAndValidatesAddress(t *testing.T) {
+	repo := &fakeRepo{holdings: HoldingPage{IndexedThroughBlock: 77, Items: []Holding{{TokenAddress: "0x0000000000000000000000000000000000000001", Name: "Held", Symbol: "HLD", RawBalance: "1000", TokenDecimals: 18, Lifecycle: "active", Metrics: HoldingMetrics{Volume: "0"}}}}}
+	handler := testHandler(repo)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/wallets/0x00000000000000000000000000000000000000aB/holdings?limit=12", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"indexed_through_block":77`) || !strings.Contains(response.Body.String(), `"raw_balance":"1000"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/wallets/not-an-address/holdings", nil))
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_address"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Token } from "@cooket/types";
 import { TokenTrading, TokenTradeHistory } from "@/components/token-trading";
@@ -11,7 +11,10 @@ import { TokenAdvancedChart } from "@/components/token-advanced-chart";
 import { hasIndexedSettlement, isGraduatedToken, TokenGraduation } from "@/components/token-graduation";
 import { TokenCTO } from "@/components/token-cto";
 import { MobileTradeActions, TokenTradeSheetProvider, TradeSheetSurface } from "@/components/mobile-trade-sheet";
-import { api, apiAssetURL } from "@/lib/api";
+import { CopyableAddress } from "@/components/copyable-address";
+import { TokenAbout } from "@/components/token-about";
+import { apiAssetURL } from "@/lib/api";
+import { tokenDetailQueryOptions } from "@/lib/canonical-queries";
 import { explorerAddressURL, explorerTransactionURL, selectedCooketChainId, selectedCooketChainName, validAddress } from "@/lib/chain";
 import { readCurveOnchain, readTokenOnchain } from "@/lib/contracts";
 import { formatCount, formatExactUSDC, formatMarketUSDC, formatPrice, formatTokenAmount, formatTokenSymbol } from "@/lib/format";
@@ -26,7 +29,7 @@ export default function TokenDetailPage() {
 
 function TokenTerminal({ address }: { address: string }) {
   const valid = validAddress(address);
-  const query = useQuery({ queryKey: ["token", address], queryFn: () => api.token(address), enabled: valid });
+  const query = useQuery(tokenDetailQueryOptions(address, valid));
   const [watermarks, setWatermarks] = useState<Partial<Record<RealtimeSurface, number>>>({});
   const observeWatermark = useCallback((surface: RealtimeSurface, block: number | undefined) => {
     setWatermarks((current) => advanceRealtimeSurfaceWatermark(current, surface, block));
@@ -70,7 +73,7 @@ function TokenTerminal({ address }: { address: string }) {
                 <span className="font-semibold uppercase tracking-[0.14em] text-cyan-300">{formatTokenSymbol(token.symbol)}</span>
                 {lifecycle && <span className={lifecycle.className}>{lifecycle.label}</span>}
               </div>
-              <CopyableAddress address={token.address} />
+              <CopyableAddress address={token.address} className="mt-1" />
             </div>
           </div>
           <div className="min-w-0 lg:ml-auto lg:text-right">
@@ -111,7 +114,7 @@ function TokenTerminal({ address }: { address: string }) {
       </div>
 
       <section className="mt-10 grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]" data-mobile-section={mobileSection === "about" ? "about" : "hidden"}>
-        <article className="terminal-panel p-5"><p className="eyebrow">About &amp; socials</p><h2 className="mt-2 text-xl font-semibold text-white">{token.name}</h2>{token.description ? <p className="mt-4 text-sm leading-7 text-zinc-300">{token.description}</p> : <p className="mt-4 text-sm text-zinc-500">No about text has been provided.</p>}<div className="mt-5 flex flex-wrap gap-2">{token.website_url && <SocialLink href={token.website_url} label="Website" />}{token.x_url && <SocialLink href={token.x_url} label="X / Twitter" />}{token.telegram_url && <SocialLink href={token.telegram_url} label="Telegram" />}{token.discord_url && <SocialLink href={token.discord_url} label="Discord" />}{!token.website_url && !token.x_url && !token.telegram_url && !token.discord_url && <span className="text-xs text-zinc-600">No social links provided.</span>}</div><div className="mt-6 border-t border-white/8 pt-4"><p className="text-xs text-zinc-600">Creator</p><Link className="address mt-1 block text-cyan-300 hover:text-cyan-200" href={`/creator/${token.creator}`}>{token.creator}</Link></div></article>
+        <TokenAbout token={token} />
         <article className="terminal-panel p-5"><p className="eyebrow">Holders</p><p className="mt-3 text-3xl font-semibold text-white">{formatCount(token.metrics.holder_count)}</p><p className="mt-2 text-sm leading-6 text-zinc-500">Wallets currently holding this token.</p><div className="status-box mt-5 text-xs text-zinc-500">Holder distribution is unavailable.</div></article>
       </section>
 
@@ -125,32 +128,10 @@ function TokenTerminal({ address }: { address: string }) {
   </TokenTradeSheetProvider>;
 }
 
-function CopyableAddress({ address }: { address: string }) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; clearTimeout(timer.current); }; }, []);
-  const short = address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(address);
-      if (!mounted.current) return;
-      setCopied(true);
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1600);
-    } catch { /* clipboard may be unavailable */ }
-  };
-  return <button type="button" className="address mt-1 inline-flex min-h-11 items-center gap-2 text-left" title={address} aria-label={copied ? "Token address copied" : "Copy token address"} onClick={() => void copy()}>
-    <span>{short}</span>
-    <span className="text-[0.65rem] font-semibold text-cyan-300">{copied ? "Copied" : "Copy"}</span>
-  </button>;
-}
-
 function MarketOverview({ token, onchain }: { token: Token; onchain: string | null }) { const graduated = isGraduatedToken(token); return <section className="terminal-panel"><div className="border-b border-white/8 p-4"><h2 className="font-semibold text-white">Market overview</h2><p className="mt-1 text-[0.65rem] text-zinc-600">Dollar-denominated market values</p></div><dl className="grid grid-cols-2 gap-px bg-white/6"><MarketStat label="Price" value={formatPrice(token.metrics.current_price)} title={formatExactUSDC(token.metrics.current_price)} secondary="Per token" /><MarketStat label="FDV" value={formatMarketUSDC(token.metrics.fully_diluted_value)} title={formatExactUSDC(token.metrics.fully_diluted_value)} secondary="Market value" /><MarketStat label="Volume" value={formatMarketUSDC(token.metrics.volume)} title={formatExactUSDC(token.metrics.volume)} secondary="Cumulative trading" />{graduated ? <MarketStat label="Pool" value={token.graduation?.canonical_pool_address ? "Available" : "Unavailable"} secondary="Arc Testnet market" /> : <MarketStat label="Curve reserve" value={formatMarketUSDC(token.curve?.reserve_balance)} title={formatExactUSDC(token.curve?.reserve_balance)} secondary="Market reserve" />}<MarketStat label="Trades" value={formatCount(token.metrics.trade_count)} secondary={`${formatCount(token.metrics.unique_trader_count)} traders`} /><MarketStat label="Holders" value={formatCount(token.metrics.holder_count)} secondary={onchain ?? "Checking onchain"} /></dl></section>; }
 function MarketStat({ label, value, title, secondary }: { label: string; value: string; title?: string; secondary: string }) { return <div className="min-w-0 bg-[#0d1322] p-3"><dt className="text-[0.68rem] text-zinc-600">{label}</dt><dd className="mt-1 truncate text-sm font-semibold text-zinc-100" title={title ?? value}>{value}</dd><dd className="mt-0.5 truncate text-[0.65rem] text-zinc-600" title={secondary}>{secondary}</dd></div>; }
 function TopMetric({ label, value, title }: { label: string; value: string; title?: string }) { return <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3"><p className="text-[0.65rem] text-zinc-600">{label}</p><p className="mt-1 truncate text-sm font-semibold text-zinc-100" title={title ?? value}>{value}</p></div>; }
 
 function Detail({ label, value, link }: { label: string; value: string; link?: string }) { return <div className="min-w-0"><dt className="text-zinc-500">{label}</dt><dd className="address mt-1 text-zinc-200">{link ? <a className="text-cyan-300 hover:text-cyan-200" href={link} target="_blank" rel="noreferrer">{value} ↗</a> : value}</dd></div>; }
-function SocialLink({ href, label }: { href: string; label: string }) { return <a className="button-secondary min-h-11 px-3 text-xs" href={href} target="_blank" rel="noreferrer">{label} ↗</a>; }
 function PageState({ title, copy, action }: { title: string; copy: string; action?: () => void }) { return <main className="container page-shell flex-1"><div className="status-box status-error max-w-2xl py-8"><h1 className="text-lg font-semibold">{title}</h1><p className="mt-2 text-sm opacity-80">{copy}</p>{action && <button className="button-secondary mt-5" type="button" onClick={action}>Try again</button>}</div></main>; }
 function lifecycleBadge(phase?: string, hasCurve?: boolean) { const value = phase?.toLowerCase(); if (value && /graduated|settled|complete/.test(value)) return { label: "Graduated", className: "badge-violet" }; if (value && /pending|graduat|settling/.test(value)) return { label: "Graduating", className: "badge-warning" }; return hasCurve ? { label: "Active curve", className: "badge-success" } : null; }

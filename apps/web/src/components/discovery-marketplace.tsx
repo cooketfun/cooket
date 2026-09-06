@@ -1,11 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import type { Token } from "@cooket/types";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { graduationProgress } from "@/lib/format";
 import { TokenCard, TopTokenCard } from "@/components/token-card";
+import { CursorPagination, useCursorPagination } from "@/components/cursor-pagination";
+import { HorizontalCarousel } from "@/components/horizontal-carousel";
 
 const filters = [
   { id: "trending", label: "Trending" },
@@ -17,26 +17,22 @@ const filters = [
 
 type FilterId = typeof filters[number]["id"];
 type ViewMode = "grid" | "list";
+const LAUNCH_PAGE_SIZE = 12;
 
 export function DiscoveryMarketplace() {
   const [filter, setFilter] = useState<FilterId>("trending");
   const [view, setView] = useState<ViewMode>("grid");
   const top = useQuery({ queryKey: ["discovery-top-tokens"], queryFn: () => api.trending("?limit=12") });
-  const launches = useQuery({
-    queryKey: ["discovery-launches", filter],
-    queryFn: () => filter === "trending" ? api.trending("?limit=48") : api.listTokens("?limit=48"),
-  });
-  const items = useMemo(() => arrangeTokens(launches.data?.items ?? [], filter), [launches.data?.items, filter]);
 
   return <>
     <section className="mt-7" aria-labelledby="top-tokens-heading">
       <SectionHeading eyebrow="Market leaders" title="Top Tokens" id="top-tokens-heading" copy="Canonical 24-hour activity ranking from the Cooket index." />
-      <div className="market-rail mt-4" aria-label="Top indexed tokens">
+      <HorizontalCarousel label="Top indexed tokens" className="mt-2">
         {top.isPending && Array.from({ length: 4 }, (_, index) => <TopTokenSkeleton key={index} />)}
         {top.isError && <div className="status-box status-error min-w-full"><div className="flex items-center justify-between gap-3"><span>Top tokens could not be loaded.</span><button type="button" className="button-secondary" onClick={() => void top.refetch()}>Try again</button></div></div>}
         {top.data?.items.length === 0 && <div className="status-box min-w-full text-zinc-400">No indexed market leaders yet.</div>}
         {top.data?.items.map((token, index) => <TopTokenCard key={token.address} token={token} rank={index + 1} />)}
-      </div>
+      </HorizontalCarousel>
     </section>
 
     <section id="all-launches" className="mt-9 scroll-mt-28" aria-labelledby="all-launches-heading">
@@ -53,32 +49,30 @@ export function DiscoveryMarketplace() {
         </div>
       </div>
 
-      <div className="mt-4" aria-live="polite">
-        {launches.isPending && <LaunchSkeletons view={view} />}
-        {launches.isError && <div className="status-box status-error flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center"><span>Launches could not be loaded. {launches.error.message}</span><button className="button-secondary" type="button" onClick={() => void launches.refetch()}>Try again</button></div>}
-        {!launches.isPending && !launches.isError && items.length === 0 && <div className="status-box py-10 text-center"><p className="font-medium text-zinc-200">No launches in this view</p><p className="mt-2 text-sm text-zinc-500">Confirmed launches will appear here when matching indexed data is available.</p></div>}
-        {items.length > 0 && <div className={view === "grid" ? "token-market-grid" : "grid gap-2"}>{items.map((token) => <TokenCard key={token.address} token={token} variant={view} />)}</div>}
-      </div>
+      <LaunchResults key={filter} filter={filter} view={view} />
     </section>
   </>;
 }
 
-function arrangeTokens(items: Token[], filter: FilterId) {
-  if (filter === "linked") return items.filter((token) => Boolean(token.x_url));
-  if (filter === "near") return [...items].filter((token) => graduationProgress(token.curve?.sold_supply, token.curve?.graduation_threshold) !== null).sort((a, b) => progressOf(b) - progressOf(a));
-  if (filter === "top") return [...items].sort((a, b) => compareIntegerStrings(b.metrics.fully_diluted_value, a.metrics.fully_diluted_value));
-  return items;
-}
-
-function progressOf(token: Token) {
-  return graduationProgress(token.curve?.sold_supply, token.curve?.graduation_threshold) ?? -1;
-}
-
-function compareIntegerStrings(left: string | null, right: string | null) {
-  try {
-    const difference = BigInt(left ?? 0) - BigInt(right ?? 0);
-    return difference > 0 ? 1 : difference < 0 ? -1 : 0;
-  } catch { return 0; }
+function LaunchResults({ filter, view }: { filter: FilterId; view: ViewMode }) {
+  const pagination = useCursorPagination();
+  const query = pagination.cursor ? `&cursor=${encodeURIComponent(pagination.cursor)}` : "";
+  const launches = useQuery({
+    queryKey: ["discovery-launches", filter, pagination.cursor],
+    queryFn: () => filter === "trending"
+      ? api.trending(`?limit=${LAUNCH_PAGE_SIZE}${query}`)
+      : api.listTokens(`?limit=${LAUNCH_PAGE_SIZE}&view=${filter}${query}`),
+  });
+  const { discoverNext } = pagination;
+  useEffect(() => { if (launches.data) discoverNext(launches.data.next_cursor); }, [discoverNext, launches.data]);
+  const items = launches.data?.items ?? [];
+  return <div className="mt-4" aria-live="polite">
+    {launches.isPending && <LaunchSkeletons view={view} />}
+    {launches.isError && <div className="status-box status-error flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center"><span>Launches could not be loaded. {launches.error.message}</span><button className="button-secondary" type="button" onClick={() => void launches.refetch()}>Try again</button></div>}
+    {!launches.isPending && !launches.isError && items.length === 0 && <div className="status-box py-10 text-center"><p className="font-medium text-zinc-200">No launches in this view</p><p className="mt-2 text-sm text-zinc-500">Confirmed launches will appear here when matching indexed data is available.</p></div>}
+    {items.length > 0 && <div className={view === "grid" ? "token-market-grid" : "grid gap-2"}>{items.map((token) => <TokenCard key={token.address} token={token} variant={view} />)}</div>}
+    <CursorPagination currentPage={pagination.currentPage} pageCount={pagination.pageCount} hasUnknownPages={pagination.hasUnknownPages} onPageChange={pagination.goToPage} label={`${filters.find((item) => item.id === filter)?.label ?? "Launch"} launch pages`} disabled={launches.isPending} />
+  </div>;
 }
 
 function SectionHeading({ eyebrow, title, id, copy }: { eyebrow: string; title: string; id: string; copy: string }) {
