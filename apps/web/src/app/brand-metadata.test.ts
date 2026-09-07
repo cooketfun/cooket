@@ -8,14 +8,14 @@ const navigation = readFileSync(resolve(process.cwd(), "src/components/navigatio
 
 describe("Cooket production brand metadata", () => {
   it("ships local logo, icon, and social image assets", () => {
-    for (const file of ["cooket.png", "cooket-icon.png", "cooket-og.png"]) expect(existsSync(resolve(root, "apps/web/public/brand", file))).toBe(true);
+    for (const file of ["cooket.png", "cooket-icon.png"]) expect(existsSync(resolve(root, "apps/web/public/brand", file))).toBe(true);
     expect(navigation).toContain('src="/brand/cooket.png"');
     expect(navigation).toContain('alt="Cooket logo"');
   });
   it("publishes Cooket metadata without an external branding asset", () => {
     expect(layout).toContain("https://cooket.fun");
     expect(layout).toContain("/brand/cooket-icon.png");
-    expect(layout).toContain("/brand/cooket-og.png");
+    expect(layout).toContain("/brand/cooket.png");
     expect(layout).toContain("Cooket | Arc Testnet development");
   });
 });

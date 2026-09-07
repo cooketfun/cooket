@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
-const page = readFileSync(resolve(process.cwd(), "src/app/token/[address]/page.tsx"), "utf8");
+const page = readFileSync(resolve(process.cwd(), "src/app/token/[address]/token-terminal.tsx"), "utf8");
 const graduation = readFileSync(resolve(process.cwd(), "src/components/token-graduation.tsx"), "utf8");
 const trading = readFileSync(resolve(process.cwd(), "src/components/token-trading.tsx"), "utf8");
 const activity = readFileSync(resolve(process.cwd(), "src/components/token-activity.tsx"), "utf8");

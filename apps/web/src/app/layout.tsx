@@ -26,8 +26,8 @@ export const metadata: Metadata = {
   title: "Cooket | Arc Testnet development",
   description: `Cooket is an Arc-native token launch protocol in testnet development on ${selectedCooketChainName}.`,
   icons: { icon: "/brand/cooket-icon.png", apple: "/brand/cooket-icon.png", shortcut: "/brand/cooket-icon.png" },
-  openGraph: { type: "website", url: "https://cooket.fun", siteName: "Cooket", title: "Cooket | Arc Testnet development", description: "Cooket is an Arc-native token launch protocol in testnet development.", images: [{ url: "/brand/cooket-og.png", width: 1200, height: 630, alt: "Cooket" }] },
-  twitter: { card: "summary_large_image", title: "Cooket | Arc Testnet development", description: "Cooket is an Arc-native token launch protocol in testnet development.", images: ["/brand/cooket-og.png"] },
+  openGraph: { type: "website", url: "https://cooket.fun", siteName: "Cooket", title: "Cooket | Arc Testnet development", description: "Cooket is an Arc-native token launch protocol in testnet development.", images: [{ url: "/brand/cooket.png", width: 648, height: 675, alt: "Cooket" }] },
+  twitter: { card: "summary_large_image", title: "Cooket | Arc Testnet development", description: "Cooket is an Arc-native token launch protocol in testnet development.", images: ["/brand/cooket.png"] },
 };
 
 export const viewport: Viewport = {
