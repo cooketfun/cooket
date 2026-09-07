@@ -1,0 +1,22 @@
+---
+title: "Environment configuration"
+description: "Arc, service, wallet, indexer, and realtime settings."
+---
+
+Use `.env.example` as a local template; never commit a real `.env`.
+
+| Area | Important variables |
+| --- | --- |
+| Network | `COOKET_CHAIN_ID`, `ARC_TESTNET_RPC_URL`, `NEXT_PUBLIC_ARC_TESTNET_RPC_URL` |
+| Browser | `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_REOWN_PROJECT_ID` |
+| Write gate | `NEXT_PUBLIC_ARC_TESTNET_FINANCIAL_EXECUTION_ENABLED` must be exactly `true` with Arc Testnet |
+| Contracts | Factory, fee manager, CTO registry, graduation and custody addresses rendered from `cooket-v3.json` |
+| Graduated swaps | Factory, SwapRouter, QuoterV2, canonical USDC rendered from the periphery manifest |
+| Indexer | Mode, start/stop block, confirmations, batch size, retry bounds, canonical roots |
+| Realtime | Arc WSS URL, reconcile interval, HTTP address, heartbeat, allowed origins, subscriber buffer |
+
+Public variables are embedded in browser assets. Do not put private RPC credentials, passwords, signing keys, or other secrets in `NEXT_PUBLIC_*`.
+
+Missing or malformed financial configuration fails closed. Addresses alone do not enable writes. Production Next.js builds additionally require exactly `https://cooket.fun` and `https://api.cooket.fun` for the public application and API origins.
+
+The production Compose file configures API and realtime listeners on loopback for an external reverse proxy. It does not prove DNS, TLS, proxy configuration, or service health.

@@ -1,0 +1,32 @@
+---
+title: "Bonding curve"
+description: "Shifted constant-product quoting and trade accounting."
+---
+
+Each launch has a dedicated `CooketCurveV3`. The invariant uses virtual reserves:
+
+```text
+K = virtual token reserve × virtual native-USDC reserve
+```
+
+The active reserve is real native-USDC principal available for curve redemptions before graduation. It starts at zero. The virtual native-USDC coordinate is `2,415 USDC + active reserve`; the virtual token coordinate is the initial virtual token reserve minus sold supply.
+
+## Buy accounting
+
+For gross native-USDC input `G`:
+
+```text
+total fee = floor(G × 100 / 10,000)
+net curve input = accepted gross - total fee
+active reserve after = active reserve before + net curve input
+```
+
+Token output rounds down through the shifted constant-product calculation. The post-trade virtual token reserve uses ceiling division, preventing output from exceeding the contract-defined boundary. At the terminal boundary the quote returns all remaining curve inventory.
+
+## Sell accounting
+
+The curve computes a gross reserve output from the reduced sold supply. That amount is removed from the active reserve. The 1% fee is calculated on the gross curve output, and the seller receives gross output minus the fee. Token input and native-USDC output round conservatively; dust trades revert.
+
+Buys and sells include minimum-output and deadline checks. After graduation, both quote functions and curve trading revert with `TradingClosed`.
+
+Forced native value is reported as unaccounted native USDC and is excluded from reserve coordinates, quotes, and spot-price calculations.

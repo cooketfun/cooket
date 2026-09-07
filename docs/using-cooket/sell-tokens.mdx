@@ -1,0 +1,18 @@
+---
+title: "Sell tokens"
+description: "Sell through a curve or a graduated Uniswap V3 market."
+---
+
+## Active curve
+
+The app obtains `quoteSell(tokensIn)`. The contract computes gross curve output, deducts the 1% trading fee, and returns net native USDC to the seller.
+
+If the curve allowance is insufficient, the app simulates and submits an exact token approval, waits for its successful receipt, then re-reads allowance. It rechecks balance, wallet, network, deadline, and current context before simulating and requesting the separate sell transaction.
+
+## Graduated market
+
+The input token is approved to the verified SwapRouter. QuoterV2 estimates 6-decimal canonical ERC-20 USDC output, and `exactInputSingle` enforces the reviewed minimum output and deadline. The component re-reads a confirmed allowance before sending the dependent swap.
+
+<Warning>
+  Approval and sale can require two confirmations and two gas payments. A successful approval does not guarantee that the later sell succeeds. Verify the exact spender and amount.
+</Warning>

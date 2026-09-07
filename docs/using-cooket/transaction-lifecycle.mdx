@@ -1,0 +1,29 @@
+---
+title: "Transaction lifecycle"
+description: "From review and signature to receipt recovery and indexed state."
+---
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant UI as Cooket web
+  participant RPC as Arc RPC
+  participant W as External wallet
+  participant C as Arc contract
+  participant A as Indexer and API
+  UI->>RPC: Read and quote
+  UI->>RPC: Simulate exact request where required
+  UI->>W: Request confirmation
+  U->>W: Review and sign
+  W->>C: Submit transaction
+  UI->>RPC: Wait for receipt
+  RPC-->>UI: Success, revert, replacement, or unresolved
+  A->>A: Confirm and index canonical events
+  UI->>A: Refresh canonical views
+```
+
+Cooket verifies the active signer and Arc Testnet chain immediately before submission. Submitted curve trades retain sender, nonce, target, value, calldata, and a bounded scan position for receipt recovery. If the original hash is missing but the nonce was consumed, recovery scans for a repriced, replaced, or cancelled transaction. If provenance remains unavailable, confirmation stays unknown.
+
+Do not duplicate a transaction merely because the interface timed out. Inspect the original hash and nonce on [ArcScan](https://testnet.arcscan.app), then use the app's recovery path.
+
+API and chart changes can lag a successful receipt because the indexer waits for configured confirmations. That delay does not change the chain result.

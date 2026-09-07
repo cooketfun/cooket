@@ -1,0 +1,14 @@
+---
+title: "Realtime market service"
+description: "Live Arc subscriptions and provisional SSE delivery."
+---
+
+`apps/realtime` is a non-persistent companion to the canonical indexer. PostgreSQL supplies canonical market registrations; Arc WebSocket subscriptions supply provisional curve and Uniswap V3 trade logs.
+
+The service subscribes before catching up a newly registered source, then scans only that address and its supported topics from the canonical source block. Catch-up is capped at 512 blocks. Exceeding the bound fails closed instead of silently omitting history.
+
+Events use deterministic identity `chain_id:transaction_hash:log_index`. Block timestamps come from the matching Arc block header, not service receipt time. Normal events without a verified header timestamp are dropped; removed events can omit the timestamp and still retract by identity.
+
+SSE fanout is bounded: default queue size 64, configurable from 1 to 4096, with at most 1024 subscribers. A slow subscriber is disconnected rather than blocking ingestion. Network writes have five-second deadlines, and heartbeat comments default to every 15 seconds.
+
+There is no replay from `Last-Event-ID` and no persistence. Reconnecting browsers receive future events and recover missed history from canonical API polling.

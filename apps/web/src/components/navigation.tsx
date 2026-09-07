@@ -9,11 +9,13 @@ import { MobileBottomNavigation } from "./mobile-bottom-navigation";
 import { MobileSearchOverlay } from "./mobile-search-overlay";
 import { WalletStatus } from "./wallet-status";
 
-const links = [
+const internalLinks = [
   { href: "/", label: "Explore" },
   { href: "/create", label: "Create" },
   { href: "/profile", label: "Profile" },
 ] as const;
+
+const docsLink = { href: "https://docs.cooket.fun", label: "Docs" } as const;
 
 export function Navigation() {
   const pathname = usePathname();
@@ -31,11 +33,13 @@ export function Navigation() {
           <div className="mx-auto hidden w-full max-w-xl px-2 md:block"><HeaderTokenSearch id="desktop-token-search" /></div>
           <div className="hidden items-center justify-end gap-2 xl:flex">
             <nav className="flex items-center gap-0.5 text-sm" aria-label="Primary navigation">
-              {links.map((link) => <NavLink key={link.href} {...link} active={isActive(pathname, link.href)} />)}
+              {internalLinks.map((link) => <NavLink key={link.href} {...link} active={isActive(pathname, link.href)} />)}
+              <ExternalNavLink {...docsLink} />
             </nav>
             <div className="hidden min-w-0 xl:flex"><WalletStatus key={`desktop:${pathname}`} /></div>
           </div>
           <div className="flex items-center justify-end gap-2 md:hidden">
+            <ExternalNavLink {...docsLink} compact />
             <WalletStatus key={`mobile:${pathname}`} compact short />
           </div>
           <div className="hidden md:block xl:hidden"><button className="button-secondary h-11 w-11 p-0" type="button" aria-expanded={open} aria-controls="mobile-navigation" aria-label={open ? "Close menu" : "Open menu"} onClick={() => setOpen((current) => !current)}>
@@ -43,8 +47,9 @@ export function Navigation() {
           </button></div>
         </div>
         {open && <div id="mobile-navigation" className="hidden border-t border-white/8 py-3 md:block xl:hidden">
-          <nav className="grid grid-cols-3 gap-2" aria-label="Tablet navigation">
-            {links.map((link) => <NavLink key={link.href} {...link} active={isActive(pathname, link.href)} onClick={() => setOpen(false)} />)}
+          <nav className="grid grid-cols-4 gap-2" aria-label="Tablet navigation">
+            {internalLinks.map((link) => <NavLink key={link.href} {...link} active={isActive(pathname, link.href)} onClick={() => setOpen(false)} />)}
+            <ExternalNavLink {...docsLink} onClick={() => setOpen(false)} />
           </nav>
           <div className="mt-3 border-t border-white/8 pt-3"><WalletStatus key={`tablet:${pathname}`} compact /></div>
         </div>}
@@ -57,6 +62,10 @@ export function Navigation() {
 
 function NavLink({ href, label, active, onClick }: { href: string; label: string; active: boolean; onClick?: () => void }) {
   return <Link href={href} onClick={onClick} aria-current={active ? "page" : undefined} className={`flex min-h-10 items-center justify-center rounded-lg px-3 font-medium transition-colors ${active ? "bg-cyan-300/10 text-cyan-200" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`}>{label}</Link>;
+}
+
+function ExternalNavLink({ href, label, onClick, compact = false }: { href: string; label: string; onClick?: () => void; compact?: boolean }) {
+  return <a href={href} target="_blank" rel="noopener noreferrer" onClick={onClick} className={`flex min-h-10 items-center justify-center rounded-lg font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-white ${compact ? "px-2 text-xs" : "px-3"}`}>{label}<span aria-hidden className="ml-1 text-[0.65em]">↗</span></a>;
 }
 
 function isActive(pathname: string, href: string) {

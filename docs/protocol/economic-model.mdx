@@ -1,0 +1,28 @@
+---
+title: "Economic model"
+description: "Canonical Cooket V3 supply, reserves, prices, and graduation values."
+---
+
+Cooket V3 uses the `endpoint-cp-v3` shifted constant-product model. All launch tokens have 18 decimals.
+
+| Quantity | Human-readable value | Base units |
+| --- | ---: | ---: |
+| Fixed supply | 1,000,000,000 tokens | `1000000000000000000000000000` |
+| Curve allocation | 800,000,000 tokens | `800000000000000000000000000` |
+| Graduation/LP allocation | 200,000,000 tokens | `200000000000000000000000000` |
+| Virtual token reserve | 1,066,666,666.666666666666666667 tokens | `1066666666666666666666666667` |
+| Virtual native-USDC reserve | 2,415 USDC | `2415000000000000000000` |
+| Net graduation reserve | 7,245 USDC | `7245000000000000000000` |
+| Exact empty-curve gross graduation input | 7,318.181818181818181818 USDC | `7318181818181818181818` |
+
+The initial spot price is `0.0000022640625` native USDC per token. The terminal spot price is `0.000036225` native USDC per token. Spot price is the curve's virtual native-USDC reserve divided by its virtual token reserve, rounded up in base-unit arithmetic.
+
+Terminal fully diluted valuation is terminal price multiplied by the full 1 billion-token supply:
+
+```text
+0.000036225 USDC/token × 1,000,000,000 tokens = 36,225 USDC
+```
+
+FDV is not the active curve reserve and not the graduation principal. At graduation, the net principal is 7,245 native USDC. The larger exact gross includes the curve trading fee.
+
+See [Bonding curve](/docs/protocol/bonding-curve), [Fees and distribution](/docs/protocol/fees-and-distribution), and [Economic constants](/docs/reference/economic-constants).

@@ -1,0 +1,20 @@
+---
+title: "Buy tokens"
+description: "Buy on the curve with native USDC or in the graduated V3 pool with ERC-20 USDC."
+---
+
+## Active curve
+
+1. Enter a gross native-USDC budget.
+2. The app resolves the dedicated curve from `CooketFactoryV3` and calls `quoteBuy`.
+3. Review accepted gross, fee, net curve input, token output, slippage minimum, and deadline.
+4. The app simulates the exact contract request, verifies wallet/network context, and estimates value plus gas before asking the wallet to submit.
+5. The app waits for a receipt. If confirmation becomes unresolved, it preserves recovery information instead of assuming failure.
+
+The default slippage setting is 1%; the interface accepts 0.01% through 20%. A terminal buy may accept less than the submitted budget and refund the excess atomically.
+
+## Graduated market
+
+Graduated buys exchange 6-decimal canonical ERC-20 USDC for the launch token through the verified SwapRouter. They require an ERC-20 allowance, a QuoterV2 result, a minimum output, and a five-minute deadline. The swap sends no native value.
+
+<Warning>These are Arc Testnet assets. A quote is not a guarantee, and a reverted transaction can still consume testnet gas.</Warning>

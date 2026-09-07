@@ -1,0 +1,34 @@
+---
+title: "Fees and distribution"
+description: "Curve fees and collected Uniswap V3 LP fees without misleading simplification."
+---
+
+Curve trading and post-graduation Uniswap trading have separate fees and separate allocation rules.
+
+## Curve trading fee
+
+Every curve buy and sell charges 100 basis points, or 1%, of the applicable gross amount. The resulting **total trading fee** is allocated as follows:
+
+| Recipient bucket | Share of total curve fee | Effective share of gross before rounding |
+| --- | ---: | ---: |
+| Creator payout | 35% | 0.35% |
+| Community vault | 20% | 0.20% |
+| Trader rewards vault | 15% | 0.15% |
+| Protocol treasury | Remainder, normally 30% | Normally 0.30% |
+
+Creator, community, and trader shares each round down independently. The protocol receives the exact remainder, so it can receive more than 30% of a very small total fee. No curve-fee portion is left undistributed: the four integer amounts always sum to the total fee.
+
+## Post-graduation fees
+
+The canonical Uniswap V3 pool uses fee tier `10000`, or 1%. That fee is charged by the pool during swaps. It is not the Cooket curve fee. When anyone calls the permanent custodian's `collectFees`, the collected launch-token and ERC-20-USDC fees are sent to `PermanentLPFeeVaultV3` and allocated per asset:
+
+| Recipient bucket | Share of collected LP fees |
+| --- | ---: |
+| Creator payout | 25% |
+| Community vault | 30% |
+| Trader rewards vault | 15% |
+| Protocol treasury | Remainder, normally 30% |
+
+Again, the first three shares round down and protocol receives the exact remainder. “Collected LP fees” means amounts actually collected from the position; it does not mean LP principal, total pool volume, or fees that have accrued but have not yet been collected.
+
+An active voluntary CTO changes only the creator payout destination. It does not change any percentage.

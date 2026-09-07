@@ -1,25 +1,26 @@
 ---
 title: "Glossary"
-description: "Terms used throughout Cooket."
+description: "Definitions for Cooket protocol and data terms."
 ---
 
-| Term | Definition |
-| --- | --- |
-| Arc Testnet | The only runtime target of this repository; chain ID `5042002`. Native gas/value is 18-decimal USDC. |
-| Base | Historical Cooket production network (chain ID 8453). This repository rejects Base chain IDs. |
-| Bonding curve | A contract that prices buys and sells from its current virtual reserves. |
-| Builder Code | Cooket's Base transaction-attribution code, `bc_tea0a669`. |
-| ERC-20 | The fungible token interface implemented by launched tokens. |
-| ERC-8021 | A transaction data-suffix convention used for attribution. |
-| FDV | Fully diluted value: indexed current price multiplied by fixed total supply. It is not liquidity or guaranteed realizable value. |
-| Graduation | The terminal transition from the internal curve to a canonical Uniswap V3 pool. |
-| Indexer | Service that converts confirmed chain events into replayable query projections. |
-| Liquidity | Assets available for trading at prices defined by a curve or pool. |
-| LP | Liquidity provider or liquidity position; here, the Uniswap V3 position NFT. |
-| Protocol fee | The fee share accounted to the protocol treasury. |
-| Creator fee | The fee share accounted to the token's registered creator payout. |
-| Native USDC | Arc native value units with 18 decimals. Distinct from 6-decimal ERC-20 USDC; never interchangeable. |
-| Reserve | Net native-USDC principal backing active curve redemptions before graduation. |
-| Slippage | Difference between a quote and allowed execution; protected by a minimum output. |
-| Uniswap V3 | The external concentrated-liquidity protocol used after graduation. |
-| Virtual reserve | A mathematical coordinate used for pricing that is not identical to the contract's redeemable asset balance. |
+**Accepted gross** — Portion of submitted buy value used by a quote; excess is refunded.
+
+**Active reserve** — Net native-USDC principal available for curve redemptions before graduation.
+
+**Canonical state** — Confirmed, reorg-aware indexed state derived from Arc events.
+
+**Canonical USDC** — Arc's 6-decimal ERC-20 USDC used in graduated V3 pools.
+
+**Collected LP fees** — V3 fees transferred out of the position to the permanent LP fee vault; excludes principal.
+
+**CTO** — Creator-voluntary, one-way transition of creator-fee routing to a controller-owned treasury.
+
+**FDV** — Token spot price multiplied by the complete fixed supply.
+
+**Graduation principal** — Exactly 7,245 native USDC forwarded from the curve for LP settlement.
+
+**Native USDC** — Arc's 18-decimal native value and gas asset used by curve trades.
+
+**Provisional event** — Unconfirmed realtime log shown temporarily until canonical indexing catches up or a removal retracts it.
+
+**Terminal price** — Curve spot price at the graduation reserve coordinate; distinct from reserve and FDV.

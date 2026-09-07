@@ -1,18 +1,12 @@
 ---
 title: "Discovery"
-description: "Newest, trending, and search endpoints."
+description: "New, top, near-graduation, linked, trending, and search views."
 ---
 
-## Trending
+`GET /api/v1/tokens?view=new|top|near|linked` selects a discovery view. `new` is equivalent to the default newest list. The other views are backed by current repository queries over canonical, non-excluded token projections.
 
-`GET /api/v1/tokens/trending` and `GET /api/v1/trending` are equivalent. Both accept standard `limit` and opaque `cursor` pagination.
+`GET /api/v1/tokens?search=term` matches normalized token name, symbol, and address prefixes. Search permits letters, numbers, spaces, dots, underscores, and hyphens, with a maximum of 64 bytes. Search cannot be combined with `view`.
 
-Trending order is derived from the indexed recent-volume window with recent trade and trader counts as additional ordering inputs. It is not a recommendation score.
+`GET /api/v1/tokens/trending` and `GET /api/v1/trending` are aliases. Trending ordering uses indexed recent volume, trade count, and trader count. It is not an endorsement.
 
-The response uses the token page shape shown in [Tokens and pricing](/docs/api-reference/tokens): `{ "items": [...], "next_cursor": "..." }`. Invalid limits or cursors return `400 invalid_request`.
-
-## Search
-
-Use `GET /api/v1/tokens?search=term`. Search matches normalized name, symbol, and address prefixes while applying canonical-state and application-exclusion filters.
-
-The response is the same paginated token-page shape. Unsupported characters or a query longer than 64 bytes return `400 invalid_request`.
+All responses use `{ "items": [...], "next_cursor": "..." }`. Standard limit range is 1–100.

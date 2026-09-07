@@ -1,38 +1,19 @@
 ---
 title: "Database"
-description: "Logical PostgreSQL model and canonical projection design."
+description: "PostgreSQL migrations, provenance, and current projections."
 ---
 
-The committed migration set currently contains versions 1 through 12.
+PostgreSQL stores canonical block/event provenance and product projections. The migration runner applies each file in a single transaction and requires the exact continuous sequence `001` through `014`.
 
-| Entity | Purpose |
+| Migration range | Main capability |
 | --- | --- |
-| `chain_blocks` | Block hashes, parents, timestamps, canonical flag |
-| `chain_events` | Raw decoded log provenance and canonical flag |
-| `indexer_checkpoints` | Durable progress per chain/indexer |
-| `tokens` | Launch identity and finalized presentation metadata |
-| `curves` | Curve address, reserves, sold supply, lifecycle, canonical pool |
-| `trades` | Curve and Uniswap V3 buys/sells with exact integer amounts |
-| `fees` | Indexed fee events |
-| `graduations` | Curve terminal event and forwarded 18-decimal native USDC |
-| `liquidity_events` | Matched `GraduatedV3` custodian, NFT ID, and liquidity |
-| `token_metrics` | Replayable aggregate discovery metrics |
-| `token_holder_balances` | Canonical ERC-20 balance projections |
-| `token_trade_buckets` | UTC buckets and nullable OHLC data |
-| `token_metadata_drafts` | Offchain draft/finalization lifecycle |
-| `application_token_exclusions` | Reversible application-only projection exclusions |
-| `cto_treasuries` | Indexed CTO treasury deployments |
-| `cto_proposals` | Indexed CTO proposal lifecycle |
-| `cto_token_state` | Per-token active CTO pointer |
-| `cto_supported_assets` | Treasury supported-asset registry |
-| `cto_treasury_transfers` | Indexed treasury asset transfers |
-| `cto_fee_pulls` | Indexed treasury fee pulls |
-| `cto_creator_fee_checkpoint_ledger` | Creator-fee checkpoint and claim ledger |
+| `001`–`003` | Blocks, events, checkpoints, tokens, curves, trades, fees, graduation, metadata, V3-only transition |
+| `004`–`008` | Holder balances, analytics, discovery, OHLC, and social metadata |
+| `009`–`011` | V3 graduation plane, Uniswap V3 trades, and application exclusions |
+| `012` | CTO treasuries, proposals, token state, checkpoints, transfers, and fee pulls |
+| `013` | Trade/chart normalization and fixed token-decimal constraint |
+| `014` | Creator-bound metadata claims and wallet-holdings indexes |
 
-Amounts use `NUMERIC(78,0)` for uint256-compatible integers. Canonical rows reference the exact block hash. OHLC fields are nullable; missing history is not replaced by a current price.
+Amounts use PostgreSQL `NUMERIC` columns and are exposed as decimal strings. Canonical flags and block hashes retain reorg provenance. Derived rows are application views; the chain and contracts remain authoritative for balances and execution.
 
-`graduations.native_usdc_amount` is the 18-decimal Arc native-USDC principal. Migration 009 still introduces the historical `eth_amount` column; migration 012 is the committed rename to `native_usdc_amount` and the CTO v1 tables.
-
-Migration 010 requires replay of existing history to restore the actual transaction index because a migration cannot infer it from a transaction hash.
-
-Live environment application of migration 012 remains a later phase. Do not treat the presence of the committed SQL file as proof that a persistent database has been migrated.
+The repository proves the migration set and runner behavior. It does not prove which migrations are installed in an unspecified remote database.

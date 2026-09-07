@@ -1,48 +1,33 @@
 ---
 title: "Local development"
-description: "Install, run, build, and test the monorepo."
+description: "Run and validate Cooket without deploying contracts."
 ---
 
-## Prerequisites
-
-| Tool | Repository baseline |
-| --- | --- |
-| Node.js | 22+ |
-| pnpm | 10.33.0 |
-| Go | 1.26+ |
-| Foundry | Repository toolchain configured with Solidity 0.8.28 |
-| Docker | Docker Engine with Compose |
-
-## Install and configure
+Prerequisites are Node.js 22+, pnpm 10.33.0, Go 1.26+, Docker Compose, and Foundry.
 
 ```shell
 pnpm install --frozen-lockfile
 cp .env.example .env
-```
-
-Replace `replace_with_local_secret` with one local-only PostgreSQL password in both `POSTGRES_PASSWORD` and `DATABASE_URL`. Do not commit `.env`.
-
-## Run
-
-```shell
 docker compose up -d --build
-docker compose ps
 ```
 
-The Compose stack exposes the web on port `3000`, API on port `4000`, and PostgreSQL on loopback port `15434`. Redis remains on the internal Compose network. With no RPC configured, the indexer uses explicit idle development mode.
+Set a local PostgreSQL password and Reown project ID in the untracked `.env`. The template uses Arc Testnet and verified manifest addresses. The indexer defaults to `idle`; set active values deliberately if chain indexing is required.
 
-For the frontend alone:
+| Service | Local address |
+| --- | --- |
+| Web | `http://localhost:3200` |
+| API | `http://localhost:4200` |
+| Realtime SSE | `http://localhost:4300/events` |
+| PostgreSQL | `127.0.0.1:15436` |
 
 ```shell
-pnpm dev:web
+pnpm --filter web lint
+pnpm --filter web exec tsc --noEmit
+pnpm --filter web test
+(cd apps/api && go test ./...)
+(cd apps/indexer && go test ./...)
+(cd apps/realtime && GOWORK=off go test ./...)
+(cd contracts && forge test)
 ```
 
-## Validate
-
-```shell
-make validate
-```
-
-Equivalent focused commands include `make lint-web`, `make typecheck-web`, `make build-web`, `make go-test`, `make go-build`, `make contracts-build`, `make contracts-test`, and `make db-validate`.
-
-Go tests must run within `apps/api` and `apps/indexer`; the root workspace contains separate Go modules.
+These commands do not deploy or broadcast. Preserve the project workflow direction: **Local → GitHub → VPS**. Publishing, deployment, and remote operations require a separate authorized phase.

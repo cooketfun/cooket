@@ -1,46 +1,20 @@
 ---
 title: "Metadata"
-description: "Create and finalize launch metadata drafts."
+description: "Create and finalize metadata drafts against canonical launches."
 ---
 
-## Create a draft
+`POST /api/v1/token-metadata` accepts `multipart/form-data` with required `name`, `symbol`, `initial_supply`, and either `image` or `image_url`. Optional fields are `description`, `website_url`, `x_url`, `telegram_url`, and `discord_url`.
 
-`POST /api/v1/token-metadata` accepts `multipart/form-data`.
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `name` | Yes | 1–64 bytes |
-| `symbol` | Yes | 1–16 bytes |
-| `initial_supply` | Yes | Positive uint256 decimal string; the web sends fixed V3 supply |
-| `description` | No | Up to 1,000 bytes |
-| `website_url` | No | HTTP or HTTPS |
-| `x_url` | No | X/Twitter hosts only |
-| `telegram_url` | No | Telegram hosts only |
-| `discord_url` | No | Discord hosts only |
-| `image` | One of these | PNG, JPEG, WebP, or GIF up to 5 MB |
-| `image_url` | One of these | Public HTTPS URL; private, loopback, and link-local hosts are rejected |
+Images may be PNG, JPEG, WebP, or GIF up to 5 MB. Remote images must use public HTTPS; private, loopback, and link-local targets are rejected. Name is limited to 64 bytes, symbol to 16 bytes, and description to 1,000 bytes.
 
 ```shell
-curl -X POST "$API_ORIGIN/api/v1/token-metadata" \
+curl -X POST "https://api.cooket.fun/api/v1/token-metadata" \
   -F 'name=Example Token' \
   -F 'symbol=EXAMPLE' \
   -F 'initial_supply=1000000000000000000000000000' \
   -F 'image=@token.png'
 ```
 
-On success, the API returns `201` with `draft_id`, normalized fields, and stored `image_url` and `metadata_url` paths.
+`POST /api/v1/token-metadata/{draft}/finalize` accepts a JSON token address, transaction hash, and creator signature. It binds only a creator-owned draft to a matching canonical indexed launch. A confirmed launch that is not indexed yet returns `409 not_indexed`; clients may retry the same finalization after indexing advances.
 
-## Finalize a draft
-
-`POST /api/v1/token-metadata/{draft}/finalize`
-
-```json
-{
-  "token_address": "0x1111111111111111111111111111111111111111",
-  "transaction_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-}
-```
-
-The API finalizes only if PostgreSQL contains a canonical launch with the same chain, token, transaction hash, name, symbol, and fixed supply. If the receipt is confirmed but the indexer has not reached it, the endpoint returns `409 not_indexed`; the frontend retries for up to approximately two minutes.
-
-`GET /objects/*` serves stored objects. JSON receives `application/json`; object responses use long-lived immutable caching.
+`GET /objects/*` serves stored objects with immutable caching. Metadata and linked content remain creator-supplied and untrusted.

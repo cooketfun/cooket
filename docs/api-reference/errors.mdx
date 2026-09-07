@@ -1,33 +1,19 @@
 ---
 title: "Errors"
-description: "HTTP status, error envelope, and common failure codes."
+description: "HTTP error envelope, status codes, and retry guidance."
 ---
 
-Errors use this envelope:
-
 ```json
-{
-  "error": {
-    "code": "invalid_request",
-    "message": "limit must be between 1 and 100"
-  }
-}
+{ "error": { "code": "invalid_request", "message": "limit must be between 1 and 100" } }
 ```
 
-| Status | Common code | Meaning |
+| Status | Code examples | Meaning |
 | ---: | --- | --- |
-| 400 | `invalid_request` | Invalid pagination, cursor, body, or search |
-| 400 | `invalid_address` | Path address is not 20-byte hexadecimal |
-| 400 | `invalid_proposal_id` | Path proposal id is not 32-byte hexadecimal |
-| 400 | `invalid_interval` | Unsupported chart interval |
-| 400 | `invalid_upload`, `invalid_image` | Invalid metadata upload |
-| 400 | `invalid_name`, `invalid_symbol`, `invalid_description`, `invalid_supply` | Metadata field validation failure |
-| 400 | `invalid_website_url`, `invalid_x_url`, `invalid_telegram_url`, `invalid_discord_url` | URL validation failure |
-| 404 | `not_found` | Token or stored object does not exist |
-| 409 | `not_indexed` | Confirmed launch is not yet present in canonical indexed data |
-| 503 | `not_ready` | Database readiness failed |
-| 503 | `storage_unavailable` | Metadata object store unavailable |
-| 500 | `inconsistent_accounting` | Checkpoint claimed amount exceeds checkpointed amount |
-| 500 | `internal_error` | Internal failure with details withheld |
+| 400 | `invalid_request`, `invalid_pagination`, `invalid_address`, `invalid_proposal_id`, `invalid_interval` | Caller input is malformed |
+| 400 | `invalid_upload`, `invalid_image`, `invalid_name`, `invalid_symbol`, URL-specific codes | Metadata validation failed |
+| 404 | `not_found` | Canonical resource or stored object is absent |
+| 409 | `not_indexed` | Matching launch is not yet in canonical indexed state |
+| 503 | `not_ready`, `storage_unavailable` | Required backend dependency is unavailable |
+| 500 | `inconsistent_accounting`, `internal_error` | Safe consistency failure or hidden internal error |
 
-Request timeout responses use code `timeout`. Clients should preserve the `X-Request-ID` when reporting a problem and avoid retrying invalid requests unchanged.
+Timeout middleware returns code `timeout`. Preserve `X-Request-ID` in bug reports. Do not retry invalid input unchanged. A `409 not_indexed` finalization can be retried after the indexer advances; a transaction confirmation timeout must be resolved through Arc receipt/nonce recovery, not by calling the HTTP API.

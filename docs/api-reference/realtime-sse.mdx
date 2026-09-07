@@ -1,0 +1,23 @@
+---
+title: "Realtime SSE"
+description: "Live-only provisional trade events from the realtime service."
+---
+
+The realtime HTTP service implements:
+
+| Method | Path | Response |
+| --- | --- | --- |
+| GET | `/healthz` | `text/plain` process liveness |
+| GET | `/events` | `text/event-stream` live trade stream |
+
+Each market message uses event type `trade`, deterministic SSE `id`, and JSON `data`:
+
+```text
+event: trade
+id: 5042002:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:4
+data: {"identity":"5042002:0xaaaa...:4","chain_id":5042002,"token":"0x1111...","market":"0x2222...","source":"curve","side":"buy","block_number":60000000,"block_timestamp":1800000000,"transaction_hash":"0xaaaa...","log_index":4,"removed":false,"received_at":"2026-01-01T00:00:00Z","token_amount_raw":"1000000000000000000","usdc_amount_raw":"1000000000000000000","usdc_decimals":18,"raw_fields":{}}
+```
+
+The example is abbreviated and illustrative. `source` is `curve` or `uniswap_v3`; `usdc_decimals` is respectively 18 or 6. `removed: true` retracts the event with the same identity.
+
+There is no historical replay and `Last-Event-ID` is not replayed. Heartbeats are `: ping` comments. Browser origins must match the configured allowlist. Use canonical token/chart/trade API snapshots to recover gaps and retire provisional events.

@@ -1,0 +1,17 @@
+---
+title: "Connect wallet"
+description: "Use an external EVM wallet on Arc Testnet."
+---
+
+Cooket connects external user-controlled EVM wallets through Reown AppKit and Wagmi. Email and social login, hosted wallets, onramp, AppKit swaps, send, receive, history, analytics, and Reown authentication features are disabled in the wallet configuration.
+
+<Steps>
+  <Step title="Open Cooket">Use [https://cooket.fun](https://cooket.fun) and verify the origin.</Step>
+  <Step title="Choose your wallet">Approve only the connection request from the wallet you intend to use.</Step>
+  <Step title="Switch network">Select Arc Testnet, chain ID `5042002`. Cooket can request wallet network addition using the canonical RPC and ArcScan explorer.</Step>
+  <Step title="Check readiness">A connected wallet can transact only when its active chain is Arc Testnet and the application's explicit testnet write gate is enabled.</Step>
+</Steps>
+
+Connecting reveals the selected public address to the browser and providers. It does not grant token spending permission. An ERC-20 approval is a separate transaction and should be reviewed independently.
+
+<Warning>Cooket support should never need your seed phrase, private key, or raw wallet export.</Warning>

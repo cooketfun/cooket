@@ -1,0 +1,24 @@
+---
+title: "Create a token"
+description: "Launch a fixed-supply token and optionally perform a separate dev buy."
+---
+
+The create form prepares metadata, then asks your wallet to call `CooketFactoryV3.createToken(name, symbol, userSalt)` on Arc Testnet.
+
+| Field | Current constraint |
+| --- | --- |
+| Name | Required, 1–64 bytes |
+| Symbol | Required, 1–16 bytes |
+| Description | Optional, up to 1,000 bytes |
+| Website | Optional HTTP or HTTPS URL |
+| X, Telegram, Discord | Optional URL on the accepted service host |
+| Image | PNG, JPEG, WebP, or GIF up to 5 MB, or a public HTTPS image URL |
+| Dev buy | Optional 18-decimal native-USDC amount |
+
+Supply is not configurable: every launch mints 1 billion 18-decimal tokens to its dedicated curve. The creator receives no tokens from creation alone.
+
+The factory atomically deploys and initializes the token, deploys its curve, registers fee and graduation relationships, and reserves the canonical V3 pool. A duplicate creator/name/symbol definition or zero salt reverts.
+
+After a successful receipt, metadata finalization waits for the canonical indexer to record the matching token, transaction hash, name, symbol, and fixed supply. A temporary `409 not_indexed` response is expected while indexing catches up.
+
+An optional dev buy is a separate protected curve transaction after creation. It requires another wallet confirmation and can fail without reverting the already-confirmed token launch.

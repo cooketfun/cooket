@@ -1,89 +1,60 @@
 # Cooket
 
-Cooket is an Arc-native token launch protocol in testnet development. Its
-current and only runtime target is **Arc Testnet** (chain ID `5042002`).
+Cooket is an Arc-native token launch and trading protocol currently operating in Arc Testnet development and testing.
 
-## Phase 0 status
+- Application: [https://cooket.fun](https://cooket.fun)
+- Documentation: [https://docs.cooket.fun](https://docs.cooket.fun)
+- API: [https://api.cooket.fun](https://api.cooket.fun)
+- Network: Arc Testnet (`5042002`)
+- Explorer: [https://testnet.arcscan.app](https://testnet.arcscan.app)
 
-- Network: Arc Testnet
-- RPC: `https://rpc.testnet.arc.io`
-- Explorer: `https://testnet.arcscan.app`
-- Native gas/value currency: USDC with 18-decimal native representation
-- USDC ERC-20 representation: 6 decimals; it is a distinct representation
-- Graduation indexed field: `native_usdc_amount` (not `eth_amount`, not ETH)
-- CTO HTTP API and token-page UI are read-only indexed views
-- Frontend, API, and indexer reject Base chain IDs
-- Token creation, trading, graduation, indexing, oracle reads, and deployment
-  are fail-closed
-- No Cooket Arc contracts, DEX dependencies, oracle, or governance addresses are
-  configured or approved
+## Protocol
 
-See [COOKET_ARC_READINESS.md](COOKET_ARC_READINESS.md) before changing any
-financial, contract, or deployment code. Live environment application of
-migration 012, Arc RPC/DEX verification, deployment, and testnet execution
-remain later phases.
+Every launch has a fixed supply of 1 billion 18-decimal tokens: 800 million are allocated to a dedicated shifted constant-product curve and 200 million to graduation liquidity. The curve begins with virtual reserves of 1,066,666,666.666666666666666667 tokens and 2,415 native USDC.
 
-## Repository layout
+Curve trades charge 1%. Graduation occurs at 800 million tokens sold and 7,245 net native USDC; the exact gross input for an empty curve is 7,318.181818181818181818 native USDC. Settlement creates a full-range, 1% fee-tier Uniswap V3 token/canonical-USDC position held by an ownerless per-token custodian.
 
-- `apps/web` — Next.js frontend
-- `apps/api` — Go HTTP API
-- `apps/indexer` — Go Arc blockchain indexer foundation
-- `contracts` — Solidity source and tests; no Cooket deployment artifacts
-- `packages/contracts-sdk` — centralized chain metadata and contract bindings
-- `db` — migrations and database tooling
-- `docs` — Cooket product and safety documentation
+Arc native USDC uses 18-decimal native units. Canonical ERC-20 USDC uses 6 decimals. Neither is ETH or WETH.
+
+## Architecture
+
+- `apps/web` — Next.js application, external Reown/Wagmi wallets, curve and graduated trading, responsive terminal, and provisional realtime overlay
+- `apps/api` — Go HTTP API for canonical indexed reads, CTO views, metadata, and stored objects
+- `apps/indexer` — confirmed Arc event indexer with canonical provenance, reorg recovery, and PostgreSQL projections
+- `apps/realtime` — non-persistent Arc WSS consumer and live-only SSE market stream
+- `contracts` — Cooket V3 Solidity contracts, tests, deployment scripts, and Arc Testnet manifests
+- `packages/contracts-sdk` — shared ABIs, Arc constants, receipt parsers, and deterministic helpers
+- `db` — PostgreSQL migrations `001` through `014` and migration runner
+- `docs` — public Mintlify documentation configured by root `docs.json`
+
+Canonical deployment records are [Cooket V3](contracts/deployments/arc-testnet/cooket-v3.json) and [Uniswap V3 periphery](contracts/deployments/arc-testnet/uniswap-v3-periphery.json). The manifests record verified Arc Testnet addresses; source verification is not an independent security audit.
 
 ## Local development
 
-Prerequisites: Docker with Compose, Node.js 22+, pnpm 10.33.0, Go 1.26+,
-and Foundry.
+Prerequisites: Node.js 22+, pnpm 10.33.0, Go 1.26+, Docker Compose, and Foundry.
 
 ```shell
 pnpm install --frozen-lockfile
 cp .env.example .env
-```
-
-Set a unique local-only PostgreSQL password and a browser-public Reown project
-ID in the untracked `.env`. Set the AppKit metadata URL to the local origin for
-development; do not add any contract address during Phase 0.
-
-```shell
 docker compose up -d --build
 ```
 
-Local host endpoints are isolated from other projects:
-
-- web: `http://localhost:3200`
-- API and health: `http://localhost:4200` and `http://localhost:4200/health`
-- PostgreSQL: `127.0.0.1:15436`
-- Redis: internal Compose network only
-
-The indexer defaults to idle mode. Active indexing is rejected in Phase 0.
-
-## Validation
+Set a local PostgreSQL password and browser-public Reown project ID in the untracked `.env`. The default indexer mode is `idle`. Local endpoints are web `http://localhost:3200`, API `http://localhost:4200`, realtime SSE `http://localhost:4300/events`, and PostgreSQL `127.0.0.1:15436`.
 
 ```shell
-pnpm install --frozen-lockfile
 pnpm --filter web lint
 pnpm --filter web exec tsc --noEmit
 pnpm --filter web test
 pnpm --filter web build
 (cd apps/api && go test ./... && go build ./cmd/server)
 (cd apps/indexer && go test ./... && go build ./cmd/indexer)
+(cd apps/realtime && GOWORK=off go test ./... && GOWORK=off go build .)
 (cd contracts && forge build && forge test)
-./scripts/validate-compose-isolation.sh
-docker compose config
 git diff --check
 ```
 
-No validation command deploys contracts, broadcasts transactions, starts
-production containers, or connects to a VPS.
+Development follows **Local → GitHub → VPS**. Deployment, remote operations, DNS, and production changes require a separate authorized phase.
 
-## Security
+## Testnet and security warning
 
-Never commit private keys, seed phrases, wallet credentials, private RPC URLs,
-database credentials, API keys, deployment keys, or real `.env` files.
-
-For Vercel/VPS split-production preparation, see
-[split production deployment](docs/operations/split-production.mdx). Contact
-[team@cooket.fun](mailto:team@cooket.fun).
+Arc Testnet tokens and USDC do not represent real financial value. Testnet services and state may change or reset, and Arc Testnet deployment does not imply Arc Mainnet availability. Smart-contract, wallet, token, RPC, indexing, and third-party protocol risks remain despite tests and contract controls. Never commit or share private keys, seed phrases, wallet credentials, RPC credentials, database passwords, or real environment files.

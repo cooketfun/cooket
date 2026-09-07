@@ -1,0 +1,23 @@
+---
+title: "Introduction"
+description: "Cooket token launches and trading on Arc Testnet."
+---
+
+Cooket is an Arc-native token launch and trading protocol currently operating in Arc Testnet development and testing. A launch creates a fixed-supply ERC-20 token, a dedicated shifted constant-product bonding curve, and a reserved Uniswap V3 pool. Trading starts on the curve and moves to the canonical token/USDC pool at graduation.
+
+<Warning>
+  Everything documented here is on Arc Testnet. Testnet tokens and USDC do not represent real financial value. An Arc Testnet deployment does not imply Arc Mainnet availability.
+</Warning>
+
+Cooket uses external user-controlled EVM wallets through Reown AppKit and Wagmi. The browser requests signatures; the API and indexer do not hold wallet keys or submit protocol transactions for users.
+
+The runtime base asset is Arc native USDC, represented with 18-decimal native units. After graduation, Uniswap V3 uses canonical ERC-20 USDC with 6 decimals. These are distinct representations and must not be confused.
+
+<CardGroup cols={2}>
+  <Card title="Launch the app" icon="rocket" href="https://cooket.fun">Open Cooket on Arc Testnet.</Card>
+  <Card title="Protocol model" icon="chart-no-axes-combined" href="/docs/protocol/economic-model">Review supply, reserves, prices, and fees.</Card>
+  <Card title="Developer architecture" icon="network" href="/docs/developers/system-architecture">Understand contracts and data services.</Card>
+  <Card title="Contract addresses" icon="file-key" href="/docs/reference/arc-testnet-contracts">Use the canonical manifest-derived reference.</Card>
+</CardGroup>
+
+Verified source code means that explorer source matches submitted source metadata; it is not evidence of an independent security audit. See [Security model](/docs/security/security-model).

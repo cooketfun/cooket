@@ -1,0 +1,14 @@
+---
+title: "Graduation"
+description: "The exact curve boundary and atomic Uniswap V3 settlement."
+---
+
+Graduation occurs when a buy brings the active curve reserve to exactly 7,245 native USDC and sells the complete 800 million-token curve allocation.
+
+For an empty curve, the exact accepted gross is `7,318.181818181818181818` native USDC. Its 1% fee is `73.181818181818181818`, leaving exactly `7,245` as net curve input. Because fees use integer floor division, `grossRequiredForNet` computes the exact inverse rather than relying on a decimal approximation.
+
+If a submitted buy is larger than required, `quoteBuy` caps `acceptedGross`, calculates fees only on the accepted amount, and returns `refund = submittedGross - acceptedGross`. The buy transfers all remaining curve tokens, marks the curve graduated, forwards the reserve and 200 million LP tokens, and refunds excess input in the same transaction. Any failed step reverts the transaction.
+
+Settlement requires the reserved canonical pool to remain at the contract's exact expected initial price. It converts 18-decimal native USDC to exactly `7,245,000,000` 6-decimal ERC-20 USDC base units, then mints a full-range V3 position. Token rounding residual is bounded to at most one token; USDC residual is bounded to at most one 6-decimal base unit. Residuals go to a new per-token permanent escrow with no withdrawal path.
+
+After forwarding, `activeNativeUsdcReserve` is zero. The contract retains a terminal reserve coordinate for terminal price reporting; this coordinate is not a claim that the curve still holds the principal.

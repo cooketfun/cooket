@@ -1,19 +1,18 @@
 ---
 title: "Wallet safety"
-description: "Checks to make before connecting, approving, or trading."
+description: "Checks for external-wallet connections, approvals, and transactions."
 ---
 
 Before signing:
 
-1. Confirm you are working in the Arc Testnet migration environment; the Base production site is not an Arc endpoint.
-2. Confirm the wallet shows Arc Testnet, chain ID `5042002`.
-3. Confirm the active address is the one you intend to use.
-4. Do not create, buy, sell, approve, graduate, or submit other Cooket protocol transactions during Phase 0; all such paths are intentionally disabled.
-5. Keep Arc native USDC value units (18 decimals) separate from ERC-20 USDC token units (6 decimals).
-6. For any future authorized Arc transaction, preserve the transaction hash and verify it on ArcScan.
+1. Verify the exact origin is `https://cooket.fun`.
+2. Confirm Arc Testnet and chain ID `5042002`.
+3. Confirm the intended wallet address and transaction target.
+4. Distinguish 18-decimal native USDC from 6-decimal canonical ERC-20 USDC.
+5. Review gross input, fee, expected output, minimum output, deadline, and any refund.
+6. For ERC-20 approvals, verify the spender is the token's canonical curve or the manifest-derived SwapRouter and that the amount is expected.
+7. Preserve submitted hashes and inspect them on [ArcScan](https://testnet.arcscan.app).
 
-Use separate wallets or conservative balances when interacting with unfamiliar tokens. Do not use inherited Base allowance or transaction tooling for Arc unless it has been explicitly validated for Arc.
+Cooket uses external user-controlled wallets. The API does not need your private key, seed phrase, wallet export, or approval signature. Never provide those to support or paste them into a bug report.
 
-<Warning>
-  Support should never need your seed phrase, private key, or raw wallet export. Do not sign opaque messages or transactions you do not understand.
-</Warning>
+Use a test wallet and conservative testnet balances when interacting with unfamiliar tokens. Do not assume token metadata, a social link, or a visible market makes a launch trustworthy.

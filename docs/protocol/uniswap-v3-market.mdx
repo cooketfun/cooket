@@ -1,0 +1,19 @@
+---
+title: "Uniswap V3 market"
+description: "Canonical graduated trading with ERC-20 USDC."
+---
+
+Each token's canonical Uniswap V3 pool is reserved during launch, before curve trading. The pair is the 18-decimal launch token and Arc canonical 6-decimal ERC-20 USDC at fee tier `10000` (1%) with tick spacing `200`.
+
+At graduation, Cooket mints a full-range position from tick `-887200` to `887200`. The position receives up to 200 million tokens and 7,245 ERC-20 USDC after exact native-to-ERC-20 conversion, subject only to the tightly bounded rounding residuals described in [Graduation](/docs/protocol/graduation).
+
+The web implementation:
+
+- validates the pool pair, factory, fee tier, QuoterV2, SwapRouter, and the periphery's shared no-WETH marker;
+- quotes exact-input buys and sells through QuoterV2;
+- uses ERC-20 USDC for buys and launch tokens for sells;
+- applies a reviewed minimum output and a five-minute transaction deadline;
+- requests an exact approval when allowance is insufficient and re-reads it before submission;
+- submits `exactInputSingle` with zero native value.
+
+The source also contains a bounded diagnostic simulation helper, but the current graduated component uses the reviewed transaction path and wallet transport. Configuration support and checked-in addresses do not prove current public service health or market liquidity.

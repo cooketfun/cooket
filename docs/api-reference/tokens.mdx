@@ -1,117 +1,39 @@
 ---
-title: "Tokens and pricing"
-description: "List, detail, pricing, chart, and creator resources."
+title: "Tokens"
+description: "Token lists, details, pricing, chart data, creators, and holdings."
 ---
 
-## List tokens
+## Lists and details
 
-`GET /api/v1/tokens` and `GET /api/v1/tokens/newest`
+`GET /api/v1/tokens` and `/api/v1/tokens/newest` accept `limit` (default 20, range 1–100), an opaque `cursor`, optional `search`, or optional `view`. `search` and `view` cannot be combined.
 
-| Query | Default | Constraints |
-| --- | --- | --- |
-| `limit` | `20` | Integer 1–100 |
-| `cursor` | empty | Opaque cursor returned by the prior page |
-| `search` | empty | Up to 64 characters: letters, numbers, spaces, `.`, `_`, `-` |
-
-```json
-{
-  "items": [
-    {
-      "address": "0x1111111111111111111111111111111111111111",
-      "creator": "0x2222222222222222222222222222222222222222",
-      "name": "Example Token",
-      "symbol": "EXAMPLE",
-      "initial_supply": "1000000000000000000000000000",
-      "created_at": {
-        "block_number": 50190000,
-        "transaction_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "log_index": 4
-      },
-      "metrics": {
-        "trade_count": 0,
-        "buy_count": 0,
-        "sell_count": 0,
-        "volume": "0",
-        "fees": "0",
-        "unique_trader_count": 0,
-        "current_price": null,
-        "fully_diluted_value": null,
-        "holder_count": 0
-      }
-    }
-  ]
-}
-```
-
-The values above are illustrative, not live market data.
-
-## Token detail
-
-`GET /api/v1/tokens/{address}` returns the token record plus current curve, metrics, optional metadata, and optional graduation fields. A missing canonical token returns `404 not_found`.
-
-When present, `graduation.native_usdc_amount` is the 18-decimal Arc native-USDC principal as a decimal integer string. It is not ETH, not WETH, and not 6-decimal ERC-20 USDC. The API does not emit `eth_amount`.
-
-Read-only CTO status for the same token is a separate resource: [CTO](/docs/api-reference/cto).
+`GET /api/v1/tokens/{address}` returns identity, metadata, creation provenance, curve state, metrics, and optional graduation data. `indexed_through_block` identifies the canonical checkpoint for the snapshot.
 
 ## Pricing
 
-`GET /api/v1/tokens/{address}/pricing`
+`GET /api/v1/tokens/{address}/pricing` returns:
 
 ```json
 {
   "token_address": "0x1111111111111111111111111111111111111111",
-  "current_price": "937500000",
-  "fully_diluted_value": "937500000000000000",
+  "current_price": "36225000000000",
+  "fully_diluted_value": "36225000000000000000000",
   "source": "indexed_v3_curve"
 }
 ```
 
-After graduation, the source becomes `indexed_v3_market` only when the latest indexed trade source is `uniswap_v3`. Values can be `null` when no valid price exists.
+The values are illustrative. `source` becomes `indexed_v3_market` only for a graduated token whose latest indexed trade source is `uniswap_v3`.
 
 ## Chart
 
-`GET /api/v1/tokens/{address}/chart?interval=1h&limit=168`
+`GET /api/v1/tokens/{address}/chart?interval=1h&limit=168&from=...&to=...`
 
-Supported intervals are `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, and `1w`; limit is 1–1,000. Candles include bucket start, counts, volume, unique traders, and nullable open/high/low/close prices.
+Intervals: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, `1w`. Limit defaults to 168 and ranges from 1–1000. `from` and `to` are non-negative Unix seconds with a half-open `[from,to)` interpretation; `from` must be earlier than `to`.
 
-```json
-{
-  "interval": "1h",
-  "supported_intervals": ["1m", "5m", "15m", "1h", "4h", "1d", "1w"],
-  "candles": [
-    {
-      "bucket_start": 1787000400,
-      "trade_count": 2,
-      "buy_count": 1,
-      "sell_count": 1,
-      "volume": "20000000000000000",
-      "unique_trader_count": 2,
-      "open_price": "1000000000",
-      "high_price": "1100000000",
-      "low_price": "990000000",
-      "close_price": "1050000000"
-    }
-  ]
-}
-```
+## Creators and holdings
 
-The response is illustrative. Unsupported intervals return `400 invalid_interval`; invalid limits return `400 invalid_request`.
+- `GET /api/v1/creators/{address}`
+- `GET /api/v1/creators/{address}/tokens`
+- `GET /api/v1/wallets/{address}/holdings`
 
-## Creator resources
-
-- `GET /api/v1/creators/{address}` returns `address`, `token_count`, aggregate indexed `volume`, `tokens`, and an optional next cursor.
-- `GET /api/v1/creators/{address}/tokens` returns the standard token page format.
-
-Both accept `limit` and `cursor`.
-
-```json
-{
-  "address": "0x2222222222222222222222222222222222222222",
-  "token_count": 1,
-  "volume": "0",
-  "tokens": [],
-  "next_cursor": "opaque-cursor-if-present"
-}
-```
-
-This creator profile is an illustrative response shape. The creator-token endpoint uses the same `{ "items": [...], "next_cursor": "..." }` page shape as the token list.
+These accept standard cursor pagination. Holdings include raw 18-decimal token balance, lifecycle, nullable price/value, and indexed metrics. Examples are data shapes, not live balances.

@@ -1,0 +1,16 @@
+---
+title: "Trader rewards"
+description: "Fund custody and immutable Merkle-root claims."
+---
+
+Fifteen percent of every curve fee and fifteen percent of collected permanent-LP fees are allocated to trader rewards. Curve allocations enter `TraderRewardsVaultV3` as native USDC. LP allocations enter as the collected ERC-20 asset, which can be either canonical USDC or the launch token.
+
+The rewards vault preserves accounting by launch token and asset. Only the bound `TraderRewardsDistributorV3` can request payouts.
+
+The distributor owner publishes an immutable Merkle root for a tuple of epoch, launch token, and asset. A claimant supplies the amount and proof; each claimant can claim once for that distribution ID. A valid proof does not reserve funds in advance.
+
+<Warning>
+  Roots are policy inputs controlled by the distributor owner. The contracts do not calculate trading eligibility onchain. Published roots can overcommit the pooled vault balance, which may cause a later valid claim to fail until more funding is available.
+</Warning>
+
+The checked-in contracts and tests prove the custody and claim mechanics, not a particular rewards schedule, eligibility policy, published root, or currently funded distribution.

@@ -1,0 +1,25 @@
+---
+title: "Voluntary CTO"
+description: "Creator-initiated, one-way creator-fee routing to a Safe-controlled treasury."
+---
+
+The voluntary community takeover (CTO) system lets the immutable original creator propose a one-way transition of the token's creator-fee recipient to a deterministic per-token treasury. It does not change token authorship, supply, curve economics, graduation authority, or protocol/community/trader fee shares.
+
+<Steps>
+  <Step title="Proposal">
+    Only the canonical creator can propose. The controller must be a contract, and the registry deploys a deterministic `CTOTreasuryV3`. A proposal can include a metadata hash and URI of at most 256 bytes.
+  </Step>
+  <Step title="Acceptance">
+    The treasury controller must cause the canonical treasury to accept within seven days of proposal creation.
+  </Step>
+  <Step title="Timelock">
+    Execution opens 72 hours after acceptance and remains open for a seven-day grace period. The creator may cancel while the proposal is proposed or accepted; anyone may mark an elapsed proposal expired.
+  </Step>
+  <Step title="Activation">
+    Anyone can execute within the window. For a graduated token, the registry first collects canonical LP fees so pre-cutoff creator fees remain attributed to the prior recipient. Accrued curve creator fees are checkpointed to the prior recipient, then future creator-fee routing becomes the CTO treasury permanently.
+  </Step>
+</Steps>
+
+The treasury is controlled by the configured controller contract (the deployment direction uses a Safe). Once active, it can pull new curve creator fees and its creator share of LP fees. It can transfer native USDC, canonical USDC, the launch token, and explicitly registered ERC-20 assets. Historical checkpointed fees remain claimable by the prior recipient.
+
+The HTTP CTO endpoints are indexed read models. Transactions go directly from an external wallet/controller to the contracts.

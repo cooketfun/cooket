@@ -1,0 +1,21 @@
+---
+title: "Network configuration"
+description: "Canonical Arc Testnet endpoints and asset representations."
+---
+
+| Setting | Value |
+| --- | --- |
+| Product | Cooket |
+| Application | `https://cooket.fun` |
+| Documentation | `https://docs.cooket.fun` |
+| API | `https://api.cooket.fun` |
+| Network | Arc Testnet |
+| Chain ID | `5042002` |
+| CAIP-2 | `eip155:5042002` |
+| HTTP RPC | `https://rpc.testnet.arc.io` |
+| WebSocket RPC | `wss://rpc.testnet.arc.io` |
+| Explorer | `https://testnet.arcscan.app` |
+
+Arc native USDC is the native value/gas asset and uses 18-decimal native units. Canonical ERC-20 USDC at `0x3600000000000000000000000000000000000000` uses 6 decimals. Graduation converts only exact 18-to-6-decimal amounts.
+
+Cooket does not use ETH or WETH as its runtime base asset. The V3 periphery exposes a shared unsupported-protocol marker in the legacy constructor slot; the web validates that marker and never uses wrapping paths.

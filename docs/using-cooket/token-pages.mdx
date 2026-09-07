@@ -1,0 +1,20 @@
+---
+title: "Token pages"
+description: "Understand lifecycle, market, chart, activity, and CTO information."
+---
+
+Token pages combine different trust domains:
+
+| Surface | Source |
+| --- | --- |
+| Identity, metadata, metrics, lifecycle | Canonical indexed API |
+| Curve state, balances, allowances, quotes | Arc Testnet contract reads |
+| Candles and trade history | Canonical API plus provisional SSE overlay |
+| Transaction result | Arc receipt and recovery checks |
+| CTO status and histories | Canonical indexed CTO API |
+
+The page uses canonical `token.graduation.phase` and pool data to choose curve trading or graduated V3 trading. It does not infer graduation from a failed curve call.
+
+Market amounts returned by the API are integer strings. Curve/native-USDC values use 18 decimals. V3 canonical USDC trade amounts use 6 decimals at ingestion and are normalized for chart and market presentation.
+
+CTO metadata URIs are untrusted indexed text. The interface must not treat them as verified governance documents or render them as executable HTML.

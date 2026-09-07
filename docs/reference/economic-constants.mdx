@@ -1,0 +1,29 @@
+---
+title: "Economic constants"
+description: "Canonical endpoint-cp-v3 values and fee policies."
+---
+
+| Constant | Value |
+| --- | ---: |
+| Protocol version | `endpoint-cp-v3` |
+| Token decimals | 18 |
+| Total supply | 1,000,000,000 tokens |
+| Curve allocation | 800,000,000 tokens |
+| LP allocation | 200,000,000 tokens |
+| Virtual token reserve | 1,066,666,666.666666666666666667 tokens |
+| Virtual native-USDC reserve | 2,415 USDC |
+| Net graduation reserve | 7,245 USDC |
+| Exact empty-curve gross | 7,318.181818181818181818 USDC |
+| Initial price | 0.0000022640625 USDC/token |
+| Terminal price | 0.000036225 USDC/token |
+| Terminal FDV | 36,225 USDC |
+| Curve fee | 100 bps (1%) |
+| Curve fee split | Creator 35%, community 20%, rewards 15%, protocol remainder |
+| V3 fee tier | `10000` (1%) |
+| Collected LP fee split | Creator 25%, community 30%, rewards 15%, protocol remainder |
+| CTO acceptance window | 7 days |
+| CTO execution delay | 72 hours after acceptance |
+| CTO execution grace | 7 days |
+| Mutable treasury delay | 48 hours |
+
+Percentages apply after integer fee calculation. Each named share rounds down independently and the protocol receives the exact remainder.

@@ -1,29 +1,19 @@
 ---
 title: "Troubleshooting"
-description: "Resolve common wallet, quote, transaction, and indexing problems."
+description: "Safe responses to wallet, transaction, indexing, and realtime problems."
 ---
 
-| Symptom | What to check |
+| Symptom | Safe action |
 | --- | --- |
-| Wrong network | Select Arc Testnet, chain ID `5042002`. Base chain IDs are rejected. |
-| Wallet connection is unavailable locally | Set the browser-public `NEXT_PUBLIC_REOWN_PROJECT_ID`, confirm the AppKit name and URL metadata, and restart the web app. Never place a private key in this variable. |
-| Wallet selector was cancelled | Select **Connect wallet** and retry only if you intend to connect an external wallet. Cancelling does not submit a transaction. |
-| Wallet not connected | Reopen **Connect wallet**, approve the request in the selected external wallet, and confirm the intended address. |
-| Wallet does not know Arc Testnet | Approve the add-network request only after confirming chain ID `5042002`, RPC `https://rpc.testnet.arc.io`, native USDC with 18 decimals, and ArcScan. |
-| Account changed | Confirm the new displayed address. Previous wallet clients and transaction context are invalidated. |
-| Displayed address and signer differ | Stop. Disconnect and reconnect the intended external wallet. Writes remain blocked until the Wagmi signer equals the displayed address. |
-| Financial action is unavailable | Expected in Phase 0. Creation, trading, approvals, graduation, and deployment are intentionally disabled. |
-| Rejected signature | No transaction was submitted. Review details and retry only if you intend to sign. |
-| Stale quote | Re-enter the amount or refresh; wallet, chain, state, and deadlines invalidate quotes. |
-| Slippage revert | Market state moved below your minimum output. Review a fresh quote; do not raise slippage without understanding the risk. |
-| Approval, buy, or sell cannot start | Expected in Phase 0. Do not work around the Arc protocol-economics safety gate. |
-| RPC error | Wait and retry with a fresh read. Do not assume a timed-out submitted transaction failed. |
-| UI still shows old data | Confirm the receipt, then allow time for configured confirmations, indexing, and query refresh. |
-| Metadata is delayed | The launch must be indexed before the draft can finalize; keep the creation hash. |
-| Disconnect during review | The unsubmitted review is no longer executable. Reconnect the intended wallet and review current chain state again. |
+| Wallet cannot connect | Verify the Reown configuration, browser wallet, and exact application origin |
+| Wrong network | Switch to Arc Testnet chain ID `5042002` |
+| Create/trade button stays unavailable | Check wallet readiness, canonical address configuration, and the explicit testnet write gate; do not bypass it |
+| Quote or allowance expired | Refresh canonical state and request a new quote |
+| Approval confirmed but swap is blocked | Wait for the authoritative allowance re-read; do not force the dependent transaction |
+| Transaction timed out | Keep the original hash and resolve receipt/nonce/replacement state before retrying |
+| Token or metadata is missing | Wait for canonical indexing; metadata finalization can return `409 not_indexed` |
+| Realtime update disappeared | A removed log or canonical reconciliation may have retracted the provisional event |
+| SSE missed events after reconnect | This is expected for a live-only stream; canonical API polling recovers history |
+| API is unavailable | Repository configuration is not health proof; check the target environment separately |
 
-## Transaction verification
-
-Cooket protocol transactions must not be submitted from the Arc Phase 0 build. For any separately authorized future Arc transaction, verify the hash on [ArcScan](https://testnet.arcscan.app) and do not submit a duplicate until the original nonce and receipt state are known.
-
-For a reproducible non-sensitive bug, report the page, wallet type, transaction hash, expected result, and visible error through [Arc repository issues](https://github.com/cooketfun/cooket/issues). Never include secrets.
+Use [ArcScan](https://testnet.arcscan.app) for transaction and address inspection. For reproducible non-sensitive bugs, open a [GitHub issue](https://github.com/cooketfun/cooket/issues) without secrets.

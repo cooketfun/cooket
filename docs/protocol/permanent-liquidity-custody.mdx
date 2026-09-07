@@ -1,0 +1,14 @@
+---
+title: "Permanent liquidity custody"
+description: "Ownerless per-token LP custody and residual handling."
+---
+
+Graduation mints the Uniswap V3 position NFT directly to a dynamically deployed `PermanentLPCustodianV3` dedicated to the launch token. There is no single global custodian address.
+
+The custodian is ownerless and non-upgradeable. Its code exposes no NFT transfer or approval function, no liquidity-decrease function, no rescue path, and no delegatecall surface. Once the graduation manager binds the canonical full-range position ID, principal cannot be withdrawn through the custodian's interface.
+
+Anyone may call `collectFees`. The custodian asks the canonical position manager to send collected fees directly to `PermanentLPFeeVaultV3`, which authenticates the custodian and position before accounting for the assets. Collection does not call `decreaseLiquidity`; it collects fees owed to the position.
+
+Mint rounding leftovers are held by a separate dynamically deployed `PermanentResidualEscrowV3` per token. That escrow accepts only the launch token, canonical USDC, and sub-base-unit native-USDC dust from the bound settlement path. It exposes no withdrawal, sweep, approval, or forwarding method.
+
+“Permanent” describes these contract interfaces. It does not eliminate smart-contract, Uniswap V3, token, chain, or economic risk.

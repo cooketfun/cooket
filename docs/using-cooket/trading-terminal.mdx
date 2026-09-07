@@ -1,0 +1,14 @@
+---
+title: "Trading terminal"
+description: "Current chart, trading, history, and realtime behavior."
+---
+
+The token terminal combines the candlestick chart, trading panel, market overview, recent trades, activity, graduation, and CTO information in responsive desktop and mobile layouts.
+
+The active renderer is `lightweight-charts` through `TokenChart`; `TokenAdvancedChart` currently delegates to it. The repository also contains a renderer-independent TradingView-compatible datafeed adapter, but it does not include or claim licensed TradingView Charting Library assets.
+
+Supported chart intervals are `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, and `1w`. Historical candles come from canonical indexed OHLC data. The chart preserves user pan/zoom and frames sparse active history without rewriting candles or inventing data.
+
+Realtime events are provisional. The browser overlays normalized curve or V3 trades on metrics, candles, and history, handles removed logs, and retires events only after token, chart, and trade surfaces each provide a valid `indexed_through_block`; the shared retirement point is their minimum.
+
+For V3 events, a pool event recipient is not presented as the verified trader. Canonical indexing recovers the transaction sender for confirmed V3 trade records.

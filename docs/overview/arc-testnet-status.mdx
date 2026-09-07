@@ -1,0 +1,22 @@
+---
+title: "Arc Testnet status"
+description: "What the repository and deployment manifests currently prove."
+---
+
+The verified deployment manifests record Cooket V3 and its Uniswap V3 dependencies on Arc Testnet, chain ID `5042002`. The repository implements token creation, curve trading, graduation settlement, graduated swaps, voluntary CTO actions, indexing, API projections, and live-only realtime market events.
+
+| Evidence | Repository-backed status |
+| --- | --- |
+| Cooket contracts | `cooket-v3.json` records a confirmed bootstrap and `verified: true` |
+| V3 periphery | `uniswap-v3-periphery.json` records SwapRouter and QuoterV2 with `verified: true` |
+| Browser writes | Supported only when the explicit Arc Testnet write flag and canonical addresses are configured |
+| Indexer | Supports `idle`, `active`, and bounded `once` modes |
+| API | Implements public reads plus metadata draft/finalization writes |
+| Realtime | Implements Arc WSS ingestion and live-only SSE at `/events` |
+| Database | Migration runner requires the complete sequence `001` through `014` |
+
+This repository evidence does not prove that any public service is currently healthy, that every migration is applied to a particular remote database, or that a particular deployment configuration is active at `cooket.fun`. Service health must be checked in the target environment.
+
+<Warning>
+  Cooket is not documented as an Arc Mainnet protocol. Testnet behavior, balances, addresses, and deployments can change or be reset.
+</Warning>

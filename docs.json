@@ -2,78 +2,32 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "maple",
   "name": "Cooket",
-  "description": "Cooket Arc Testnet documentation.",
-  "colors": {
-    "primary": "#06B6D4",
-    "light": "#22D3EE",
-    "dark": "#2563EB"
-  },
-  "appearance": {
-    "default": "dark"
-  },
-  "background": {
-    "decoration": "grid"
-  },
-  "styling": {
-    "eyebrows": "breadcrumbs",
-    "codeblocks": "dark"
-  },
-  "icons": {
-    "library": "lucide"
-  },
+  "description": "Technical documentation for Cooket, an Arc-native token launch and trading protocol operating on Arc Testnet.",
+  "logo": { "light": "docs/images/cooket.png", "dark": "docs/images/cooket.png", "href": "https://docs.cooket.fun" },
+  "favicon": "docs/images/cooket-icon.png",
+  "colors": { "primary": "#22D3EE", "light": "#67E8F9", "dark": "#0891B2" },
+  "appearance": { "default": "dark" },
+  "background": { "decoration": "grid", "color": { "dark": "#05070D" } },
+  "styling": { "eyebrows": "breadcrumbs", "codeblocks": "dark" },
+  "icons": { "library": "lucide" },
   "navbar": {
-    "links": [
-      {
-        "type": "github",
-        "href": "https://github.com/cooketfun/cooket"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "View repository",
-      "href": "https://github.com/cooketfun/cooket"
-    }
-  },
-  "contextual": {
-    "options": ["copy", "view", "chatgpt"],
-    "display": "toc"
+    "links": [{ "type": "github", "href": "https://github.com/cooketfun/cooket" }],
+    "primary": { "type": "button", "label": "Launch App", "href": "https://cooket.fun" }
   },
   "navigation": {
     "groups": [
-      {
-        "group": "Overview",
-        "pages": ["docs/index", "docs/getting-started/introduction"]
-      },
-      { "group": "Getting Started", "pages": ["docs/getting-started/quickstart", "docs/getting-started/connect-wallet"] },
-      {
-        "group": "Using Cooket",
-        "pages": ["docs/users/create-token", "docs/users/buy-tokens", "docs/users/sell-tokens", "docs/users/discovery", "docs/users/token-pages", "docs/users/transaction-flow"]
-      },
-      {
-        "group": "Developers",
-        "pages": ["docs/developers/overview", "docs/developers/frontend", "docs/developers/api", "docs/developers/indexer", "docs/developers/database", "docs/developers/contract-sdk", "docs/developers/local-development", "docs/developers/environment"]
-      },
-      {
-        "group": "API Reference",
-        "pages": ["docs/api-reference/overview", "docs/api-reference/tokens", "docs/api-reference/cto", "docs/api-reference/discovery", "docs/api-reference/trades", "docs/api-reference/metadata", "docs/api-reference/errors"]
-      },
-      {
-        "group": "Security",
-        "pages": ["docs/security/security-model", "docs/security/wallet-safety", "docs/security/smart-contract-safety", "docs/security/responsible-disclosure"]
-      },
-      {
-        "group": "Operations",
-        "pages": ["docs/operations/split-production"]
-      },
-      {
-        "group": "Reference",
-        "pages": ["docs/reference/contract-addresses", "docs/reference/networks", "docs/reference/glossary", "docs/reference/faq", "docs/reference/troubleshooting"]
-      }
+      { "group": "Overview", "pages": ["docs/overview/introduction", "docs/overview/how-cooket-works", "docs/overview/arc-testnet-status", "docs/overview/quickstart"] },
+      { "group": "Protocol", "pages": ["docs/protocol/economic-model", "docs/protocol/bonding-curve", "docs/protocol/fees-and-distribution", "docs/protocol/graduation", "docs/protocol/uniswap-v3-market", "docs/protocol/permanent-liquidity-custody", "docs/protocol/voluntary-cto", "docs/protocol/trader-rewards"] },
+      { "group": "Using Cooket", "pages": ["docs/using-cooket/connect-wallet", "docs/using-cooket/create-token", "docs/using-cooket/buy-tokens", "docs/using-cooket/sell-tokens", "docs/using-cooket/discover-tokens", "docs/using-cooket/token-pages", "docs/using-cooket/trading-terminal", "docs/using-cooket/transaction-lifecycle"] },
+      { "group": "Developers", "pages": ["docs/developers/system-architecture", "docs/developers/frontend", "docs/developers/api", "docs/developers/indexer", "docs/developers/realtime-market-service", "docs/developers/database", "docs/developers/contract-sdk", "docs/developers/local-development", "docs/developers/environment-configuration"] },
+      { "group": "API Reference", "pages": ["docs/api-reference/overview", "docs/api-reference/tokens", "docs/api-reference/trades", "docs/api-reference/discovery", "docs/api-reference/metadata", "docs/api-reference/cto", "docs/api-reference/realtime-sse", "docs/api-reference/errors"] },
+      { "group": "Security", "pages": ["docs/security/security-model", "docs/security/smart-contract-controls", "docs/security/wallet-safety", "docs/security/testnet-risks", "docs/security/responsible-disclosure"] },
+      { "group": "Reference", "pages": ["docs/reference/arc-testnet-contracts", "docs/reference/network-configuration", "docs/reference/economic-constants", "docs/reference/glossary", "docs/reference/faq", "docs/reference/troubleshooting"] }
     ]
   },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/cooketfun/cooket"
-    }
+  "footer": { "socials": { "github": "https://github.com/cooketfun/cooket" } },
+  "seo": {
+    "indexing": "navigable",
+    "organization": { "name": "Cooket", "url": "https://cooket.fun", "logo": "https://cooket.fun/brand/cooket-icon.png", "sameAs": ["https://github.com/cooketfun/cooket"] }
   }
 }

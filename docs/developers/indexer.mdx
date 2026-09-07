@@ -1,33 +1,14 @@
 ---
 title: "Indexer"
-description: "Finalized event ingestion, discovery, projections, replay, and reorg handling."
+description: "Confirmed Arc logs, canonical provenance, projections, and recovery."
 ---
 
-The Go indexer is configured only for Arc Testnet. The committed schema and
-projection code index native-USDC graduation (`nativeUsdcAmount` /
-`native_usdc_amount`) and voluntary CTO v1 events. Phase 0 still permits idle
-mode by default. Live indexer activation, Arc RPC/DEX verification, and
-applying migration 012 to a persistent environment remain later phases.
+`apps/indexer` supports `idle`, `active`, and bounded `once` modes. Active modes require Arc Testnet chain ID `5042002`, the verified factory and fee-manager roots, an RPC URL, PostgreSQL, and an explicit start configuration.
 
-## Historical processing loop (migration reference)
+The indexer scans only after the configured confirmation depth (default six). It discovers dynamic token, curve, canonical pool, and CTO treasury addresses from authenticated root events and stored canonical relationships. Arc log queries are chunked to at most eight addresses, merged, deduplicated, and canonically ordered. A chunk failure returns no partial result.
 
-1. Load the durable checkpoint.
-2. Read chain head and subtract configured confirmations (default `6`).
-3. Validate that the checkpoint hash remains canonical.
-4. Fetch logs for configured and dynamically discovered contracts.
-5. Discover each launch's token, curve, and canonical pool within bounded ranges.
-6. Discover and match curve `Graduated` with manager `GraduatedV3` in the same transaction and block.
-7. Decode events, transaction senders, and token metadata.
-8. Persist the block, raw event, projections, and checkpoint atomically.
+New launch, graduation, and CTO sources receive bounded exact-address catch-up inside the current scan range. Uniswap V3 swap senders are recovered from the canonical transaction rather than treating the pool event recipient as the trader.
 
-Launch events add the token, curve, and pool to future scans. The indexer also captures ERC-20 transfers for holder balances and Uniswap V3 `Swap` events for graduated market history.
+Each applied block transaction stores raw event provenance, updates projections, and advances `indexer_checkpoints`. On a checkpoint hash mismatch, the indexer invokes canonical recovery instead of continuing from a stale fork.
 
-## Reorganizations and replay
-
-If the stored checkpoint hash differs from the RPC header, recovery marks affected blocks/events/projections noncanonical, rewinds to a common canonical point, and rebuilds derived state. `INDEXER_START_BLOCK` seeds only a new checkpoint; it does not overwrite a durable one. A finite `INDEXER_STOP_BLOCK` supports controlled replay.
-
-Application token exclusions suppress derived public projections for explicitly recorded exceptions while preserving canonical raw chain events.
-
-<Warning>
-  The indexer is a query system, not the financial source of truth. Transaction construction must use current contract reads.
-</Warning>
+The configured batch size controls block range, not address count. RPC retry logic treats oversized range failures as permanent rather than retrying indefinitely.

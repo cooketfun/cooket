@@ -1,25 +1,21 @@
 ---
 title: "Contract SDK"
-description: "Shared chains, economics, addresses, ABIs, and receipt parsing."
+description: "Shared Arc constants, ABIs, receipt parsing, and deterministic helpers."
 ---
 
-`packages/contracts-sdk` is a private workspace package consumed by the web application. It exports:
+`packages/contracts-sdk` centralizes generated Cooket V3 ABIs and client-safe constants.
 
-- Base chain definitions and chain IDs;
-- fixed supply, curve allocation, and exact empty-curve graduation gross constants;
-- environment-backed production contract addresses;
-- ABI fragments for the factory, curve, ERC-20, fee manager, graduation manager, custodian, fee vault, and settlement executor;
-- `encodeCreateToken` and strict `TokenLaunchedV3` receipt parsing.
+Key exports include Arc Testnet chain ID, native and ERC-20 USDC units, canonical USDC, fixed supply, curve allocation, exact graduation gross, supported chain metadata, contract address environment parsing, receipt parsers, quote types, trade encoders, and deterministic token/CTO address helpers.
 
 ```ts
 import {
-  BASE_MAINNET_CHAIN_ID,
-  FIXED_TOKEN_SUPPLY,
-  cooketFactoryAbi,
+  ARC_TESTNET_CHAIN_ID,
+  ARC_NATIVE_USDC_UNIT,
+  ARC_ERC20_USDC_UNIT,
+  EXACT_GRADUATION_GROSS_NATIVE_USDC,
 } from "@cooket/contracts-sdk";
-
-console.log(BASE_MAINNET_CHAIN_ID); // 8453
-console.log(FIXED_TOKEN_SUPPLY);    // bigint base units
 ```
 
-The package still contains Base Sepolia definitions for legacy tooling and tests, but the Arc web explicitly rejects any configured chain other than Arc Testnet (`5042002`).
+Runtime addresses are injected through environment variables generated from the verified manifest. Per-token curve, pool, custodian, residual escrow, and CTO treasury addresses must be resolved from canonical contract relationships or indexed events; they are not global constants.
+
+Historical Base chain IDs remain exported only as explicitly labeled test/reference constants. They are not supported Cooket runtime chains.

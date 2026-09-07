@@ -1,0 +1,22 @@
+---
+title: "Smart-contract controls"
+description: "Implemented authentication, accounting, settlement, and custody checks."
+---
+
+Current V3 controls include:
+
+- fixed one-time supply minted only during factory initialization;
+- authenticated factory, token, curve, fee-manager, and graduation relationships;
+- one-time bootstrap bindings whose authorities are consumed;
+- exact fee conservation with remainder assigned to protocol;
+- slippage and deadline protection, reentrancy guards, and conservative integer rounding;
+- active-reserve accounting that excludes forced native value;
+- exact graduation inventory, reserve, pool-price, conversion, and settlement checks;
+- canonical pool reservation before trading and rejection of previously initialized or unsafe candidates;
+- ownerless per-token LP custody without liquidity-decrease, NFT approval/transfer, rescue, or delegatecall paths;
+- permanent residual escrow without withdrawals;
+- asset-backed community and rewards vault accounting;
+- two-step, delayed treasury rotation where mutable treasuries exist;
+- creator-only CTO proposal, controller acceptance, timelock, grace window, stale-recipient check, and permanent activation.
+
+These are specific code properties, not proof against all vulnerabilities. Governance can still exercise the roles exposed by owned contracts, and the trader-rewards distributor owner decides which immutable Merkle roots to publish.

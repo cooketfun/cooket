@@ -1,24 +1,21 @@
 ---
 title: "Security model"
-description: "Trust boundaries, risks, and conservative assumptions."
+description: "Cooket trust boundaries and repository-proven controls."
 ---
 
-The Arc repository is non-custodial at the wallet layer: users connect a selected external EVM wallet, and the application and backend never receive wallet keys. There is no email/social wallet creation, delegated signer, custodial wallet, developer wallet, or backend signing path. Phase 0 protocol transactions remain disabled before simulation or submission.
+Cooket separates user signing, contract execution, and indexed presentation.
 
-## Trust boundaries
-
-| Boundary | Assumption and risk |
+| Boundary | Security assumption and risk |
 | --- | --- |
-| Browser and wallet | User verifies origin, network, target, value, approval, and slippage |
-| Smart contracts | Bugs or unexpected interactions can cause loss despite tests and invariants |
-| Tokens and markets | Permissionless tokens may be misleading, volatile, illiquid, or worthless |
-| Uniswap V3 | External protocol, pools, periphery, and market behavior add dependency risk |
-| RPC providers | Can be delayed, unavailable, rate-limited, or return inconsistent reads |
-| API/indexer | Can lag or display incomplete data; not authoritative for balances or settlement |
-| Metadata links | Creator-provided content may be inaccurate or malicious |
+| External wallet | User verifies origin, chain, account, target, value, approval, and minimum output |
+| Web application | Builds and simulates requests, but browser code and dependencies can fail or be compromised |
+| Smart contracts | Enforce protocol rules; bugs, dependency interactions, and economic assumptions remain risks |
+| Protocol Safe | Controls contract ownership/treasury roles recorded by the manifest; signer security and decisions are trusted |
+| Uniswap V3 | Adds external factory, pool, position-manager, router, and quoter dependencies |
+| RPC/WSS | May be unavailable, delayed, rate-limited, or inconsistent |
+| Indexer/API | Can lag or be incomplete and is not authoritative for wallet balances or settlement |
+| Metadata/tokens | Creator-supplied content and permissionless assets can be malicious or worthless |
 
-The repository contains extensive unit, invariant, integration, and fork-test code. That is engineering evidence, not a claim of a completed independent external audit. No “risk-free” or “fully secure” claim is made.
+The repository contains unit, invariant, integration, and deployment-configuration tests. The deployment manifests mark source verification as complete. Neither fact is equivalent to an independent security audit or a guarantee of safety.
 
-<Warning>
-  Smart-contract transactions are irreversible. Use only amounts you can afford to lose and verify every wallet prompt.
-</Warning>
+Financial and identity boundaries fail closed where required: unsupported chains, missing write configuration, mismatched signers, invalid canonical relationships, unsafe V3 pools, insufficient allowances, and inconsistent accounting stop the relevant path.
