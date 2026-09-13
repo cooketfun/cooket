@@ -12,3 +12,7 @@ If a submitted buy is larger than required, `quoteBuy` caps `acceptedGross`, cal
 Settlement requires the reserved canonical pool to remain at the contract's exact expected initial price. It converts 18-decimal native USDC to exactly `7,245,000,000` 6-decimal ERC-20 USDC base units, then mints a full-range V3 position. Token rounding residual is bounded to at most one token; USDC residual is bounded to at most one 6-decimal base unit. Residuals go to a new per-token permanent escrow with no withdrawal path.
 
 After forwarding, `activeNativeUsdcReserve` is zero. The contract retains a terminal reserve coordinate for terminal price reporting; this coordinate is not a claim that the curve still holds the principal.
+
+## Proposed Mainnet V4
+
+V4 graduates at exactly `14,490` net native USDC from an empty-curve gross input of `14,636.363636363636363636`. Settlement converts the principal to exactly `14,490,000,000` canonical ERC-20 USDC base units and pairs it with the unchanged 200 million-token LP allocation, for an expected initial LP value of `28,980` USDC. Canonical USDC and Uniswap V3 dependencies are constructor inputs; no Mainnet addresses are encoded by this phase.

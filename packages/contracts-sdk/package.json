@@ -8,9 +8,14 @@
   "scripts": {
     "generate-abi": "node scripts/check-abi-parity.mjs --write",
     "check-abi-parity": "node scripts/check-abi-parity.mjs",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "viem": "^2.55.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "5.9.3"
   }
 }

@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ITokenCommunityVaultV4} from "../../src/v4/interfaces/ITokenCommunityVaultV4.sol";
+import {TokenCommunityVaultV4} from "../../src/v4/TokenCommunityVaultV4.sol";
+import {CooketV4TestBase} from "./helpers/CooketV4TestBase.sol";
+
+contract CommunityTreasuryReceiverV4 {
+    function acceptTreasury(TokenCommunityVaultV4 vault) external {
+        vault.acceptTreasury();
+    }
+
+    receive() external payable {}
+}
+
+contract TokenCommunityVaultV4Test is CooketV4TestBase {
+    function testCanonicalBindingsVersionsAndNoArbitraryWithdrawalSurface() public {
+        assertEq(communityVault.feeManager(), address(feeManager));
+        assertEq(communityVault.permanentLPFeeVault(), address(lpFeeVault));
+        assertEq(communityVault.lpFeeVaultBootstrapAuthority(), address(0));
+        assertEq(communityVault.protocolVersionHash(), keccak256("endpoint-cp-v4"));
+        assertEq(communityVault.feePolicyHash(), keccak256("cooket-fee-design-b-v3"));
+        (bool ok,) = address(communityVault)
+            .call(abi.encodeWithSignature("withdraw(address,address,uint256)", buyer, address(canonicalUsdc), 1));
+        assertFalse(ok);
+    }
+
+    function testNativeFundingPreservesLaunchTokenProvenanceAndExactBacking() public {
+        _buy(buyer, curve, 0.1 ether);
+        uint256 amount = feeManager.communityFeesAccruedByToken(address(token));
+        vm.prank(buyer);
+        feeManager.fundCommunityVault(address(token));
+
+        assertEq(amount, 200_000_000_000_000);
+        assertEq(communityVault.accrued(address(token), address(0)), amount);
+        assertEq(communityVault.totalAccrued(address(0)), amount);
+        assertEq(address(communityVault).balance, amount);
+        assertEq(feeManager.communityFeesAccruedByToken(address(token)), 0);
+        assertEq(feeManager.communityFeesAccrued(), 0);
+    }
+
+    function testERC20FundingRequiresCanonicalLPVaultAndExactBacking() public {
+        uint256 usdcAmount6 = 1_000_000;
+        vm.expectRevert(ITokenCommunityVaultV4.UnauthorizedFundingSource.selector);
+        communityVault.recordERC20Funding(address(token), address(canonicalUsdc), usdcAmount6);
+
+        vm.prank(address(lpFeeVault));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ITokenCommunityVaultV4.InsufficientBacking.selector, address(canonicalUsdc), uint256(0), usdcAmount6
+            )
+        );
+        communityVault.recordERC20Funding(address(token), address(canonicalUsdc), usdcAmount6);
+
+        canonicalUsdc.mint(address(communityVault), usdcAmount6);
+        vm.prank(address(lpFeeVault));
+        communityVault.recordERC20Funding(address(token), address(canonicalUsdc), usdcAmount6);
+        vm.prank(address(curve));
+        assertTrue(token.transfer(address(communityVault), 2 ether));
+        vm.prank(address(lpFeeVault));
+        communityVault.recordERC20Funding(address(token), address(token), 2 ether);
+
+        assertEq(communityVault.accrued(address(token), address(canonicalUsdc)), usdcAmount6);
+        assertEq(communityVault.accrued(address(token), address(token)), 2 ether);
+        assertEq(communityVault.totalAccrued(address(canonicalUsdc)), usdcAmount6);
+        assertEq(communityVault.totalAccrued(address(token)), 2 ether);
+
+        uint256 treasuryUsdcBefore = canonicalUsdc.balanceOf(treasury);
+        vm.prank(buyer);
+        communityVault.forwardToTreasury(address(token), address(canonicalUsdc));
+        assertEq(canonicalUsdc.balanceOf(treasury) - treasuryUsdcBefore, usdcAmount6);
+        assertEq(communityVault.accrued(address(token), address(canonicalUsdc)), 0);
+        assertEq(communityVault.totalAccrued(address(canonicalUsdc)), 0);
+    }
+
+    function testCommunityTreasuryLifecycleAndPermissionlessForwardingCannotRedirect() public {
+        _buy(buyer, curve, 0.1 ether);
+        feeManager.fundCommunityVault(address(token));
+        uint256 amount = communityVault.accrued(address(token), address(0));
+
+        vm.expectRevert(ITokenCommunityVaultV4.InvalidTreasury.selector);
+        communityVault.proposeTreasury(address(0));
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, buyer));
+        communityVault.proposeTreasury(buyer);
+
+        CommunityTreasuryReceiverV4 newTreasury = new CommunityTreasuryReceiverV4();
+        communityVault.proposeTreasury(address(newTreasury));
+        vm.expectRevert(ITokenCommunityVaultV4.TreasuryDelayNotElapsed.selector);
+        newTreasury.acceptTreasury(communityVault);
+        vm.warp(block.timestamp + 48 hours);
+        newTreasury.acceptTreasury(communityVault);
+
+        vm.prank(buyer);
+        communityVault.forwardToTreasury(address(token), address(0));
+        assertEq(address(newTreasury).balance, amount);
+        assertEq(communityVault.accrued(address(token), address(0)), 0);
+        assertEq(communityVault.totalAccrued(address(0)), 0);
+        vm.expectRevert(ITokenCommunityVaultV4.NothingToForward.selector);
+        communityVault.forwardToTreasury(address(token), address(0));
+    }
+
+    function testOwnerCanCancelPendingCommunityTreasuryProposal() public {
+        communityVault.proposeTreasury(buyer);
+        assertEq(communityVault.pendingTreasury(), buyer);
+        communityVault.cancelTreasuryProposal();
+        assertEq(communityVault.pendingTreasury(), address(0));
+        assertEq(communityVault.pendingTreasuryAcceptAfter(), 0);
+        assertEq(communityVault.treasury(), treasury);
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(buyer);
+        vm.expectRevert(ITokenCommunityVaultV4.UnauthorizedPendingTreasury.selector);
+        communityVault.acceptTreasury();
+    }
+
+    function testPendingCommunityTreasuryIsInvalidatedWhenOwnershipTransfers() public {
+        address newOwner = makeAddr("newCommunityOwner");
+        communityVault.proposeTreasury(buyer);
+        communityVault.transferOwnership(newOwner);
+        vm.prank(newOwner);
+        communityVault.acceptOwnership();
+
+        assertEq(communityVault.owner(), newOwner);
+        assertEq(communityVault.pendingTreasury(), address(0));
+        assertEq(communityVault.pendingTreasuryAcceptAfter(), 0);
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(buyer);
+        vm.expectRevert(ITokenCommunityVaultV4.UnauthorizedPendingTreasury.selector);
+        communityVault.acceptTreasury();
+    }
+
+    function testDirectNativeFundingAndCreatorControlAreRejected() public {
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        vm.expectRevert(ITokenCommunityVaultV4.UnauthorizedFundingSource.selector);
+        communityVault.depositNative{value: 1 ether}(address(token));
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, creator));
+        communityVault.proposeTreasury(creator);
+    }
+}

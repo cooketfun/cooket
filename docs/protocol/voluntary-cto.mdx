@@ -5,6 +5,8 @@ description: "Creator-initiated, one-way creator-fee routing to a Safe-controlle
 
 The voluntary community takeover (CTO) system lets the immutable original creator propose a one-way transition of the token's creator-fee recipient to a deterministic per-token treasury. It does not change token authorship, supply, curve economics, graduation authority, or protocol/community/trader fee shares.
 
+Arc Testnet currently uses the V3 `cooket-voluntary-cto-v1` lifecycle below. The proposed Mainnet generation uses V4 `cooket-voluntary-cto-v2` atomic confirmation and has not been deployed.
+
 <Steps>
   <Step title="Proposal">
     Only the canonical creator can propose. The controller must be a contract, and the registry deploys a deterministic `CTOTreasuryV3`. A proposal can include a metadata hash and URI of at most 256 bytes.
@@ -23,3 +25,9 @@ The voluntary community takeover (CTO) system lets the immutable original creato
 The treasury is controlled by the configured controller contract (the deployment direction uses a Safe). Once active, it can pull new curve creator fees and its creator share of LP fees. It can transfer native USDC, canonical USDC, the launch token, and explicitly registered ERC-20 assets. Historical checkpointed fees remain claimable by the prior recipient.
 
 The HTTP CTO endpoints are indexed read models. Transactions go directly from an external wallet/controller to the contracts.
+
+## Proposed Mainnet V4 atomic confirmation
+
+Only the immutable creator can create a proposal. The registry deploys a deterministic `CTOTreasuryV4`, and its contract controller must confirm through that treasury within seven days. Confirmation checkpoints pre-CTO curve fees, first collects canonical LP fees for graduated tokens, changes the creator route, marks the proposal and treasury active, and emits `CTOConfirmed` followed by `CTOActivated` in the same transaction. Any relationship, collection, checkpoint, or activation failure reverts the complete confirmation.
+
+V4 has no accepted/timelock/grace state and no public `executeCTO` path. The creator may cancel only a proposed item; an unconfirmed proposal may be expired after seven days; activation is permanent.

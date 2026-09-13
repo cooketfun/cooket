@@ -26,6 +26,11 @@ V3 graduation uses the canonical Uniswap V3 position manager and permanent
 custody contracts; it does not use an adapter, fungible LP locker, or manual
 post-launch curve configuration.
 
+The address-free `src/v4` graph is the proposed Mainnet-ready generation. It uses
+`endpoint-cp-v4`, doubled native-USDC curve coordinates, constructor-injected
+canonical USDC, and atomic `cooket-voluntary-cto-v2` confirmation. It contains no
+Mainnet chain metadata, addresses, broadcast script, or deployment manifest.
+
 ## Local validation
 
 ```shell

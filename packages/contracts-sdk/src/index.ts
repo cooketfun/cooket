@@ -23,6 +23,17 @@ import {
   permanentLPCustodianV3Abi,
   permanentLPCustodianDeployerV3Abi,
   permanentLPFeeVaultV3Abi,
+  cooketCurveV4Abi,
+  cooketFactoryV4Abi,
+  cooketTokenV4Abi,
+  ctoRegistryV4Abi,
+  ctoTreasuryV4Abi,
+  feeManagerV4Abi,
+  graduationManagerV4Abi,
+  graduationSettlementExecutorV4Abi,
+  permanentLPCustodianV4Abi,
+  permanentLPCustodianDeployerV4Abi,
+  permanentLPFeeVaultV4Abi,
 } from "./abi.generated.ts";
 
 export {
@@ -37,6 +48,17 @@ export {
   permanentLPCustodianV3Abi,
   permanentLPCustodianDeployerV3Abi,
   permanentLPFeeVaultV3Abi,
+  cooketCurveV4Abi,
+  cooketFactoryV4Abi,
+  cooketTokenV4Abi,
+  ctoRegistryV4Abi,
+  ctoTreasuryV4Abi,
+  feeManagerV4Abi,
+  graduationManagerV4Abi,
+  graduationSettlementExecutorV4Abi,
+  permanentLPCustodianV4Abi,
+  permanentLPCustodianDeployerV4Abi,
+  permanentLPFeeVaultV4Abi,
 } from "./abi.generated.ts";
 
 export const ARC_TESTNET_CHAIN_ID = 5042002 as const;
@@ -49,6 +71,12 @@ export const ARC_CANONICAL_USDC = "0x3600000000000000000000000000000000000000" a
 export const COOKET_ARC_V1_DOMAIN_HASH = keccak256(stringToHex("COOKET_ARC_V1"));
 export const COOKET_CTO_POLICY_HASH = keccak256(stringToHex("cooket-voluntary-cto-v1"));
 export const COOKET_CTO_DOMAIN = keccak256(stringToHex("COOKET_VOLUNTARY_CTO_V1"));
+export const COOKET_V4_PROTOCOL_VERSION = "endpoint-cp-v4" as const;
+export const COOKET_V4_PROTOCOL_VERSION_HASH = keccak256(stringToHex(COOKET_V4_PROTOCOL_VERSION));
+export const COOKET_V4_CTO_POLICY = "cooket-voluntary-cto-v2" as const;
+export const COOKET_V4_CTO_POLICY_HASH = keccak256(stringToHex(COOKET_V4_CTO_POLICY));
+export const COOKET_V4_CTO_DOMAIN = keccak256(stringToHex("COOKET_VOLUNTARY_CTO_V2"));
+export const COOKET_V4_ARC_PROTOCOL_DOMAIN_HASH = keccak256(stringToHex("COOKET_ARC_V2"));
 /** Historical test/reference constants. They are not supported runtime chains. */
 export const BASE_SEPOLIA_CHAIN_ID = 84532 as const;
 export const BASE_MAINNET_CHAIN_ID = 8453 as const;
@@ -56,6 +84,14 @@ export type CooketChainId = typeof ARC_TESTNET_CHAIN_ID;
 export const FIXED_TOKEN_SUPPLY = BigInt("1000000000000000000000000000");
 export const CURVE_ALLOCATION = BigInt("800000000000000000000000000");
 export const EXACT_GRADUATION_GROSS_NATIVE_USDC = BigInt("7318181818181818181818");
+export const V4_VIRTUAL_TOKEN_RESERVE = BigInt("1066666666666666666666666667");
+export const V4_VIRTUAL_NATIVE_USDC_RESERVE = BigInt("4830000000000000000000");
+export const V4_K = V4_VIRTUAL_TOKEN_RESERVE * V4_VIRTUAL_NATIVE_USDC_RESERVE;
+export const V4_GRADUATION_NATIVE_USDC_RESERVE = BigInt("14490000000000000000000");
+export const V4_EXACT_GRADUATION_GROSS_NATIVE_USDC = BigInt("14636363636363636363636");
+export const V4_INITIAL_NATIVE_USDC_PRICE = BigInt("4528125000000");
+export const V4_TERMINAL_NATIVE_USDC_PRICE = BigInt("72450000000000");
+export const V4_GRADUATION_USDC_BASE_UNITS = BigInt("14490000000");
 
 export function computeArcLaunchSeed(
   factory: Address,
@@ -169,6 +205,75 @@ export function computeCTOProposalId(
   return keccak256(encodeAbiParameters(
     [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "uint64" }, { type: "address" }, { type: "address" }, { type: "bytes32" }],
     [COOKET_CTO_DOMAIN, chainId, getAddress(registry), getAddress(token), requireUint64(tokenNonce, "tokenNonce"), getAddress(treasury), getAddress(controller), resolvedMetadataHash],
+  ));
+}
+
+/** Address-free V4 launch seed. The caller must supply the selected network chain ID. */
+export function computeV4LaunchSeed(
+  chainId: bigint,
+  factory: Address,
+  creator: Address,
+  userSalt: Hex,
+  name: string,
+  symbol: string,
+): Hex {
+  return keccak256(encodeAbiParameters(
+    [
+      { type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "address" },
+      { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" },
+    ],
+    [
+      COOKET_V4_ARC_PROTOCOL_DOMAIN_HASH, chainId, getAddress(factory), getAddress(creator), userSalt,
+      keccak256(stringToHex(name)), keccak256(stringToHex(symbol)),
+    ],
+  ));
+}
+
+export function computeV4CTOTreasurySalt(
+  chainId: bigint,
+  registry: Address,
+  token: Address,
+  controller: Address,
+  tokenNonce: bigint,
+): Hex {
+  return keccak256(encodeAbiParameters(
+    [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "uint64" }],
+    [COOKET_V4_CTO_DOMAIN, chainId, getAddress(registry), getAddress(token), getAddress(controller), requireUint64(tokenNonce, "tokenNonce")],
+  ));
+}
+
+export function predictV4CTOTreasuryAddress(
+  treasuryCreationCode: Hex,
+  chainId: bigint,
+  registry: Address,
+  token: Address,
+  controller: Address,
+  canonicalUsdc: Address,
+  tokenNonce: bigint,
+): Address {
+  const constructorArgs = encodeAbiParameters(
+    [{ type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }],
+    [getAddress(registry), getAddress(token), getAddress(controller), getAddress(canonicalUsdc)],
+  );
+  return getCreate2Address({
+    from: getAddress(registry),
+    salt: computeV4CTOTreasurySalt(chainId, registry, token, controller, tokenNonce),
+    bytecodeHash: keccak256(concatHex([treasuryCreationCode, constructorArgs])),
+  });
+}
+
+export function computeV4CTOProposalId(
+  chainId: bigint,
+  registry: Address,
+  token: Address,
+  tokenNonce: bigint,
+  treasury: Address,
+  controller: Address,
+  resolvedMetadataHash: Hex,
+): Hex {
+  return keccak256(encodeAbiParameters(
+    [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "uint64" }, { type: "address" }, { type: "address" }, { type: "bytes32" }],
+    [COOKET_V4_CTO_DOMAIN, chainId, getAddress(registry), getAddress(token), requireUint64(tokenNonce, "tokenNonce"), getAddress(treasury), getAddress(controller), resolvedMetadataHash],
   ));
 }
 

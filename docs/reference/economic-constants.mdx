@@ -1,6 +1,6 @@
 ---
 title: "Economic constants"
-description: "Canonical endpoint-cp-v3 values and fee policies."
+description: "Arc Testnet V3 and proposed Mainnet V4 economic constants."
 ---
 
 | Constant | Value |
@@ -27,3 +27,23 @@ description: "Canonical endpoint-cp-v3 values and fee policies."
 | Mutable treasury delay | 48 hours |
 
 Percentages apply after integer fee calculation. Each named share rounds down independently and the protocol receives the exact remainder.
+
+## Proposed Mainnet V4 differences
+
+| Constant | V4 value |
+| --- | ---: |
+| Protocol version | `endpoint-cp-v4` |
+| CTO policy | `cooket-voluntary-cto-v2` |
+| Virtual token reserve | 1,066,666,666.666666666666666667 tokens |
+| Virtual native-USDC reserve | 4,830 USDC |
+| K (base units) | `5152000000000000000000000001610000000000000000000` |
+| Net graduation reserve | 14,490 USDC |
+| Exact empty-curve gross | 14,636.363636363636363636 USDC |
+| Initial price | 0.000004528125 USDC/token |
+| Terminal price | 0.00007245 USDC/token |
+| Terminal FDV | 72,450 USDC |
+| Canonical USDC settlement | 14,490,000,000 base units |
+| CTO confirmation window | 7 days |
+| CTO post-confirmation delay | none |
+
+The V3 fee policy hash remains valid because V4 does not change the 1% fee or any curve/LP distribution percentage. Arc Testnet V3 values and lifecycle remain unchanged.

@@ -1,9 +1,11 @@
 ---
 title: "Economic model"
-description: "Canonical Cooket V3 supply, reserves, prices, and graduation values."
+description: "Cooket V3 testnet and proposed V4 mainnet supply, reserves, prices, and graduation values."
 ---
 
 Cooket V3 uses the `endpoint-cp-v3` shifted constant-product model. All launch tokens have 18 decimals.
+
+The currently deployed Arc Testnet generation remains V3. The address-free Mainnet-ready contract generation is `endpoint-cp-v4`; it is not a Mainnet deployment record.
 
 | Quantity | Human-readable value | Base units |
 | --- | ---: | ---: |
@@ -24,5 +26,9 @@ Terminal fully diluted valuation is terminal price multiplied by the full 1 bill
 ```
 
 FDV is not the active curve reserve and not the graduation principal. At graduation, the net principal is 7,245 native USDC. The larger exact gross includes the curve trading fee.
+
+## Proposed Mainnet V4
+
+V4 preserves supply, allocations, the virtual token reserve, and fee percentages. It doubles the native-USDC coordinates: virtual reserve `4,830`, net graduation reserve `14,490`, exact gross `14,636.363636363636363636`, initial price `0.000004528125`, terminal price `0.00007245`, and terminal FDV `72,450` USDC. The invariant is recomputed as `1,066,666,666.666666666666666667 × 4,830`; its exact base-unit value is `5152000000000000000000000001610000000000000000000`, exactly twice V3 K rather than a copied V3 value.
 
 See [Bonding curve](/docs/protocol/bonding-curve), [Fees and distribution](/docs/protocol/fees-and-distribution), and [Economic constants](/docs/reference/economic-constants).

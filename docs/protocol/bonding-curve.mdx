@@ -30,3 +30,5 @@ The curve computes a gross reserve output from the reduced sold supply. That amo
 Buys and sells include minimum-output and deadline checks. After graduation, both quote functions and curve trading revert with `TradingClosed`.
 
 Forced native value is reported as unaccounted native USDC and is excluded from reserve coordinates, quotes, and spot-price calculations.
+
+`CooketCurveV4` applies the same rounding and fee rules with a `4,830` native-USDC virtual coordinate and `14,490` graduation coordinate. V3 remains the deployed Arc Testnet curve.
