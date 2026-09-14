@@ -4,8 +4,11 @@ src = "src"
 out = "out"
 libs = ["lib"]
 solc_version = "0.8.28"
+evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
+bytecode_hash = "ipfs"
+remappings = ["v4-core/=lib/v4-core/"]
 
 [fmt]
 ignore = ["lib/**"]
