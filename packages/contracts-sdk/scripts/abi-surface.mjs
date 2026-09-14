@@ -76,7 +76,7 @@ export const abiSurface = {
   },
   FeeManagerV4: {
     artifact: "FeeManagerV4.sol/FeeManagerV4.json",
-    functions: ["CTO_POLICY_HASH", "PROTOCOL_VERSION_HASH", "acceptCreatorPayout", "activateCTO", "cancelCreatorPayout", "checkpointCreatorFeesForCTO", "checkpointedCreatorFees", "claimCheckpointedCreatorFees", "claimCreatorFees", "claimProtocolFees", "communityFeesAccrued", "communityFeesAccruedByToken", "communityVault", "creatorFeesAccrued", "creatorOf", "creatorPayoutOf", "ctoActive", "ctoPolicyHash", "ctoRegistry", "ctoTreasuryOf", "curveOf", "factory", "feePolicyHash", "pendingCreatorPayoutOf", "proposeCreatorPayout", "protocolFeesAccrued", "protocolVersionHash", "totalCreatorFeesAccrued", "totalLiabilities", "traderRewardsFeesAccrued", "traderRewardsFeesAccruedByToken", "traderRewardsVault", "treasury"],
+    functions: ["CTO_POLICY_HASH", "PROTOCOL_VERSION_HASH", "acceptCreatorPayout", "activateCTO", "cancelCreatorPayout", "checkpointCreatorFeesForCTO", "checkpointedCreatorFees", "claimCheckpointedCreatorFees", "claimCreatorFees", "claimProtocolFees", "communityFeesAccrued", "communityFeesAccruedByToken", "communityVault", "creatorFeesAccrued", "creatorOf", "creatorPayoutOf", "ctoActive", "ctoPolicyHash", "ctoRegistry", "ctoTreasuryOf", "curveOf", "factory", "feePolicyHash", "pendingCreatorPayoutOf", "proposeCreatorPayout", "protocolFeesAccrued", "protocolVersionHash", "switchCreatorPayoutForCTO", "totalCreatorFeesAccrued", "totalLiabilities", "traderRewardsFeesAccrued", "traderRewardsFeesAccruedByToken", "traderRewardsVault", "treasury"],
     events: ["CTOFeeRouteActivated", "CheckpointedCreatorFeesClaimed", "CreatorFeeCheckpointed", "CreatorFeesClaimed", "PendingCreatorPayoutInvalidated"],
   },
   CTORegistryV4: {

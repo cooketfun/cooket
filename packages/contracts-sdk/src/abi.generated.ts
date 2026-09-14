@@ -381,6 +381,7 @@ export const feeManagerV4Abi = [
   {"type":"function","name":"proposeCreatorPayout","inputs":[{"name":"token","type":"address"},{"name":"proposedPayout","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
   {"type":"function","name":"protocolFeesAccrued","inputs":[],"outputs":[{"name":"","type":"uint256"}],"stateMutability":"view"},
   {"type":"function","name":"protocolVersionHash","inputs":[],"outputs":[{"name":"","type":"bytes32"}],"stateMutability":"pure"},
+  {"type":"function","name":"switchCreatorPayoutForCTO","inputs":[{"name":"token","type":"address"},{"name":"ctoTreasury","type":"address"}],"outputs":[],"stateMutability":"nonpayable"},
   {"type":"function","name":"totalCreatorFeesAccrued","inputs":[],"outputs":[{"name":"","type":"uint256"}],"stateMutability":"view"},
   {"type":"function","name":"totalLiabilities","inputs":[],"outputs":[{"name":"","type":"uint256"}],"stateMutability":"view"},
   {"type":"function","name":"traderRewardsFeesAccrued","inputs":[],"outputs":[{"name":"","type":"uint256"}],"stateMutability":"view"},

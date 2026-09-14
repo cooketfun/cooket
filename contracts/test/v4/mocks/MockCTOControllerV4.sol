@@ -8,6 +8,11 @@ contract MockCTOControllerV4 {
         treasury.confirmCTO(proposalId);
     }
 
+    function acceptThenRevert(CTOTreasuryV4 treasury, bytes32 proposalId) external {
+        treasury.confirmCTO(proposalId);
+        revert("CONTROLLER_REVERTED");
+    }
+
     function registerAsset(CTOTreasuryV4 treasury, address asset) external {
         treasury.registerSupportedAsset(asset);
     }

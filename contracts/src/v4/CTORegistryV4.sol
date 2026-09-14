@@ -103,6 +103,7 @@ contract CTORegistryV4 is ICTORegistryV4, ReentrancyGuard {
         activeTreasury[details.token] = details.treasury;
         fees.checkpointCreatorFeesForCTO(details.token, details.treasury);
         if (graduated) _collectCanonicalLPFees(details.token, curve, manager);
+        fees.switchCreatorPayoutForCTO(details.token, details.treasury);
         fees.activateCTO(details.token, details.treasury);
         emit CTOActivated(
             proposalId, details.token, details.treasury, details.controller, details.previousRecipient, msg.sender

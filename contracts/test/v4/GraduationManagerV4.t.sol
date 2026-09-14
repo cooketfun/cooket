@@ -167,6 +167,18 @@ contract GraduationManagerV4Test is Test {
         _assertRollbackAfterFinalBuy();
     }
 
+    function testManipulatedCanonicalPoolPriceFailsClosedAndRollsBackFinalBuy() public {
+        (address token, CooketCurveV4 curve) = _launch("manipulated-price");
+        address pool = manager.canonicalPoolOf(token);
+        vm.mockCall(
+            pool,
+            abi.encodeWithSignature("slot0()"),
+            abi.encode(uint160(1), int24(0), uint16(0), uint16(0), uint16(0), uint8(0), true)
+        );
+        _assertFinalBuyRollback(token, curve);
+        vm.clearMockedCalls();
+    }
+
     function testCanonicalUsdcIsFixedAndNoWrapperSurfaceExists() public {
         assertEq(manager.canonicalUsdc(), address(0x8000000000000000000000000000000000000001));
         assertEq(vault.canonicalUsdc(), address(0x8000000000000000000000000000000000000001));
@@ -325,6 +337,10 @@ contract GraduationManagerV4Test is Test {
 
     function _assertRollbackAfterFinalBuy() private {
         (address token, CooketCurveV4 curve) = _launch("rollback");
+        _assertFinalBuyRollback(token, curve);
+    }
+
+    function _assertFinalBuyRollback(address token, CooketCurveV4 curve) private {
         uint256 curveToken = IERC20(token).balanceOf(address(curve));
         uint256 curveNativeUsdc = address(curve).balance;
         uint256 managerToken = IERC20(token).balanceOf(address(manager));

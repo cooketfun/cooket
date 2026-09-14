@@ -248,18 +248,28 @@ contract FeeManagerV4 is IFeeManagerV4, Ownable2Step, ReentrancyGuard {
         _checkpointedCTOTreasuryOf[token] = ctoTreasury;
     }
 
-    function activateCTO(address token, address ctoTreasury) external override {
+    function switchCreatorPayoutForCTO(address token, address ctoTreasury) external override {
         if (msg.sender != ctoRegistry) revert UnauthorizedCTORegistry();
         if (ctoActive[token]) revert CTOAlreadyActive();
         if (_checkpointedCTOTreasuryOf[token] != ctoTreasury) revert CTOCheckpointMissing();
         address previousRecipient = creatorPayoutOf[token];
         if (previousRecipient == address(0)) revert InvalidCTOTreasury();
 
-        delete _checkpointedCTOTreasuryOf[token];
         creatorPayoutOf[token] = ctoTreasury;
         ctoTreasuryOf[token] = ctoTreasury;
-        ctoActive[token] = true;
         emit CTOFeeRouteActivated(token, previousRecipient, ctoTreasury);
+    }
+
+    function activateCTO(address token, address ctoTreasury) external override {
+        if (msg.sender != ctoRegistry) revert UnauthorizedCTORegistry();
+        if (ctoActive[token]) revert CTOAlreadyActive();
+        if (_checkpointedCTOTreasuryOf[token] != ctoTreasury) revert CTOCheckpointMissing();
+        if (creatorPayoutOf[token] != ctoTreasury || ctoTreasuryOf[token] != ctoTreasury) {
+            revert CTORouteNotSwitched();
+        }
+
+        delete _checkpointedCTOTreasuryOf[token];
+        ctoActive[token] = true;
     }
 
     function claimCheckpointedCreatorFees(address token, address recipient)

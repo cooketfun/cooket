@@ -225,6 +225,28 @@ contract PermanentLPCustodianV4Test is CooketV4TestBase {
         assertEq(lpFeeVault.totalLPFeesAccrued(address(token)), 101);
     }
 
+    function testCollectReentrancyIsRejectedAndOuterCollectionSettlesOnce() public {
+        _bindCanonicalPosition();
+        _fundCollectableFees(10 ether, 9_000_000);
+        positions.setCollectReentry(address(custodian), abi.encodeCall(PermanentLPCustodianV4.collectFees, ()));
+
+        custodian.collectFees();
+
+        assertFalse(positions.collectReentrySucceeded());
+        bytes memory result = positions.collectReentryResult();
+        assertGe(result.length, 4);
+        bytes4 selector;
+        assembly ("memory-safe") {
+            selector := mload(add(result, 32))
+        }
+        assertEq(selector, bytes4(keccak256("ReentrancyGuardReentrantCall()")));
+        assertEq(positions.collectable0(1), 0);
+        assertEq(positions.collectable1(1), 0);
+        assertEq(lpFeeVault.totalLPFeesAccrued(address(token)), 10 ether);
+        assertEq(lpFeeVault.totalLPFeesAccrued(address(canonicalUsdc)), 9_000_000);
+        assertEq(positions.ownerOf(1), address(custodian));
+    }
+
     function testLPWithdrawalsAreRecipientAndAssetIsolated() public {
         _bindCanonicalPosition();
         _fundCollectableFees(10 ether, 8_000_000);

@@ -265,6 +265,8 @@ contract CTORegistryV4Test is CooketV4TestBase {
     }
 
     function testFeeManagerActivationFailureRollsBackCompleteConfirmation() public {
+        _buy(buyer, curve, 0.1 ether);
+        uint256 creatorFeesBefore = feeManager.creatorFeesAccrued(address(token));
         (bytes32 id, address treasury) = _propose(bytes32(0), "");
         vm.mockCallRevert(
             address(feeManager),
@@ -276,6 +278,45 @@ contract CTORegistryV4Test is CooketV4TestBase {
         vm.clearMockedCalls();
         assertFalse(feeManager.ctoActive(address(token)));
         assertEq(feeManager.checkpointedCreatorFees(address(token), creator), 0);
+        assertEq(feeManager.creatorFeesAccrued(address(token)), creatorFeesBefore);
+        assertEq(feeManager.creatorPayoutOf(address(token)), creator);
+        assertEq(feeManager.ctoTreasuryOf(address(token)), address(0));
+        assertEq(registry.activeTreasury(address(token)), address(0));
+        assertEq(uint256(registry.proposal(id).state), uint256(ICTORegistryV4.ProposalState.Proposed));
+    }
+
+    function testFeeManagerRecipientSwitchFailureRollsBackCompleteConfirmation() public {
+        _buy(buyer, curve, 0.1 ether);
+        uint256 creatorFeesBefore = feeManager.creatorFeesAccrued(address(token));
+        (bytes32 id, address treasury) = _propose(bytes32(0), "");
+        vm.mockCallRevert(
+            address(feeManager),
+            abi.encodeWithSelector(IFeeManagerV4.switchCreatorPayoutForCTO.selector, address(token), treasury),
+            bytes("ROUTE_SWITCH_FAILED")
+        );
+        vm.expectRevert(bytes("ROUTE_SWITCH_FAILED"));
+        controller.accept(CTOTreasuryV4(payable(treasury)), id);
+        vm.clearMockedCalls();
+        assertFalse(feeManager.ctoActive(address(token)));
+        assertEq(feeManager.checkpointedCreatorFees(address(token), creator), 0);
+        assertEq(feeManager.creatorFeesAccrued(address(token)), creatorFeesBefore);
+        assertEq(feeManager.creatorPayoutOf(address(token)), creator);
+        assertEq(feeManager.ctoTreasuryOf(address(token)), address(0));
+        assertEq(registry.activeTreasury(address(token)), address(0));
+        assertEq(uint256(registry.proposal(id).state), uint256(ICTORegistryV4.ProposalState.Proposed));
+    }
+
+    function testControllerRevertAfterConfirmationRollsBackEveryEffect() public {
+        _buy(buyer, curve, 0.1 ether);
+        uint256 creatorFeesBefore = feeManager.creatorFeesAccrued(address(token));
+        (bytes32 id, address treasury) = _propose(bytes32(0), "");
+        vm.expectRevert(bytes("CONTROLLER_REVERTED"));
+        controller.acceptThenRevert(CTOTreasuryV4(payable(treasury)), id);
+        assertFalse(feeManager.ctoActive(address(token)));
+        assertEq(feeManager.checkpointedCreatorFees(address(token), creator), 0);
+        assertEq(feeManager.creatorFeesAccrued(address(token)), creatorFeesBefore);
+        assertEq(feeManager.creatorPayoutOf(address(token)), creator);
+        assertEq(feeManager.ctoTreasuryOf(address(token)), address(0));
         assertEq(registry.activeTreasury(address(token)), address(0));
         assertEq(uint256(registry.proposal(id).state), uint256(ICTORegistryV4.ProposalState.Proposed));
     }
@@ -427,27 +468,94 @@ contract CTORegistryGraduatedV4Test is Test {
 
     function testGraduatedCollectFailureRollsBackEntireActivation() public {
         _fundCollectable(400 ether, 400_000_000);
+        _buyCurveFeeBeforeConfirmation();
+        uint256 token0Before = npm.collectable0(100);
+        uint256 token1Before = npm.collectable1(100);
+        uint256 creatorFeesBefore = fees.creatorFeesAccrued(address(token));
         (bytes32 id, address treasury) = _proposeGraduated();
         npm.setRevertCollect(true);
         vm.expectRevert(bytes("COLLECT_REVERTED"));
         controller.accept(CTOTreasuryV4(payable(treasury)), id);
-        assertFalse(fees.ctoActive(address(token)));
-        assertEq(uint256(registry.proposal(id).state), uint256(ICTORegistryV4.ProposalState.Proposed));
-        assertEq(vault.creatorLPFeesAccrued(creator, address(token)), 0);
+        _assertGraduatedRollback(id, token0Before, token1Before, creatorFeesBefore);
     }
 
     function testGraduatedNotificationFailureRollsBackEntireActivation() public {
         _fundCollectable(400 ether, 400_000_000);
+        _buyCurveFeeBeforeConfirmation();
         uint256 token0Before = npm.collectable0(100);
         uint256 token1Before = npm.collectable1(100);
+        uint256 creatorFeesBefore = fees.creatorFeesAccrued(address(token));
         (bytes32 id, address treasury) = _proposeGraduated();
         npm.setPositionsResponseMode(2);
         vm.expectRevert(IPermanentLPFeeVaultV4.UnauthorizedPermanentCustodian.selector);
         controller.accept(CTOTreasuryV4(payable(treasury)), id);
-        assertFalse(fees.ctoActive(address(token)));
-        assertEq(npm.collectable0(100), token0Before);
-        assertEq(npm.collectable1(100), token1Before);
-        assertEq(vault.totalLPFeesAccrued(address(token)), 0);
+        _assertGraduatedRollback(id, token0Before, token1Before, creatorFeesBefore);
+    }
+
+    function testGraduatedCheckpointFailureRollsBackEveryAtomicEffect() public {
+        _fundCollectable(400 ether, 400_000_000);
+        _buyCurveFeeBeforeConfirmation();
+        uint256 token0Before = npm.collectable0(100);
+        uint256 token1Before = npm.collectable1(100);
+        uint256 creatorFeesBefore = fees.creatorFeesAccrued(address(token));
+        (bytes32 id, address treasury) = _proposeGraduated();
+        vm.mockCallRevert(
+            address(fees),
+            abi.encodeWithSelector(IFeeManagerV4.checkpointCreatorFeesForCTO.selector, address(token), treasury),
+            bytes("CHECKPOINT_FAILED")
+        );
+        vm.expectRevert(bytes("CHECKPOINT_FAILED"));
+        controller.accept(CTOTreasuryV4(payable(treasury)), id);
+        vm.clearMockedCalls();
+        _assertGraduatedRollback(id, token0Before, token1Before, creatorFeesBefore);
+    }
+
+    function testGraduatedRecipientSwitchFailureRollsBackEveryAtomicEffect() public {
+        _fundCollectable(400 ether, 400_000_000);
+        _buyCurveFeeBeforeConfirmation();
+        uint256 token0Before = npm.collectable0(100);
+        uint256 token1Before = npm.collectable1(100);
+        uint256 creatorFeesBefore = fees.creatorFeesAccrued(address(token));
+        (bytes32 id, address treasury) = _proposeGraduated();
+        vm.mockCallRevert(
+            address(fees),
+            abi.encodeWithSelector(IFeeManagerV4.switchCreatorPayoutForCTO.selector, address(token), treasury),
+            bytes("ROUTE_SWITCH_FAILED")
+        );
+        vm.expectRevert(bytes("ROUTE_SWITCH_FAILED"));
+        controller.accept(CTOTreasuryV4(payable(treasury)), id);
+        vm.clearMockedCalls();
+        _assertGraduatedRollback(id, token0Before, token1Before, creatorFeesBefore);
+    }
+
+    function testGraduatedActivationFailureRollsBackEveryAtomicEffect() public {
+        _fundCollectable(400 ether, 400_000_000);
+        _buyCurveFeeBeforeConfirmation();
+        uint256 token0Before = npm.collectable0(100);
+        uint256 token1Before = npm.collectable1(100);
+        uint256 creatorFeesBefore = fees.creatorFeesAccrued(address(token));
+        (bytes32 id, address treasury) = _proposeGraduated();
+        vm.mockCallRevert(
+            address(fees),
+            abi.encodeWithSelector(IFeeManagerV4.activateCTO.selector, address(token), treasury),
+            bytes("ACTIVATION_FAILED")
+        );
+        vm.expectRevert(bytes("ACTIVATION_FAILED"));
+        controller.accept(CTOTreasuryV4(payable(treasury)), id);
+        vm.clearMockedCalls();
+        _assertGraduatedRollback(id, token0Before, token1Before, creatorFeesBefore);
+    }
+
+    function testGraduatedControllerPostConfirmationRevertRollsBackEveryAtomicEffect() public {
+        _fundCollectable(400 ether, 400_000_000);
+        _buyCurveFeeBeforeConfirmation();
+        uint256 token0Before = npm.collectable0(100);
+        uint256 token1Before = npm.collectable1(100);
+        uint256 creatorFeesBefore = fees.creatorFeesAccrued(address(token));
+        (bytes32 id, address treasury) = _proposeGraduated();
+        vm.expectRevert(bytes("CONTROLLER_REVERTED"));
+        controller.acceptThenRevert(CTOTreasuryV4(payable(treasury)), id);
+        _assertGraduatedRollback(id, token0Before, token1Before, creatorFeesBefore);
     }
 
     function testGraduatedCollectionCannotReenterConfirmation() public {
@@ -499,6 +607,23 @@ contract CTORegistryGraduatedV4Test is Test {
         vm.deal(address(curve), 1 ether);
         vm.prank(address(curve));
         fees.depositFees{value: 1 ether}(address(token), 1 ether, 0.35 ether, 0.3 ether, 0.2 ether, 0.15 ether, true);
+    }
+
+    function _assertGraduatedRollback(bytes32 id, uint256 token0Before, uint256 token1Before, uint256 creatorFeesBefore)
+        private
+        view
+    {
+        assertFalse(fees.ctoActive(address(token)));
+        assertEq(fees.creatorPayoutOf(address(token)), creator);
+        assertEq(fees.ctoTreasuryOf(address(token)), address(0));
+        assertEq(fees.checkpointedCreatorFees(address(token), creator), 0);
+        assertEq(fees.creatorFeesAccrued(address(token)), creatorFeesBefore);
+        assertEq(registry.activeTreasury(address(token)), address(0));
+        assertEq(uint256(registry.proposal(id).state), uint256(ICTORegistryV4.ProposalState.Proposed));
+        assertEq(npm.collectable0(100), token0Before);
+        assertEq(npm.collectable1(100), token1Before);
+        assertEq(vault.totalLPFeesAccrued(address(token)), 0);
+        assertEq(vault.totalLPFeesAccrued(address(canonicalUsdc)), 0);
     }
 
     function _logIndex(Vm.Log[] memory logs, bytes32 topic) private pure returns (uint256 index) {

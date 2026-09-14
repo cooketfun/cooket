@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IGraduationManagerV4} from "./interfaces/IGraduationManagerV4.sol";
 import {IFeeManagerV4} from "./interfaces/IFeeManagerV4.sol";
 import {INonfungiblePositionManagerV3} from "../v3/interfaces/INonfungiblePositionManagerV3.sol";
@@ -12,7 +13,7 @@ import {CanonicalPositionV3} from "../v3/libraries/CanonicalPositionV3.sol";
 /// @notice Ownerless, non-upgradeable permanent custody for one Cooket V4 LP NFT.
 /// @dev This contract intentionally has no receive/fallback, ERC721 receiver,
 /// transfer, approval, rescue, delegatecall, or external-call capability.
-contract PermanentLPCustodianV4 is IPermanentLPCustodianV4 {
+contract PermanentLPCustodianV4 is IPermanentLPCustodianV4, ReentrancyGuard {
     bytes32 public constant PROTOCOL_VERSION_HASH = keccak256("endpoint-cp-v4");
     uint24 public constant EXPECTED_FEE = 10_000;
     int24 public constant FULL_RANGE_TICK_LOWER = -887_200;
@@ -101,7 +102,7 @@ contract PermanentLPCustodianV4 is IPermanentLPCustodianV4 {
     /// @notice Permissionlessly collects only accrued position fees to FeeManagerV4.
     /// @dev Principal remains locked because this contract has no decrease-liquidity
     /// or approval path; canonical `collect` cannot withdraw principal by itself.
-    function collectFees() external override returns (uint256 amount0, uint256 amount1) {
+    function collectFees() external override nonReentrant returns (uint256 amount0, uint256 amount1) {
         if (!positionRegistered) revert PositionNotRegistered();
         (amount0, amount1) = INonfungiblePositionManagerV3(nonfungiblePositionManager)
             .collect(

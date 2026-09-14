@@ -51,11 +51,26 @@ contract FeeManagerV4CTOTest is CooketV4TestBase {
         feeManager.activateCTO(address(token), treasury);
         vm.prank(buyer);
         vm.expectRevert(IFeeManagerV4.UnauthorizedCTORegistry.selector);
+        feeManager.switchCreatorPayoutForCTO(address(token), treasury);
+        vm.prank(buyer);
+        vm.expectRevert(IFeeManagerV4.UnauthorizedCTORegistry.selector);
         feeManager.checkpointCreatorFeesForCTO(address(token), treasury);
 
         vm.prank(address(registry));
         vm.expectRevert(IFeeManagerV4.CTOCheckpointMissing.selector);
         feeManager.activateCTO(address(token), treasury);
+
+        vm.prank(address(registry));
+        feeManager.checkpointCreatorFeesForCTO(address(token), treasury);
+        vm.prank(address(registry));
+        vm.expectRevert(IFeeManagerV4.CTORouteNotSwitched.selector);
+        feeManager.activateCTO(address(token), treasury);
+
+        vm.prank(address(registry));
+        feeManager.switchCreatorPayoutForCTO(address(token), treasury);
+        vm.prank(address(registry));
+        feeManager.activateCTO(address(token), treasury);
+        assertTrue(feeManager.ctoActive(address(token)));
     }
 
     function testExactCheckpointClaimsAndFutureRoutingDoNotOverlap() public {

@@ -48,6 +48,14 @@ contract CurveHandlerV4 {
         try feeManager.fundTraderRewardsVault(address(token)) {} catch {}
     }
 
+    function claimCreator() external {
+        try feeManager.claimCreatorFees(address(token)) {} catch {}
+    }
+
+    function claimProtocol() external {
+        try feeManager.claimProtocolFees() {} catch {}
+    }
+
     receive() external payable {}
 }
 

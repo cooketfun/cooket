@@ -215,7 +215,6 @@ contract CooketCurveV4Test is CooketV4TestBase {
     }
 
     function testFuzzFeeSplitIsOnePercentAndFullyAllocated(uint256 grossAmount) public view {
-        grossAmount = bound(grossAmount, 0, type(uint256).max / 100);
         ICooketCurveV4.FeeSplit memory split = curve.splitFee(grossAmount);
         assertEq(split.totalFee, grossAmount / 100);
         assertEq(split.creatorFee, split.totalFee * 35 / 100);
@@ -372,28 +371,59 @@ contract CooketCurveV4Test is CooketV4TestBase {
     }
 
     function testFuzzBuyQuoteExecutionParity(uint96 rawGross) public {
-        uint256 gross = bound(uint256(rawGross), 1, 2 ether);
+        uint256 gross = bound(uint256(rawGross), 1, 20_000 * NATIVE_USDC_UNIT);
         ICooketCurveV4.BuyQuote memory quote = curve.quoteBuy(gross);
+        uint256 buyerBefore = buyer.balance;
         vm.prank(buyer);
         ICooketCurveV4.BuyQuote memory execution = curve.buy{value: gross}(quote.tokensOut, block.timestamp);
         assertEq(keccak256(abi.encode(quote)), keccak256(abi.encode(execution)));
+        assertEq(quote.refund, gross - quote.acceptedGross);
+        assertEq(quote.totalFee, quote.acceptedGross / 100);
+        assertEq(quote.netCurveInput + quote.totalFee, quote.acceptedGross);
+        assertEq(buyerBefore - buyer.balance, quote.acceptedGross);
+        assertEq(feeManager.totalLiabilities(), quote.totalFee);
         assertLe(curve.soldSupply(), CURVE_ALLOCATION);
         assertLe(curve.activeNativeUsdcReserve(), GRADUATION_NATIVE_USDC_RESERVE);
         assertGe(curve.virtualTokenReserve() * curve.virtualNativeUsdcReserve(), curve.K());
+        if (quote.reachesGraduation) {
+            assertEq(quote.acceptedGross, GRADUATION_GROSS);
+            assertEq(curve.soldSupply(), CURVE_ALLOCATION);
+            assertEq(curve.terminalGraduationReserve(), GRADUATION_NATIVE_USDC_RESERVE);
+            assertEq(curve.graduationNativeUsdcForwarded(), GRADUATION_NATIVE_USDC_RESERVE);
+        } else {
+            assertEq(address(curve).balance, quote.netCurveInput);
+        }
     }
 
     function testFuzzSellQuoteExecutionParity(uint96 rawGross, uint256 rawTokens) public {
-        uint256 gross = bound(uint256(rawGross), 0.01 ether, 1 ether);
+        uint256 gross = bound(uint256(rawGross), 10_000, GRADUATION_GROSS - 1);
         uint256 purchased = _buy(buyer, curve, gross);
         uint256 tokensIn = bound(rawTokens, 2_000_000_000, purchased);
         ICooketCurveV4.SellQuote memory quote = curve.quoteSell(tokensIn);
+        uint256 liabilitiesBefore = feeManager.totalLiabilities();
+        uint256 reserveBefore = curve.activeNativeUsdcReserve();
         vm.startPrank(buyer);
         token.approve(address(curve), tokensIn);
         ICooketCurveV4.SellQuote memory execution = curve.sell(tokensIn, quote.netSellerOutput, block.timestamp);
         vm.stopPrank();
         assertEq(keccak256(abi.encode(quote)), keccak256(abi.encode(execution)));
         assertLe(quote.grossCurveOutput, gross);
+        assertEq(quote.totalFee, quote.grossCurveOutput / 100);
+        assertEq(quote.netSellerOutput + quote.totalFee, quote.grossCurveOutput);
+        assertEq(feeManager.totalLiabilities(), liabilitiesBefore + quote.totalFee);
+        assertEq(curve.activeNativeUsdcReserve(), reserveBefore - quote.grossCurveOutput);
+        assertEq(address(curve).balance, curve.activeNativeUsdcReserve());
         assertGe(curve.virtualTokenReserve() * curve.virtualNativeUsdcReserve(), curve.K());
+    }
+
+    function testMaximumBuyQuoteCapsWithoutOverflowAndChargesAcceptedValueOnly() public view {
+        ICooketCurveV4.BuyQuote memory quote = curve.quoteBuy(type(uint256).max);
+        assertEq(quote.acceptedGross, GRADUATION_GROSS);
+        assertEq(quote.refund, type(uint256).max - GRADUATION_GROSS);
+        assertEq(quote.totalFee, GRADUATION_GROSS / 100);
+        assertEq(quote.netCurveInput, GRADUATION_NATIVE_USDC_RESERVE);
+        assertTrue(quote.reachesGraduation);
+        assertEq(quote.tokensOut, CURVE_ALLOCATION);
     }
 }
 

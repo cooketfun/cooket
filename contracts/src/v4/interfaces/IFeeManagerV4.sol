@@ -35,6 +35,7 @@ interface IFeeManagerV4 {
     error CTOAlreadyActive();
     error CTOActive();
     error CTOCheckpointMissing();
+    error CTORouteNotSwitched();
     error InvalidCTOTreasury();
     error UnauthorizedCTORegistry();
 
@@ -93,6 +94,7 @@ interface IFeeManagerV4 {
     function claimProtocolFees() external returns (uint256 amount);
     function claimCreatorFees(address token) external returns (uint256 amount);
     function checkpointCreatorFeesForCTO(address token, address treasury) external;
+    function switchCreatorPayoutForCTO(address token, address treasury) external;
     function activateCTO(address token, address treasury) external;
     function claimCheckpointedCreatorFees(address token, address recipient) external returns (uint256 amount);
     function fundCommunityVault(address token) external returns (uint256 amount);
